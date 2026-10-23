@@ -8,7 +8,8 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 public record LatitudeSettings(boolean enabled, int schemaVersion, String model, int equatorZ,
                                int poleDistance, float temperatureStrength, float moistureStrength) {
     public static final int LIMIT = 30_000_000;
-    public static final String MODEL = "ftf:latitude_v1_draft";
+    public static final String LEGACY_MODEL = "ftf:latitude_v1_draft";
+    public static final String MODEL = "ftf:latitude_v2_repeating_draft";
     public static final LatitudeSettings DEFAULT = new LatitudeSettings(false, 1, MODEL, 0, 50_000, 0.75F, 0.5F);
 
     // Codec.INT silently truncates fractional numbers; geographic fields require exact integers.
@@ -30,7 +31,7 @@ public record LatitudeSettings(boolean enabled, int schemaVersion, String model,
         Codec.BOOL.fieldOf("enabled").forGetter(LatitudeSettings::enabled),
         INTEGER.validate(v -> v == 1 ? DataResult.success(v) : DataResult.error(() -> "Unsupported latitude schemaVersion: " + v))
             .fieldOf("schemaVersion").forGetter(LatitudeSettings::schemaVersion),
-        Codec.STRING.validate(v -> MODEL.equals(v) ? DataResult.success(v) : DataResult.error(() -> "Unsupported latitude model: " + v))
+        Codec.STRING.validate(v -> (MODEL.equals(v) || LEGACY_MODEL.equals(v)) ? DataResult.success(v) : DataResult.error(() -> "Unsupported latitude model: " + v))
             .fieldOf("model").forGetter(LatitudeSettings::model),
         INTEGER.validate(v -> v >= -LIMIT && v <= LIMIT ? DataResult.success(v) : DataResult.error(() -> "Latitude equatorZ outside world bounds"))
             .fieldOf("equatorZ").forGetter(LatitudeSettings::equatorZ),
@@ -60,7 +61,7 @@ public record LatitudeSettings(boolean enabled, int schemaVersion, String model,
     };
 
     public LatitudeSettings {
-        if (schemaVersion != 1 || !MODEL.equals(model) || equatorZ < -LIMIT || equatorZ > LIMIT
+        if (schemaVersion != 1 || !(MODEL.equals(model) || LEGACY_MODEL.equals(model)) || equatorZ < -LIMIT || equatorZ > LIMIT
             || poleDistance < 1 || poleDistance > LIMIT || !validStrength(temperatureStrength) || !validStrength(moistureStrength)) {
             throw new IllegalArgumentException("Invalid or unsupported native latitude profile");
         }
@@ -68,6 +69,14 @@ public record LatitudeSettings(boolean enabled, int schemaVersion, String model,
 
     private static boolean validStrength(float value) {
         return Float.isFinite(value) && value >= 0.0F && value <= 1.0F;
+    }
+
+    public boolean repeating() { return MODEL.equals(model); }
+
+    /** Explicit editor choice for new-world presets; decoding never migrates saved profiles. */
+    public LatitudeSettings withRepeating(boolean value) {
+        return new LatitudeSettings(enabled, schemaVersion, value ? MODEL : LEGACY_MODEL,
+            equatorZ, poleDistance, temperatureStrength, moistureStrength);
     }
 
     public boolean active() { return enabled && (temperatureStrength != 0.0F || moistureStrength != 0.0F); }

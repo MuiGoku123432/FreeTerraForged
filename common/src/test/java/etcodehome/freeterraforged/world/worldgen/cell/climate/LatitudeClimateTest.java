@@ -34,7 +34,7 @@ public final class LatitudeClimateTest {
     public static void main(String[] args) throws Exception {
         net.minecraft.SharedConstants.tryDetectVersion();
         net.minecraft.server.Bootstrap.bootStrap();
-        codec(); geography(); ranges(); regression(); ownership(); coordinatePath(); compatibility(); diagnosticRequests();
+        codec(); geography(); repeatingGeography(); ranges(); regression(); ownership(); coordinatePath(); compatibility(); diagnosticRequests();
         System.out.println("Native latitude offline checks passed: " + checks);
     }
 
@@ -103,7 +103,8 @@ public final class LatitudeClimateTest {
         }
         bits(1, LatitudeClimate.temperatureTarget(0), "equator");
         bits(0, LatitudeClimate.temperatureTarget(1), "pole");
-        check(model.fraction(30_000_000) == 1, "cap");
+        settings.latitude = settings.latitude.withRepeating(false);
+        check(new LatitudeClimate(settings).fraction(30_000_000) == 1, "legacy cap");
         double[] knots = {0, .2, .35, .65, .85, 1};
         float[] moisture = {.85F, .65F, .2F, .7F, .4F, .15F};
         for (int i = 0; i < knots.length; i++) {
@@ -113,6 +114,60 @@ public final class LatitudeClimateTest {
         }
         bits(-0.0F, LatitudeClimate.blend(-0.0F, 1, 0), "zero strength exact sign");
         bits(.4F, LatitudeClimate.blend(.2F, .6F, .5F), "supplied midpoint");
+    }
+
+    private static void repeatingGeography() {
+        var settings = ClimateSettings.makeDefault();
+        for (boolean repeating : new boolean[]{false, true}) {
+            var profile = LatitudeSettings.DEFAULT.withEnabled(true).withRepeating(repeating);
+            var json = LatitudeSettings.CODEC.encodeStart(JsonOps.INSTANCE, profile).getOrThrow();
+            check(LatitudeSettings.CODEC.parse(JsonOps.INSTANCE, json).getOrThrow().equals(profile), "saved model round trip");
+            check(profile.repeating() == repeating, "explicit repeat choice");
+            var nbt = LatitudeSettings.CODEC.encodeStart(net.minecraft.nbt.NbtOps.INSTANCE, profile).getOrThrow();
+            check(LatitudeSettings.CODEC.parse(net.minecraft.nbt.NbtOps.INSTANCE, nbt).getOrThrow().equals(profile), "saved NBT model round trip");
+            settings.latitude = profile;
+            var climateJson = ClimateSettings.CODEC.encodeStart(JsonOps.INSTANCE, settings).getOrThrow();
+            check(ClimateSettings.CODEC.parse(JsonOps.INSTANCE, climateJson).getOrThrow().latitude.equals(profile), "preset keeps model");
+        }
+        for (int equator : new int[]{-30_000_000, -12345, 0, 30_000_000}) {
+            for (int distance : new int[]{1, 7, 5000, 30_000_000}) {
+                settings.latitude = LatitudeSettings.DEFAULT.withEnabled(true).withGeometry(equator, distance).withStrengths(1, 1);
+                var model = new LatitudeClimate(settings);
+                for (int k = -8; k <= 8; k++) {
+                    double z = equator + (double) k * distance;
+                    check(model.fraction(z) == (Math.abs(k) % 2), "alternating equator and pole");
+                    for (double seam : new double[]{z - distance * 1e-6, z + distance * 1e-6}) {
+                        near(LatitudeClimate.temperatureTarget(model.fraction(z)), LatitudeClimate.temperatureTarget(model.fraction(seam)), "temperature seam continuity");
+                        near(LatitudeClimate.moistureTarget(model.fraction(z)), LatitudeClimate.moistureTarget(model.fraction(seam)), "moisture seam continuity");
+                    }
+                }
+                for (int i = 0; i <= 200; i++) {
+                    double z = -30_000_000D + i * 300_000D;
+                    double u = model.fraction(z);
+                    check(u >= 0 && u <= 1, "periodic bounds");
+                    check(u == model.fraction(2D * equator - z), "repeating reflection");
+                    check(u == model.fraction(z + 2D * distance), "block period at world limits");
+                    bits(model.temperature(.4F, z), model.temperature(.4F, z + 2D * distance), "temperature repeats");
+                    bits(model.moisture(.4F, z), model.moisture(.4F, z + 2D * distance), "moisture repeats");
+                }
+                settings.latitude = settings.latitude.withRepeating(false);
+                var legacy = new LatitudeClimate(settings);
+                check(legacy.fraction(equator + 2D * distance) == 1, "saved v1 remains polar beyond pole");
+                check(legacy.fraction(equator - 2D * distance) == 1, "saved v1 negative cap");
+                for (int i = 0; i <= 100; i++) {
+                    double z = equator + distance * (i / 100D);
+                    check(model.fraction(z) == legacy.fraction(z), "first equator-to-pole leg unchanged");
+                }
+                settings.latitude = settings.latitude.withRepeating(true).withStrengths(0, 0);
+                var zero = new LatitudeClimate(settings);
+                bits(-0.0F, zero.temperature(-0.0F, equator + 2D * distance), "repeating zero temperature exact");
+                bits(-0.0F, zero.moisture(-0.0F, equator + 2D * distance), "repeating zero moisture exact");
+            }
+        }
+        settings.latitude = LatitudeSettings.DEFAULT.withEnabled(true).withGeometry(0, 5000).withStrengths(1, 1);
+        var model = new LatitudeClimate(settings);
+        check(model.fraction(0) == 0 && model.fraction(5000) == 1 && model.fraction(10000) == 0, "user 5000-block example");
+        check(!settings.latitude.withRepeating(false).equals(settings.latitude), "repeat changes profile identity for preview");
     }
 
     private static void ranges() {

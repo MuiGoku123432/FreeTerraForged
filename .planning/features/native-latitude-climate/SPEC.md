@@ -7,6 +7,8 @@ Inspected baseline: `43244515ebf3d3aa9867aba97d8ec360faeabdae`.
 
 This is the canonical specification for the native approach. It takes precedence over earlier research proposals and branch suggestions. [Architecture research](../../research/native-latitude-climate/RESEARCH.md), [algorithm study](../../research/native-latitude-climate/ALGORITHMS.md), and [experimental evidence](../../research/native-latitude-climate/EXPERIMENTS.md) explain the rationale. Research success does not establish implementation success.
 
+User refinement (2026-10-22): latitude should return to warm climate beyond each polar band and repeat indefinitely. New presets use the repeating draft model; saved v1 profiles retain polar caps. The explicit **Repeat latitude bands** toggle selects the behavior for a new-world preset.
+
 ## Goal
 
 Players creating an FTF world can enable native latitude climate, place an equator, choose the distance to polar climate, and independently blend latitude temperature and moisture targets with FTF's existing regional climate. The preview and generated world use the same owned surface-climate profile. The feature requires neither Natural Temperature nor TerraLatitude, is disabled by default, and preserves existing worlds' generator choice.
@@ -38,8 +40,8 @@ Altitude and moisture shaping currently consult mutable `PresetManager.PM` setti
 ### NL-03 — Geographic temperature behavior
 
 - **Current:** Temperature scale does not directly specify an equator and pole distance.
-- **Target:** The native target uses original geographic Z in blocks. Its baseline is symmetric about the equator, warmest there, monotone toward both poles, and constant beyond each pole before regional blending and terrain shaping. No looping, new boundary warp or added noise is included in v1.
-- **Acceptance:** AC-03 checks endpoints, both hemispheres, shifted equators, positions just inside/outside caps, negative coordinates, block/quart conversion and large-coordinate fixtures. Translation of equator and position by the same amount preserves the geographic target within the specified arithmetic tolerance.
+- **Target:** The native target uses original geographic Z in blocks. Its baseline is symmetric about the equator, warmest there, monotone toward both poles, and returns to an equator at twice the pole distance, repeating in either direction before regional blending (saved nonrepeating profiles keep polar caps) and terrain shaping. Looping is the new default through an explicit model identity; boundary warp and added noise remain out of scope.
+- **Acceptance:** AC-03 checks endpoints, both hemispheres, shifted equators, positions around repeating equators/poles and legacy caps, negative coordinates, block/quart conversion and large-coordinate fixtures. Translation of equator and position by the same amount preserves the geographic target within the specified arithmetic tolerance.
 
 ### NL-04 — One defined composition pipeline
 
@@ -109,7 +111,7 @@ The logical profile is an optional `latitude` object under the existing climate 
 | --- | --- | --- |
 | `enabled` | Boolean; absent entire profile means disabled | `false` |
 | `schemaVersion` | Integer; initially 1; independent from model identity | `1` |
-| `model` | Exact stable identifier; initially proposed `ftf:latitude_v1` | Candidate name, frozen by NL-13 |
+| `model` | Exact supported identifier; saved `ftf:latitude_v1_draft` retains caps | `ftf:latitude_v2_repeating_draft`; stable freeze still pending |
 | `equatorZ` | Integer block Z, inclusive −30,000,000 to +30,000,000 | `0` |
 | `poleDistance` | Integer blocks, inclusive 1 to 30,000,000 | `50000` |
 | `temperatureStrength` | Finite number in [0,1] | `0.75` |
@@ -119,13 +121,13 @@ The initial distance/strengths are **draft tuning values**, not a claim of physi
 
 For backward compatibility, an absent `latitude` object decodes to legacy behavior. A present object must contain a complete supported profile. Null, malformed fields and unsupported model/schema values are errors even if that object's enabled flag is false. Version identifiers use exact resource-ID comparison; locale/case folding or fuzzy matching is not supported. No user-authored arbitrary model name or curve is accepted in v1.
 
-Controls: **Native latitude climate** toggle; **Equator Z** integer input; **Distance to polar climate** integer input; separate **Temperature latitude strength** and **Moisture latitude strength** controls. Show block units and validate before preview/export/create. Disabled fields retain their edited values when toggled off and back on. Explain the north–south temperature gradient, broad wet/dry latitude regions and the retained existing regional/terrain effects. Label zero moisture strength “Existing moisture.” Use biome temperature/moisture terminology, not Celsius, measured rainfall or live weather.
+Controls: **Native latitude climate** toggle; **Repeat latitude bands** toggle (on for fresh profiles, retained from saved model when editing); **Equator Z** integer input; **Distance to polar climate** integer input; separate **Temperature latitude strength** and **Moisture latitude strength** controls. Show block units and validate before preview/export/create. Disabled fields retain their edited values when toggled off and back on. Explain the north–south temperature gradient, broad wet/dry latitude regions and the retained existing regional/terrain effects. Label zero moisture strength “Existing moisture.” Use biome temperature/moisture terminology, not Celsius, measured rainfall or live weather.
 
 New-world creation and preset export must serialize the same effective values shown in the accepted preview. A separate player-facing curve picker, model-ID picker, seasonal control and replacement moisture editor are excluded. Existing moisture settings remain available with their current meanings.
 
 ## Mathematical behavior and version freeze
 
-At original geographic Z `z`, compute `u=clamp(abs(z-equatorZ)/poleDistance,0,1)`. Use sufficiently wide arithmetic for subtraction/absolute value and normalized geography. Evaluate the candidate `L(u)`:
+At original geographic Z `z`, let `d=abs(z-equatorZ)` and `D=poleDistance`. For the repeating draft model, compute the block-space phase `p=d % (2D)`, then `u=min(p,2D-p)/D`. For saved nonrepeating v1 profiles, retain `u=min(1,d/D)`. The repeating fraction reaches equators at every even multiple of D and poles at every odd multiple, symmetrically in both directions. Block-space reduction occurs before division to preserve short-period precision near world limits. Use sufficiently wide arithmetic for subtraction/absolute value and normalized geography. Evaluate the candidate `L(u)`:
 
 - Baseline candidate: cubic `1-3u²+2u³`.
 - Comparison candidate: raised cosine `(1+cos(pi*u))/2`.
@@ -147,7 +149,7 @@ The moisture target shares the same unwarped geographic u but has its own curve 
 | 0.85 | 0.40 |
 | 1.00 | 0.15 |
 
-These are draft latitude-layer values from the research fixture, not new regional-moisture defaults or physical rainfall estimates. Within an interval, interpolate adjacent target values using `s(t)=3t²-2t³`; this gives bounded segments with zero knot slopes and no overshoot. A slope-limited shape-preserving Hermite alternative may be evaluated at NL-13, but cannot silently replace a frozen model. The wet equatorial, dry subtropical, wetter midlatitude and drier polar pattern is symmetric in geography; existing noise and terrain can break symmetry in final moisture. Beyond the pole distance retain the polar latitude target, then perform the usual blend and shaping. Knot editing is not part of the v1 UI.
+These are draft latitude-layer values from the research fixture, not new regional-moisture defaults or physical rainfall estimates. Within an interval, interpolate adjacent target values using `s(t)=3t²-2t³`; this gives bounded segments with zero knot slopes and no overshoot. A slope-limited shape-preserving Hermite alternative may be evaluated at NL-13, but cannot silently replace a frozen model. The wet equatorial, dry subtropical, wetter midlatitude and drier polar pattern is symmetric in geography; existing noise and terrain can break symmetry in final moisture. For repeating profiles, moisture retraces its wet/dry bands after the pole and returns to its equatorial target at 2D; for nonrepeating v1 profiles retain the polar target beyond D. Then perform the usual blend and shaping. Knot editing is not part of the v1 UI.
 
 The final model decision must fix operation order, intermediate precision, transcendental implementation if any, coordinate conversion and quantization behavior. It must preserve current legacy arithmetic for legacy mode. The existing public raw API continues to return raw regional values. Diagnostics distinguish raw geographic L from range-shaped Lr and final climate.
 
@@ -175,7 +177,7 @@ All checkboxes below remain unchecked until implementation evidence exists. Test
 
 - [ ] **AC-01 — Legacy:** Missing, disabled and both-zero profiles match isolated baseline float bits, quantized targets and stored biome arrays on fixed presets/seeds, including water, ground, mountains and biome edges. Temperature-only and moisture-only configurations preserve the zero-strength axis exactly. Terrain/regional seed consumption is unchanged.
 - [ ] **AC-02 — Profile:** Bounds and their immediate invalid neighbors, NaN/infinity where the parser can represent them, null/partial objects, unknown versions, serialization and independent copies behave exactly as specified. UI and data loading enforce the same rules.
-- [ ] **AC-03 — Geography:** Endpoint, reflection, translation, cap, negative-coordinate, block/quart-boundary and near-limit tests pass through the actual coordinate path. Temperature is monotone to each pole; moisture follows the specified wet/dry intervals, stays between adjacent knot values and is continuous at every knot. Geography fixture tolerance is at most 1e-6 in 0–1 target units; persisted outputs follow frozen golden fixtures, not this loose tolerance.
+- [ ] **AC-03 — Geography:** Endpoint, reflection, translation, repeating period and seam continuity, saved-v1 cap, negative-coordinate, block/quart-boundary and near-limit tests pass through the actual coordinate path. Temperature is monotone to each pole; moisture follows the specified wet/dry intervals, stays between adjacent knot values and is continuous at every knot. Geography fixture tolerance is at most 1e-6 in 0–1 target units; persisted outputs follow frozen golden fixtures, not this loose tolerance.
 - [ ] **AC-04 — Composition:** Each axis's range settings apply once per input and its existing terrain shaping applies once after blending. Surface height rather than player Y drives cooling; below/at-ground behavior is preserved; edge resampling does not compound shaping. Raw APIs retain their exact documented meaning.
 - [ ] **AC-05 — Moisture preservation and independence:** Moisture strength 0 reproduces existing moisture bit-for-bit at every temperature strength. Temperature strength 0 similarly preserves temperature when moisture changes. Existing regional moisture/seed/range/scale/falloff controls and coastal/elevation formulas retain their meanings and operations; no second moisture correction is introduced. The four other climate inputs and terrain height/identity match the owner baseline at corresponding stages; existing cave/provider/replacement order is retained.
 - [ ] **AC-06 — Ownership:** Interleaved/concurrent contexts with differing seeds and settings match separate serial runs; editor mutation, cache eviction and query order do not change a world's output. Repeated operations do not apply latitude twice.
@@ -190,7 +192,7 @@ All checkboxes below remain unchecked until implementation evidence exists. Test
 
 ### Runtime evidence protocol
 
-Use at least seeds `0`, `1`, `-1`, `2147483648` and `9223372036854775807`, with the default preset plus altered temperature/moisture ranges and a high-altitude preset. Include equator offsets 0 and a nonzero negative value; the Cartesian product of temperature/moisture strengths {0, 0.5, 1}; moisture knots and points immediately to either side; caps; quart boundaries; and original-coordinate extremes. Synthetic range-collapse cases (`min=max`) and zero temperature cooling, zero coastal boost and zero elevation drying distinguish independent controls from normal examples.
+Use at least seeds `0`, `1`, `-1`, `2147483648` and `9223372036854775807`, with the default preset plus altered temperature/moisture ranges and a high-altitude preset. Include equator offsets 0 and a nonzero negative value; the Cartesian product of temperature/moisture strengths {0, 0.5, 1}; moisture knots and points immediately to either side; multiple repeating equators/poles and legacy caps; quart boundaries; and original-coordinate extremes. Synthetic range-collapse cases (`min=max`) and zero temperature cooling, zero coastal boost and zero elevation drying distinguish independent controls from normal examples.
 
 For candidate comparison, record north–south/east–west transects and a two-dimensional sample window spanning both poles. Report temperature histograms, occupied joint T/H space, actual biome counts, connected-region/travel-distance observations and land-only versus all-cell coverage. No percentage claim may omit the window, sample spacing, mask or biome catalog. The comparison informs the decision; it does not silently add a requirement to reproduce real Earth biome percentages.
 

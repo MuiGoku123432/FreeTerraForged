@@ -260,6 +260,10 @@ class ClimateSettingsPage extends PresetEditorPage {
             climate.latitude = climate.latitude.withEnabled(value);
             if (this.latitudeValid) this.regenerate();
         }));
+        this.left.addWidget(PresetWidgets.createToggle(profile.repeating(), LATITUDE + "repeating", (button, value) -> {
+            climate.latitude = climate.latitude.withRepeating(value);
+            if (this.latitudeValid) this.regenerate();
+        }));
         this.left.addWidget(PresetWidgets.createLabel(LATITUDE + "equator"));
         this.equatorInput = new EditBox(this.screen.font, 0, 0, 100, 20, Component.translatable(LATITUDE + "equator"));
         this.equatorInput.setMaxLength(12);

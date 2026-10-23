@@ -18,10 +18,12 @@ public final class FTFLanguageProvider {
 			this.add("freeterraforged.gui.latitude.title", "Native latitude climate (experimental)");
 			this.add("freeterraforged.gui.latitude.enabled", "Native latitude climate");
 			this.add("freeterraforged.gui.latitude.enabled.tooltip", "Add north–south temperature and moisture patterns. Disabled preserves existing climate. Configure new worlds only; this draft model is not generation-stable.");
+			this.add("freeterraforged.gui.latitude.repeating", "Repeat latitude bands");
+			this.add("freeterraforged.gui.latitude.repeating.tooltip", "Repeat warm, polar, then warm climate in both directions. Applies to latitude temperature and moisture. Off keeps polar climate beyond the first poles. Configure new worlds only.");
 			this.add("freeterraforged.gui.latitude.equator", "Equator Z (blocks)");
 			this.add("freeterraforged.gui.latitude.equator.tooltip", "Warmest latitude before regional and terrain effects. Enter an integer from -30000000 to 30000000.");
 			this.add("freeterraforged.gui.latitude.distance", "Distance to polar climate (blocks)");
-			this.add("freeterraforged.gui.latitude.distance.tooltip", "Distance north and south from the equator to polar climate. Enter 1 to 30000000 blocks. Climate does not repeat beyond the poles.");
+			this.add("freeterraforged.gui.latitude.distance.tooltip", "Distance north and south from the equator to polar climate. Enter 1 to 30000000 blocks. With Repeat latitude bands enabled, warm climate returns at twice this distance; otherwise polar climate continues.");
 			this.add("freeterraforged.gui.latitude.temperature", "Temperature latitude strength");
 			this.add("freeterraforged.gui.latitude.temperature.tooltip", "0 retains existing temperature. 1 uses the latitude target without regional temperature variation. Existing range/bias and elevation cooling still apply; regional scale/falloff control the remaining regional contribution.");
 			this.add("freeterraforged.gui.latitude.moisture", "Moisture latitude strength");

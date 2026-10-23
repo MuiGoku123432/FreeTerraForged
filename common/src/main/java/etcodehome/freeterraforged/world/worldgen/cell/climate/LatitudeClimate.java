@@ -21,7 +21,13 @@ public final class LatitudeClimate {
     public LatitudeSettings settings() { return settings; }
 
     public double fraction(double geographicZ) {
-        return Math.min(1.0, Math.abs(geographicZ - (double) settings.equatorZ()) / settings.poleDistance());
+        double distance = Math.abs(geographicZ - (double) settings.equatorZ());
+        if (!settings.repeating()) return Math.min(1.0, distance / settings.poleDistance());
+        // Fold each 2D period into equator -> pole -> equator. Reduce in block units
+        // before dividing to retain precision at remote coordinates and short periods.
+        double period = 2.0 * settings.poleDistance();
+        double phase = distance % period;
+        return Math.min(phase, period - phase) / settings.poleDistance();
     }
 
     public static float temperatureTarget(double u) {
