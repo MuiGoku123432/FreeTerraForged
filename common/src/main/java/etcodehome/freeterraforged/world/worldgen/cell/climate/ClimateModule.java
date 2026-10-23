@@ -1,6 +1,5 @@
 package etcodehome.freeterraforged.world.worldgen.cell.climate;
 
-import etcodehome.freeterraforged.data.worldgen.preset.PresetManager;
 import etcodehome.freeterraforged.world.worldgen.cell.continent.Continent;
 import etcodehome.freeterraforged.world.worldgen.cell.heightmap.Levels;
 import etcodehome.freeterraforged.world.worldgen.cell.terrain.TerrainType;
@@ -30,8 +29,14 @@ public class ClimateModule {
 	private Continent continent;
 	private ControlPoints controlPoints;
 	private Levels levels;
+	private final float altitudeCoolingStrength;
+	private final float coastalMoistureBoost;
+	private final float rainShadowStrength;
 	
 	public ClimateModule(Seed seed, Continent continent, WorldSettings.ControlPoints controlPoints, ClimateSettings climateSettings, Levels levels) {
+		this.altitudeCoolingStrength = climateSettings.altitudeCoolingStrength;
+		this.coastalMoistureBoost = climateSettings.coastalMoistureBoost;
+		this.rainShadowStrength = climateSettings.rainShadowStrength;
 		int biomeSize = climateSettings.biomeShape.biomeSize();
 		
 		float tempScaler = (float) climateSettings.temperature.scale;
@@ -155,7 +160,7 @@ public class ClimateModule {
 		float heightNorm = NoiseUtil.clamp(this.levels.getNormalizedInlandElevation(height), 0.0F, 1.0F);
 
 		return TemperatureShaping.applyAboveGround(rawTemp, heightNorm,
-			PresetManager.PM.climateSettings.altitudeCoolingStrength);
+			this.altitudeCoolingStrength);
 	}
 
 	public float modifyMoisture(float height, float rawMoisture) {
@@ -168,7 +173,7 @@ public class ClimateModule {
 		// Coastal boost fades as elevation rises inland
 		float coastalInfluence = 1.0F - heightNorm;
 		if (coastalInfluence > 0.0F) {
-			moisture = moisture + (1.0F - moisture) * (PresetManager.PM.climateSettings.coastalMoistureBoost * coastalInfluence);
+			moisture = moisture + (1.0F - moisture) * (this.coastalMoistureBoost * coastalInfluence);
 		}
 
 		// Return boosted moisture directly at or below sea level
@@ -177,7 +182,7 @@ public class ClimateModule {
 		}
 
 		// Rain Shadow Exponent (k ranges from 1.0 at sea level to ~3.48 at max peak)
-		float exponent = (float) Math.pow(2.0, heightNorm * PresetManager.PM.climateSettings.rainShadowStrength);
+		float exponent = (float) Math.pow(2.0, heightNorm * this.rainShadowStrength);
 
 		// Power curve preserves 1.0 (rainforests) while exponentially drying mid-tier moisture
 		return (float) Math.pow(moisture, exponent);
