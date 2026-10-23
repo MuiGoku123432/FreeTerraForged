@@ -1,0 +1,427 @@
+{
+  "items": [
+    {
+      "requirement_id": "NL-01",
+      "category": "boundary",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-01/02: missing/disabled/both-zero preserve all climate; each zero-strength axis preserves its own output; both strengths accept [0,1].",
+      "reason": null,
+      "probe": "What happens exactly at each min/max/threshold — and one step either side?"
+    },
+    {
+      "requirement_id": "NL-01",
+      "category": "precision",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-01: no-op paths preserve raw float bits and quantized climate, not approximate equality.",
+      "reason": null,
+      "probe": "Where can precision loss, overflow, or rounding/tie-breaking occur — and what is the exact contract (e.g. half-up vs half-to-even, ceil/floor/truncate)?"
+    },
+    {
+      "requirement_id": "NL-01",
+      "category": "idempotency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-01/06: repeated queries and toggle off/on never compound latitude or alter legacy seed consumption.",
+      "reason": null,
+      "probe": "What happens if this runs twice on the same input?"
+    },
+    {
+      "requirement_id": "NL-01",
+      "category": "concurrency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-01/06: equivalence uses isolated owner settings; interleaving contexts must reproduce those isolated results.",
+      "reason": null,
+      "probe": "If interrupted or run in parallel, what is guaranteed?"
+    },
+    {
+      "requirement_id": "NL-02",
+      "category": "boundary",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-02: inclusive equator/distance limits and both independent strength limits, plus immediate invalid neighbors.",
+      "reason": null,
+      "probe": "What happens exactly at each min/max/threshold — and one step either side?"
+    },
+    {
+      "requirement_id": "NL-02",
+      "category": "empty",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-02: absent whole object means legacy; null, incomplete or malformed present objects fail.",
+      "reason": null,
+      "probe": "What is the result for empty, single-element, or null input?"
+    },
+    {
+      "requirement_id": "NL-02",
+      "category": "encoding",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "Data contract: schema integers and exact resource identifiers; no locale/case folding or fuzzy model matching.",
+      "reason": null,
+      "probe": "Whose definition of length/equality applies — bytes, code points, grapheme clusters, or normalized form?"
+    },
+    {
+      "requirement_id": "NL-02",
+      "category": "precision",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-02/03: integer block distances/positions, finite strength, wide geographic arithmetic; reject nonfinite or overflowing inputs.",
+      "reason": null,
+      "probe": "Where can precision loss, overflow, or rounding/tie-breaking occur — and what is the exact contract (e.g. half-up vs half-to-even, ceil/floor/truncate)?"
+    },
+    {
+      "requirement_id": "NL-02",
+      "category": "idempotency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-02/07: encode/decode and copying preserve the complete effective profile.",
+      "reason": null,
+      "probe": "What happens if this runs twice on the same input?"
+    },
+    {
+      "requirement_id": "NL-02",
+      "category": "concurrency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-02/06: deep copies and immutable snapshots prevent concurrent editor changes altering validation or active owners.",
+      "reason": null,
+      "probe": "If interrupted or run in parallel, what is guaranteed?"
+    },
+    {
+      "requirement_id": "NL-03",
+      "category": "boundary",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-03: temperature endpoints/caps and all moisture knots/interval boundaries; both hemispheres, offsets and negative/large coordinates.",
+      "reason": null,
+      "probe": "What happens exactly at each min/max/threshold — and one step either side?"
+    },
+    {
+      "requirement_id": "NL-03",
+      "category": "precision",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-03: actual block/quart/float path tested; 1e-6 geographic tolerance and frozen persisted golden outputs are distinct contracts.",
+      "reason": null,
+      "probe": "Where can precision loss, overflow, or rounding/tie-breaking occur — and what is the exact contract (e.g. half-up vs half-to-even, ceil/floor/truncate)?"
+    },
+    {
+      "requirement_id": "NL-04",
+      "category": "boundary",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-04/05: each zero/full axis strength, ground gate, collapsed ranges, and zero cooling/coastal/drying controls retain defined behavior.",
+      "reason": null,
+      "probe": "What happens exactly at each min/max/threshold — and one step either side?"
+    },
+    {
+      "requirement_id": "NL-04",
+      "category": "precision",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-04/13: each axis uses its own range-mapped inputs; frozen blend precision/order; existing temperature and moisture shaping runs once.",
+      "reason": null,
+      "probe": "Where can precision loss, overflow, or rounding/tie-breaking occur — and what is the exact contract (e.g. half-up vs half-to-even, ceil/floor/truncate)?"
+    },
+    {
+      "requirement_id": "NL-04",
+      "category": "idempotency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-04/06: edge retries recompute raw inputs; latitude and existing temperature/moisture shaping never compound prior results.",
+      "reason": null,
+      "probe": "What happens if this runs twice on the same input?"
+    },
+    {
+      "requirement_id": "NL-04",
+      "category": "concurrency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-04/06: owner snapshot supplies shaping inputs; no mutable global reads may change active native results.",
+      "reason": null,
+      "probe": "If interrupted or run in parallel, what is guaranteed?"
+    },
+    {
+      "requirement_id": "NL-05",
+      "category": "boundary",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-05: moisture strengths 0 and 1, temperature-only/moisture-only/both modes, ground threshold and existing moisture control extremes.",
+      "reason": null,
+      "probe": "What happens exactly at each min/max/threshold — and one step either side?"
+    },
+    {
+      "requirement_id": "NL-05",
+      "category": "precision",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-01/05: zero moisture strength preserves existing moisture float bits and quantized values, with no extra signed/unsigned conversions.",
+      "reason": null,
+      "probe": "Where can precision loss, overflow, or rounding/tie-breaking occur — and what is the exact contract (e.g. half-up vs half-to-even, ceil/floor/truncate)?"
+    },
+    {
+      "requirement_id": "NL-05",
+      "category": "idempotency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-05: repeated evaluation retains existing regional moisture source/seed and applies existing coastal/elevation operations once.",
+      "reason": null,
+      "probe": "What happens if this runs twice on the same input?"
+    },
+    {
+      "requirement_id": "NL-05",
+      "category": "concurrency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-05/06: unchanged moisture operations use the intended owner settings; latitude does not replace the moisture subsystem.",
+      "reason": null,
+      "probe": "If interrupted or run in parallel, what is guaranteed?"
+    },
+    {
+      "requirement_id": "NL-06",
+      "category": "idempotency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-06: cold/warm cache, eviction, repeated and permuted queries return the same values.",
+      "reason": null,
+      "probe": "What happens if this runs twice on the same input?"
+    },
+    {
+      "requirement_id": "NL-06",
+      "category": "concurrency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-06: two contexts with different seeds/settings sampled interleaved and concurrently match serial controls.",
+      "reason": null,
+      "probe": "If interrupted or run in parallel, what is guaranteed?"
+    },
+    {
+      "requirement_id": "NL-07",
+      "category": "idempotency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-07: repeated save/reopen/export/import preserves explicit values and chosen model, even when defaults change.",
+      "reason": null,
+      "probe": "What happens if this runs twice on the same input?"
+    },
+    {
+      "requirement_id": "NL-07",
+      "category": "concurrency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-07: failed required persistence prevents generation; immutable world snapshot is independent of later client edits.",
+      "reason": null,
+      "probe": "If interrupted or run in parallel, what is guaranteed?"
+    },
+    {
+      "requirement_id": "NL-08",
+      "category": "idempotency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-08: repeated toggles and reopen preserve edits and correct profile identity.",
+      "reason": null,
+      "probe": "What happens if this runs twice on the same input?"
+    },
+    {
+      "requirement_id": "NL-08",
+      "category": "concurrency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-08: cancelled/superseded preview jobs cannot publish over the latest accepted request.",
+      "reason": null,
+      "probe": "If interrupted or run in parallel, what is guaranteed?"
+    },
+    {
+      "requirement_id": "NL-09",
+      "category": "idempotency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-09: a supported owner receives one transformation; repeated compatibility validation cannot stack engines.",
+      "reason": null,
+      "probe": "What happens if this runs twice on the same input?"
+    },
+    {
+      "requirement_id": "NL-09",
+      "category": "concurrency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-09: resolve exclusive ownership before generation; no injection-priority race or global mod disabling.",
+      "reason": null,
+      "probe": "If interrupted or run in parallel, what is guaranteed?"
+    },
+    {
+      "requirement_id": "NL-10",
+      "category": "idempotency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-10: reopening never converts an engine, rewrites stored biome data, or replaces saved profiles.",
+      "reason": null,
+      "probe": "What happens if this runs twice on the same input?"
+    },
+    {
+      "requirement_id": "NL-10",
+      "category": "concurrency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-10/07: active worlds keep their captured profile; missing external dependencies cannot race into native fallback.",
+      "reason": null,
+      "probe": "If interrupted or run in parallel, what is guaranteed?"
+    },
+    {
+      "requirement_id": "NL-11",
+      "category": "boundary",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "Evidence protocol: accept 0 through 4096 requested samples; reject larger requests before sampling.",
+      "reason": null,
+      "probe": "What happens exactly at each min/max/threshold — and one step either side?"
+    },
+    {
+      "requirement_id": "NL-11",
+      "category": "adjacency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-11: retain duplicate coordinates as separate requested records, including points on caps/quart boundaries.",
+      "reason": null,
+      "probe": "When two things are exactly equal or just touch, do they merge, collide, or separate?"
+    },
+    {
+      "requirement_id": "NL-11",
+      "category": "empty",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-11: zero-point transect emits an explicit empty record set.",
+      "reason": null,
+      "probe": "What is the result for empty, single-element, or null input?"
+    },
+    {
+      "requirement_id": "NL-11",
+      "category": "encoding",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "Evidence protocol: UTF-8 machine-readable records, exact resource IDs and numeric coordinate fields.",
+      "reason": null,
+      "probe": "Whose definition of length/equality applies — bytes, code points, grapheme clusters, or normalized form?"
+    },
+    {
+      "requirement_id": "NL-11",
+      "category": "ordering",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-11: output follows requested order, including duplicates, irrespective of worker completion order.",
+      "reason": null,
+      "probe": "When elements compare equal, is output order specified and stable?"
+    },
+    {
+      "requirement_id": "NL-11",
+      "category": "precision",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-11/03/13: report block/quart positions and stage-specific numeric values; actual sampler comparison uses frozen quantization.",
+      "reason": null,
+      "probe": "Where can precision loss, overflow, or rounding/tie-breaking occur — and what is the exact contract (e.g. half-up vs half-to-even, ceil/floor/truncate)?"
+    },
+    {
+      "requirement_id": "NL-11",
+      "category": "concurrency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-11/06: each export identifies one immutable model/profile; capture actual samples under the same owner, not global editor state.",
+      "reason": null,
+      "probe": "If interrupted or run in parallel, what is guaranteed?"
+    },
+    {
+      "requirement_id": "NL-12",
+      "category": "boundary",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-12: zero new terrain lookups or per-sample I/O; five or more paired runs; 95% throughput/110% preview budgets; over-5% baseline variation is inconclusive.",
+      "reason": null,
+      "probe": "What happens exactly at each min/max/threshold — and one step either side?"
+    },
+    {
+      "requirement_id": "NL-12",
+      "category": "precision",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-12: retain raw benchmark measurements and calculate medians/ratios without rounding a failure into a pass.",
+      "reason": null,
+      "probe": "Where can precision loss, overflow, or rounding/tie-breaking occur — and what is the exact contract (e.g. half-up vs half-to-even, ceil/floor/truncate)?"
+    },
+    {
+      "requirement_id": "NL-12",
+      "category": "idempotency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-12/06: repeated sampling allocates no accumulating shared state and preserves query counts/output.",
+      "reason": null,
+      "probe": "What happens if this runs twice on the same input?"
+    },
+    {
+      "requirement_id": "NL-12",
+      "category": "concurrency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-12: control background load and use owned state; noisy benchmarks cannot be certified as a pass.",
+      "reason": null,
+      "probe": "If interrupted or run in parallel, what is guaranteed?"
+    },
+    {
+      "requirement_id": "NL-13",
+      "category": "adjacency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "Evidence protocol: if candidate evidence is tied and extra complexity has no justification, retain cubic and record why.",
+      "reason": null,
+      "probe": "When two things are exactly equal or just touch, do they merge, collide, or separate?"
+    },
+    {
+      "requirement_id": "NL-13",
+      "category": "empty",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-13: both temperature candidates and a nonempty matched dataset including latitude-moisture results are required; absent evidence fails.",
+      "reason": null,
+      "probe": "What is the result for empty, single-element, or null input?"
+    },
+    {
+      "requirement_id": "NL-13",
+      "category": "ordering",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "Evidence protocol: comparison rows use stable preset/seed/coordinate/candidate ordering and identical input sets.",
+      "reason": null,
+      "probe": "When elements compare equal, is output order specified and stable?"
+    },
+    {
+      "requirement_id": "NL-13",
+      "category": "idempotency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-13: freeze both target curves and golden fixtures; subsequent changes to either follow explicit model-version rules.",
+      "reason": null,
+      "probe": "What happens if this runs twice on the same input?"
+    },
+    {
+      "requirement_id": "NL-13",
+      "category": "concurrency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-13/06: candidate evaluation uses isolated immutable contexts; model freeze precedes any generation-stable build.",
+      "reason": null,
+      "probe": "If interrupted or run in parallel, what is guaranteed?"
+    }
+  ],
+  "coverage": {
+    "applicable": 46,
+    "resolved": 46,
+    "unresolved": 0,
+    "byVerification": {
+      "explicit": 46,
+      "backstop": 0
+    }
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "arithmetic": "Python binary64; no Java float or Minecraft quantization parity claim",
+  "checks": {
+    "boundary_continuity_bound": 168,
+    "bounded": 12012,
+    "cold_cap": 12,
+    "cold_pole": 12,
+    "convex_blend_no_overshoot": 140,
+    "hemisphere_symmetry": 12012,
+    "invalid_input_rejected": 4,
+    "large_coordinates_finite_bounded": 168,
+    "monotonic_to_pole": 12012,
+    "repeating_period": 84,
+    "warm_equator": 12,
+    "zero_strength_bit_identity": 28
+  },
+  "example": {
+    "equator_z": 0,
+    "note": "Illustrative distance, not a selected shipping default",
+    "pole_distance_blocks": 50000,
+    "samples": [
+      {
+        "temperature_01_before_range_and_elevation": 0.0,
+        "z": -75000
+      },
+      {
+        "temperature_01_before_range_and_elevation": 0.0,
+        "z": -50000
+      },
+      {
+        "temperature_01_before_range_and_elevation": 0.5,
+        "z": -25000
+      },
+      {
+        "temperature_01_before_range_and_elevation": 1.0,
+        "z": 0
+      },
+      {
+        "temperature_01_before_range_and_elevation": 0.5,
+        "z": 25000
+      },
+      {
+        "temperature_01_before_range_and_elevation": 0.0,
+        "z": 50000
+      },
+      {
+        "temperature_01_before_range_and_elevation": 0.0,
+        "z": 75000
+      }
+    ]
+  },
+  "exclusions": [
+    "FTF runtime",
+    "NT parity",
+    "biome coverage",
+    "saved worlds",
+    "loader compatibility",
+    "performance"
+  ],
+  "model": "independent smoothstep proposal; not production ftf:latitude_v1",
+  "status": "pass",
+  "total_checks": 36664
+}
