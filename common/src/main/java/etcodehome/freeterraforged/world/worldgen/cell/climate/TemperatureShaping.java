@@ -17,4 +17,19 @@ public final class TemperatureShaping {
 		float clamped = NoiseUtil.clamp(temperature, 0.0F, 1.0F);
 		return (float) Math.pow(clamped, exponent);
 	}
+
+	/**
+	 * Double-precision variant in -1..1 climate units, for integrations composing
+	 * climate before final quantization. Preserves the established double arithmetic
+	 * of TerraLatitude schema-1 worlds; it is not bit-identical to native float output.
+	 * The owner supplies its ground gate, normalized 0..1 elevation and saved strength.
+	 * Do not silently interchange these precision contracts for existing worlds.
+	 */
+	public static double applyNormalized(double temperature, boolean aboveGround,
+			double elevation, double strength) {
+		double clamped = Math.max(-1.0, Math.min(1.0, temperature));
+		if (!aboveGround) return clamped;
+		double zeroToOne = (clamped + 1.0) * 0.5;
+		return 2.0 * Math.pow(zeroToOne, Math.pow(2.0, elevation * strength)) - 1.0;
+	}
 }
