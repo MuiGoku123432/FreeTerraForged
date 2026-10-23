@@ -140,7 +140,7 @@ class ClimateSettingsPage extends PresetEditorPage {
 			this.regenerate();
 			return value;
 		});
-		this.coastalMoistureBoost = PresetWidgets.createFloatSlider(climate.altitudeCoolingStrength, 0.0F, 1.0F, FTFTranslationKeys.GUI_SLIDER_COASTAL_MOISTURE_BOOST, (slider, value) -> {
+		this.coastalMoistureBoost = PresetWidgets.createFloatSlider(climate.coastalMoistureBoost, 0.0F, 1.0F, FTFTranslationKeys.GUI_SLIDER_COASTAL_MOISTURE_BOOST, (slider, value) -> {
 			climate.coastalMoistureBoost = (float) slider.scaleValue(value);
 			this.regenerate();
 			return value;
