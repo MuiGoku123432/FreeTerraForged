@@ -1,6 +1,11 @@
 package etcodehome.freeterraforged.client.gui.screen.presetconfig;
 
 import java.util.Optional;
+import etcodehome.freeterraforged.data.worldgen.preset.settings.LatitudeSettings;
+import etcodehome.freeterraforged.client.gui.widget.Label;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.components.Tooltip;
+import etcodehome.freeterraforged.client.gui.screen.page.LinkedPageScreen.SaveResult;
 
 import etcodehome.freeterraforged.client.gui.widget.Slider;
 import etcodehome.freeterraforged.client.gui.widget.ValueButton;
@@ -12,6 +17,14 @@ import etcodehome.freeterraforged.data.worldgen.preset.settings.ClimateSettings;
 import etcodehome.freeterraforged.data.worldgen.preset.settings.Preset;
 
 class ClimateSettingsPage extends PresetEditorPage {
+    private static final String LATITUDE = "freeterraforged.gui.latitude.";
+    private String equatorText;
+    private String distanceText;
+    private EditBox equatorInput;
+    private EditBox distanceInput;
+    private Label latitudeError;
+    private boolean latitudeValid = true;
+
 	private ValueButton<Integer> temperatureSeedOffset;
 	private Slider temperatureScale;
 	private Slider temperatureFalloff;
@@ -200,6 +213,7 @@ class ClimateSettingsPage extends PresetEditorPage {
 			return value;
 		});
 		
+		this.addLatitudeControls(climate);
 		this.left.addWidget(PresetWidgets.createLabel(FTFTranslationKeys.GUI_LABEL_TEMPERATURE));
 		this.left.addWidget(this.temperatureSeedOffset);
 		this.left.addWidget(this.temperatureScale);
@@ -235,6 +249,80 @@ class ClimateSettingsPage extends PresetEditorPage {
 		this.left.addWidget(this.biomeEdgeLacunarity);
 		this.left.addWidget(this.biomeEdgeStrength);
 	}
+
+
+    private void addLatitudeControls(ClimateSettings climate) {
+        var profile = climate.latitude;
+        if (this.equatorText == null) this.equatorText = Integer.toString(profile.equatorZ());
+        if (this.distanceText == null) this.distanceText = Integer.toString(profile.poleDistance());
+        this.left.addWidget(PresetWidgets.createLabel(LATITUDE + "title"));
+        this.left.addWidget(PresetWidgets.createToggle(profile.enabled(), LATITUDE + "enabled", (button, value) -> {
+            climate.latitude = climate.latitude.withEnabled(value);
+            if (this.latitudeValid) this.regenerate();
+        }));
+        this.left.addWidget(PresetWidgets.createLabel(LATITUDE + "equator"));
+        this.equatorInput = new EditBox(this.screen.font, 0, 0, 100, 20, Component.translatable(LATITUDE + "equator"));
+        this.equatorInput.setMaxLength(12);
+        this.equatorInput.setValue(this.equatorText);
+        this.equatorInput.setTooltip(Tooltip.create(Component.translatable(LATITUDE + "equator.tooltip")));
+        this.left.addWidget(this.equatorInput);
+        this.left.addWidget(PresetWidgets.createLabel(LATITUDE + "distance"));
+        this.distanceInput = new EditBox(this.screen.font, 0, 0, 100, 20, Component.translatable(LATITUDE + "distance"));
+        this.distanceInput.setMaxLength(12);
+        this.distanceInput.setValue(this.distanceText);
+        this.distanceInput.setTooltip(Tooltip.create(Component.translatable(LATITUDE + "distance.tooltip")));
+        this.left.addWidget(this.distanceInput);
+        this.latitudeError = PresetWidgets.createLabel(Component.empty());
+        this.left.addWidget(this.latitudeError);
+        this.equatorInput.setResponder(text -> {
+            this.equatorText = text;
+            this.updateLatitudeGeometry(climate, true);
+        });
+        this.distanceInput.setResponder(text -> {
+            this.distanceText = text;
+            this.updateLatitudeGeometry(climate, true);
+        });
+        this.left.addWidget(PresetWidgets.createFloatSlider(profile.temperatureStrength(), 0.0F, 1.0F,
+            LATITUDE + "temperature", (slider, value) -> {
+                climate.latitude = climate.latitude.withStrengths((float) slider.scaleValue(value), climate.latitude.moistureStrength());
+                if (this.latitudeValid) this.regenerate();
+                return value;
+            }));
+        this.left.addWidget(PresetWidgets.createFloatSlider(profile.moistureStrength(), 0.0F, 1.0F,
+            LATITUDE + "moisture", (slider, value) -> {
+                climate.latitude = climate.latitude.withStrengths(climate.latitude.temperatureStrength(), (float) slider.scaleValue(value));
+                if (this.latitudeValid) this.regenerate();
+                return value;
+            }));
+        this.left.addWidget(PresetWidgets.createLabel(LATITUDE + "moisture_zero"));
+        this.updateLatitudeGeometry(climate, false);
+    }
+
+    private void updateLatitudeGeometry(ClimateSettings climate, boolean regenerate) {
+        try {
+            int equator = Integer.parseInt(this.equatorText);
+            int distance = Integer.parseInt(this.distanceText);
+            var changed = climate.latitude.withGeometry(equator, distance);
+            boolean differs = !changed.equals(climate.latitude);
+            climate.latitude = changed;
+            this.latitudeValid = true;
+            this.latitudeError.setMessage(Component.empty());
+            if (regenerate && differs) this.regenerate();
+        } catch (IllegalArgumentException invalid) {
+            this.latitudeValid = false;
+            this.latitudeError.setMessage(Component.translatable(LATITUDE + "invalid").withStyle(net.minecraft.ChatFormatting.RED));
+        }
+        this.equatorInput.setTextColor(this.latitudeValid ? 0xE0E0E0 : 0xFF5555);
+        this.distanceInput.setTextColor(this.latitudeValid ? 0xE0E0E0 : 0xFF5555);
+        this.screen.doneButton.active = this.latitudeValid;
+        this.screen.nextButton.active = this.latitudeValid;
+        this.screen.previousButton.active = this.latitudeValid;
+    }
+
+    @Override
+    public SaveResult onSave() {
+        return this.latitudeValid ? super.onSave() : SaveResult.STAY_OPEN;
+    }
 
 	@Override
 	public Optional<Page> previous() {

@@ -41,13 +41,21 @@ import etcodehome.freeterraforged.world.worldgen.noise.module.Noise;
 
 public record Heightmap(CellPopulator terrain, CellPopulator region, Continent continent, Climate climate, Levels levels, ControlPoints controlPoints, float terrainFrequency, Noise beachNoise) implements AutoCloseable {
 	
-	public void apply(Cell cell, float x, float z, boolean applyClimate) {
+	public void apply(Cell cell, int x, int z, boolean applyClimate) {
+        this.apply(cell, (float) x, (float) z, (double) z, applyClimate);
+    }
+
+    public void apply(Cell cell, float x, float z, boolean applyClimate) {
+        this.apply(cell, x, z, (double) z, applyClimate);
+    }
+
+    private void apply(Cell cell, float x, float z, double geographicZ, boolean applyClimate) {
 		this.applyTerrain(cell, x, z);
 		if (cell.terrain == TerrainType.ISLAND_BEACH) {
 			cell.terrain = TerrainType.BEACH;
 		}
 		this.applyRivers(cell, x, z, this.continent.getRivermap(cell));
-		this.applyClimate(cell, x, z, applyClimate);
+		this.applyClimate(cell, x, z, geographicZ, applyClimate);
 	}
 	
 	public void applyTerrain(Cell cell, float x, float z) {
@@ -64,8 +72,16 @@ public record Heightmap(CellPopulator terrain, CellPopulator region, Continent c
         VolcanoPopulator.modifyVolcanoType(cell, this.levels);
 	}
 	
-	public void applyClimate(Cell cell, float x, float z, boolean applyClimate) {
-        this.climate.apply(cell, x, z, applyClimate);
+	public void applyClimate(Cell cell, int x, int z, boolean applyClimate) {
+        this.applyClimate(cell, (float) x, (float) z, (double) z, applyClimate);
+    }
+
+    public void applyClimate(Cell cell, float x, float z, boolean applyClimate) {
+        this.applyClimate(cell, x, z, (double) z, applyClimate);
+    }
+
+    public void applyClimate(Cell cell, float x, float z, double geographicZ, boolean applyClimate) {
+        this.climate.apply(cell, x, z, geographicZ, applyClimate);
 	}
 
 	public void applyBiomeRegion(Cell cell, float x, float z) {

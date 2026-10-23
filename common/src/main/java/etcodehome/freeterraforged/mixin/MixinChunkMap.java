@@ -72,6 +72,15 @@ public class MixinChunkMap {
 			return;
 		}
 
+        if (serverLevel.dimension() == Level.OVERWORLD) {
+            var profile = serverLevel.registryAccess()
+                .lookupOrThrow(etcodehome.freeterraforged.registries.FTFRegistries.PRESET)
+                .getOrThrow(etcodehome.freeterraforged.data.worldgen.preset.settings.Preset.KEY).value().climate().latitude;
+            etcodehome.freeterraforged.world.worldgen.cell.climate.LatitudeCompatibility.validateSavedExternalProfile(
+                serverLevel.getServer().getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT),
+                profile, etcodehome.freeterraforged.platform.ModLoaderUtil::isLoaded);
+        }
+
 		LevelStem selectedStem = new LevelStem(serverLevel.dimensionTypeRegistration(), chunkGenerator);
 		String settingsIdentity = etcodehome.freeterraforged.world.worldgen.runtime.WorldgenSettingsIdentity
 			.describe(chunkGenerator);

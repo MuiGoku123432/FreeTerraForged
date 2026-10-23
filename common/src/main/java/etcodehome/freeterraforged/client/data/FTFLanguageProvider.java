@@ -15,6 +15,20 @@ public final class FTFLanguageProvider {
 
 		@Override
 		protected void addTranslations() {
+			this.add("freeterraforged.gui.latitude.title", "Native latitude climate (experimental)");
+			this.add("freeterraforged.gui.latitude.enabled", "Native latitude climate");
+			this.add("freeterraforged.gui.latitude.enabled.tooltip", "Add north–south temperature and moisture patterns. Disabled preserves existing climate. Configure new worlds only; this draft model is not generation-stable.");
+			this.add("freeterraforged.gui.latitude.equator", "Equator Z (blocks)");
+			this.add("freeterraforged.gui.latitude.equator.tooltip", "Warmest latitude before regional and terrain effects. Enter an integer from -30000000 to 30000000.");
+			this.add("freeterraforged.gui.latitude.distance", "Distance to polar climate (blocks)");
+			this.add("freeterraforged.gui.latitude.distance.tooltip", "Distance north and south from the equator to polar climate. Enter 1 to 30000000 blocks. Climate does not repeat beyond the poles.");
+			this.add("freeterraforged.gui.latitude.temperature", "Temperature latitude strength");
+			this.add("freeterraforged.gui.latitude.temperature.tooltip", "0 retains existing temperature. 1 uses the latitude target without regional temperature variation. Existing range/bias and elevation cooling still apply; regional scale/falloff control the remaining regional contribution.");
+			this.add("freeterraforged.gui.latitude.moisture", "Moisture latitude strength");
+			this.add("freeterraforged.gui.latitude.moisture.tooltip", "0 retains existing moisture exactly. Higher values blend wet/dry latitude regions before the existing coastal boost and elevation drying. At 1 the regional moisture contribution is zero.");
+			this.add("freeterraforged.gui.latitude.moisture_zero", "0 = Existing moisture");
+			this.add("freeterraforged.gui.latitude.invalid", "Invalid block coordinates; preview not applied.");
+
 			this.add(FTFTranslationKeys.METADATA_DESCRIPTION, "FreeTerraForged resources");
 			this.add(FTFTranslationKeys.PRESET_METADATA_DESCRIPTION, "FreeTerraForged preset");
 			this.add(FTFTranslationKeys.DEFAULT_PRESET_PACK_DESCRIPTION, "FreeTerraForged default world preset");

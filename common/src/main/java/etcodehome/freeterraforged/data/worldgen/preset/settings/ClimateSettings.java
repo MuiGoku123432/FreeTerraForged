@@ -19,7 +19,8 @@ public class ClimateSettings {
 			BiomeNoise.CODEC.fieldOf("biomeEdgeShape").forGetter((o) -> o.biomeEdgeShape),
 			Codec.FLOAT.optionalFieldOf("altitudeCoolingStrength", makeDefault().altitudeCoolingStrength).forGetter((o) -> o.altitudeCoolingStrength),
 			Codec.FLOAT.optionalFieldOf("rainShadowStrength", makeDefault().rainShadowStrength).forGetter((o) -> o.rainShadowStrength),
-			Codec.FLOAT.optionalFieldOf("coastalMoistureBoost", makeDefault().coastalMoistureBoost).forGetter((o) -> o.coastalMoistureBoost)
+			Codec.FLOAT.optionalFieldOf("coastalMoistureBoost", makeDefault().coastalMoistureBoost).forGetter((o) -> o.coastalMoistureBoost),
+			LatitudeSettings.OPTIONAL.forGetter((o) -> o.latitude)
 	).apply(instance, ClimateSettings::new));
 
 	public RangeValue temperature;
@@ -29,6 +30,7 @@ public class ClimateSettings {
 	public float altitudeCoolingStrength;
 	public float rainShadowStrength;
 	public float coastalMoistureBoost;
+	public LatitudeSettings latitude;
 
 	public ClimateSettings(
 			RangeValue temperature,
@@ -39,6 +41,14 @@ public class ClimateSettings {
 			float rainShadowStrength,
 			float coastalMoistureBoost
 	) {
+        this(temperature, moisture, biomeShape, biomeEdgeShape, altitudeCoolingStrength,
+            rainShadowStrength, coastalMoistureBoost, LatitudeSettings.DEFAULT);
+    }
+
+    public ClimateSettings(RangeValue temperature, RangeValue moisture, BiomeShape biomeShape,
+                           BiomeNoise biomeEdgeShape, float altitudeCoolingStrength, float rainShadowStrength,
+                           float coastalMoistureBoost, LatitudeSettings latitude) {
+        this.latitude = java.util.Objects.requireNonNull(latitude, "latitude");
 		this.temperature = temperature;
 		this.moisture = moisture;
 		this.biomeShape = biomeShape;
@@ -56,7 +66,8 @@ public class ClimateSettings {
 				this.biomeEdgeShape.copy(),
 				this.altitudeCoolingStrength,
 				this.rainShadowStrength,
-				this.coastalMoistureBoost
+				this.coastalMoistureBoost,
+				this.latitude
 		);
 	}
 

@@ -314,6 +314,10 @@ public final class BiomePreviewResolver implements AutoCloseable {
 		if (zoom <= 0) {
 			throw new IllegalArgumentException("Preview zoom must be positive");
 		}
+        if (this.generatorContext.lookup.getHeightmap().climate().biomeNoise().latitude().settings().active()) {
+            double halfSpan = tile.getBlockSize().size() * (double) zoom / 2.0;
+            return this.tileRequestAtOrigin(tile, centerX - halfSpan, centerZ - halfSpan, zoom);
+        }
 		float originX = centerX - tile.getBlockSize().size() * (float) zoom / 2.0F;
 		float originZ = centerZ - tile.getBlockSize().size() * (float) zoom / 2.0F;
 		return this.tileRequestAtOrigin(tile, originX, originZ, zoom);
@@ -323,6 +327,9 @@ public final class BiomePreviewResolver implements AutoCloseable {
 		if (zoom <= 0) {
 			throw new IllegalArgumentException("Preview zoom must be positive");
 		}
+        if (this.generatorContext.lookup.getHeightmap().climate().biomeNoise().latitude().settings().active()) {
+            return this.tileRequestAtOrigin(tile, (double) originX, (double) originZ, zoom);
+        }
 		return this.tileRequestAtOrigin(tile, (float) originX, (float) originZ, zoom);
 	}
 
@@ -391,7 +398,7 @@ public final class BiomePreviewResolver implements AutoCloseable {
 		return new ResolvedTile(size, biomes);
 	}
 
-	private TileBiomeRequest tileRequestAtOrigin(Tile tile, float originX, float originZ, int zoom) {
+	private TileBiomeRequest tileRequestAtOrigin(Tile tile, double originX, double originZ, int zoom) {
 		var heightmap = this.generatorContext.lookup.getHeightmap();
 		PreviewTileClimateSampler.TileLookup tileLookup = new PreviewTileClimateSampler.TileLookup(
 			tile, this.generatorContext.lookup, originX, originZ, zoom

@@ -1,7 +1,7 @@
 # Native latitude climate — custom branch specification
 
 Date: 2026-10-22
-Status: implementation specification draft; no feature implementation or runtime verification yet.
+Status: draft feature implemented; see [implementation evidence](IMPLEMENTATION.md). Runtime acceptance and stable-model freeze remain pending.
 Target: `MuiGoku123432/FreeTerraForged`, `1_21_1-unstable-custom`.
 Inspected baseline: `43244515ebf3d3aa9867aba97d8ec360faeabdae`.
 

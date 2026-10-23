@@ -153,7 +153,8 @@ class MixinRandomState {
 						.orElseGet(PerformanceConfig::makeDefault);
 				initializedContext = GeneratorContext.makeCached(
 						initializedPreset, noises, this.seed,
-						config.tileSize(), config.batchCount(), ThreadPools.availableProcessors() > 4
+						config.tileSize(), config.batchCount(), ThreadPools.availableProcessors() > 4,
+                        epoch.dimension().equals(net.minecraft.world.level.dimension.LevelStem.OVERWORLD)
 				);
 			}
 			this.preset = initializedPreset;

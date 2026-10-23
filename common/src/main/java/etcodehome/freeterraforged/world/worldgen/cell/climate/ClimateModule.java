@@ -29,11 +29,13 @@ public class ClimateModule {
 	private Continent continent;
 	private ControlPoints controlPoints;
 	private Levels levels;
+	private final LatitudeClimate latitude;
 	private final float altitudeCoolingStrength;
 	private final float coastalMoistureBoost;
 	private final float rainShadowStrength;
 	
 	public ClimateModule(Seed seed, Continent continent, WorldSettings.ControlPoints controlPoints, ClimateSettings climateSettings, Levels levels) {
+		this.latitude = new LatitudeClimate(climateSettings);
 		this.altitudeCoolingStrength = climateSettings.altitudeCoolingStrength;
 		this.coastalMoistureBoost = climateSettings.coastalMoistureBoost;
 		this.rainShadowStrength = climateSettings.rainShadowStrength;
@@ -119,6 +121,10 @@ public class ClimateModule {
 	}
 
 	public void apply(Cell cell, float x, float z, float originalX, float originalZ, boolean mask) {
+		this.apply(cell, x, z, originalX, (double) originalZ, mask);
+	}
+
+	public void apply(Cell cell, float x, float z, float originalX, double originalZ, boolean mask) {
 		float warpedX = this.warpXCoordinate(x, z);
 		float warpedZ = this.warpZCoordinate(x, z);
 		x = warpedX * this.biomeFreq;
@@ -140,15 +146,32 @@ public class ClimateModule {
 		}
 
 		float rawMoist = this.moisture.compute(x, z, 0);
-		float moist = this.modifyMoisture(cell.height, rawMoist);
+		float moist = this.modifyMoisture(cell.height, this.latitude.moisture(rawMoist, originalZ));
 
 		float rawTemp = this.temperature.compute(x, z, 0);
-		float temp = this.modifyTemp(cell.height, rawTemp);
+		float temp = this.modifyTemp(cell.height, this.latitude.temperature(rawTemp, originalZ));
 
 		// convert from normalised 0-1 range to -1 to 1 range
 		cell.temperature = temp * 2.0F - 1.0F;
 		cell.moisture = moist * 2.0F - 1.0F;
 	}
+
+	public LatitudeClimate latitude() { return this.latitude; }
+
+    /** Diagnostic-only resampling of the real noise graphs; does not mutate or acquire cells. */
+    public Diagnostic diagnose(float x, float z, double geographicZ, float height) {
+        float warpedX = this.warpXCoordinate(x, z) * this.biomeFreq;
+        float warpedZ = this.warpZCoordinate(x, z) * this.biomeFreq;
+        float regionalT = this.temperature.compute(warpedX, warpedZ, 0);
+        float regionalM = this.moisture.compute(warpedX, warpedZ, 0);
+        float blendedT = this.latitude.temperature(regionalT, geographicZ);
+        float blendedM = this.latitude.moisture(regionalM, geographicZ);
+        return new Diagnostic(regionalT, regionalM, this.latitude.targets(geographicZ), blendedT, blendedM,
+            this.modifyTemp(height, blendedT), this.modifyMoisture(height, blendedM));
+    }
+
+    public record Diagnostic(float regionalTemperature, float regionalMoisture, LatitudeClimate.Targets targets,
+                             float blendedTemperature, float blendedMoisture, float shapedTemperature, float shapedMoisture) {}
 
 	private float modifyTemp(float height, float rawTemp) {
 		// Only apply cooling above ground level
