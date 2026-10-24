@@ -30,6 +30,7 @@ public class ClimateModule {
 	private ControlPoints controlPoints;
 	private Levels levels;
 	private final LatitudeClimate latitude;
+	private final OriginalTemperatureBands originalBands;
 	private final float altitudeCoolingStrength;
 	private final float coastalMoistureBoost;
 	private final float rainShadowStrength;
@@ -82,8 +83,13 @@ public class ClimateModule {
 		Seed tempSeed = seed.offset(climateSettings.temperature.seedOffset);
 		Noise temperature = new LegacyTemperature(1.0F / tempScale, climateSettings.temperature.falloff);
 		temperature = climateSettings.temperature.apply(temperature);
-		temperature = Noises.warpPerlin(temperature, tempSeed.next(), tempScale * 4, 2, tempScale * 4);
-		temperature = Noises.warpPerlin(temperature, tempSeed.next(), tempScale, 1, tempScale);
+		int broadTemperatureSeed = tempSeed.next();
+		int detailTemperatureSeed = tempSeed.next();
+		temperature = Noises.warpPerlin(temperature, broadTemperatureSeed, tempScale * 4, 2, tempScale * 4);
+		temperature = Noises.warpPerlin(temperature, detailTemperatureSeed, tempScale, 1, tempScale);
+		this.originalBands = climateSettings.latitude.originalBands()
+            ? new OriginalTemperatureBands(climateSettings.latitude, climateSettings.temperature.falloff,
+                broadTemperatureSeed, detailTemperatureSeed) : null;
 		this.temperature = temperature;
 		
 		Noise macroBiomeNoise = Noises.worley(seed.next(), climateSettings.biomeShape.macroNoiseSize);
@@ -125,8 +131,13 @@ public class ClimateModule {
 	}
 
 	public void apply(Cell cell, float x, float z, float originalX, double originalZ, boolean mask) {
-		float warpedX = this.warpXCoordinate(x, z);
-		float warpedZ = this.warpZCoordinate(x, z);
+        float warpedX = this.warpXCoordinate(x, z);
+        float zOffset = this.warpZ.compute(x, z, 0) * this.warpStrength;
+        float warpedZ = z + zOffset;
+        boolean temperatureEnabled = this.latitude.settings().enabled();
+        float temperatureInfluence = this.latitude.settings().temperatureStrength();
+        float targetT = temperatureEnabled && temperatureInfluence != 0
+            ? this.temperatureTarget(warpedX, z, zOffset, originalZ) : 0;
 		x = warpedX * this.biomeFreq;
 		z = warpedZ * this.biomeFreq;
 		this.resolveRegion(cell, x, z, mask);
@@ -148,8 +159,10 @@ public class ClimateModule {
 		float rawMoist = this.moisture.compute(x, z, 0);
 		float moist = this.modifyMoisture(cell.height, this.latitude.moisture(rawMoist, originalZ));
 
-		float rawTemp = this.temperature.compute(x, z, 0);
-		float temp = this.modifyTemp(cell.height, this.latitude.temperature(rawTemp, originalZ));
+        // Full influence needs only the configured field; keep the legacy graph
+        // for blending, disabled profiles and the unchanged raw sampling API.
+        float rawTemp = temperatureEnabled && temperatureInfluence == 1 ? 0 : this.temperature.compute(x, z, 0);
+		float temp = this.modifyTemp(cell.height, this.latitude.temperatureFromTarget(rawTemp, targetT));
 
 		// convert from normalised 0-1 range to -1 to 1 range
 		cell.temperature = temp * 2.0F - 1.0F;
@@ -158,15 +171,27 @@ public class ClimateModule {
 
 	public LatitudeClimate latitude() { return this.latitude; }
 
+    private float temperatureTarget(float warpedX, float z, float zOffset, double geographicZ) {
+        if (this.originalBands == null) return this.latitude.nominalTemperatureTarget(geographicZ);
+        // Preserve the precise geographic coordinate plus actual edge and biome
+        // displacements, rather than rounding the geographic phase through float.
+        double warpedZ = geographicZ + ((double) z - (float) geographicZ)
+            + zOffset;
+        return this.originalBands.sample(warpedX, warpedZ);
+    }
+
     /** Diagnostic-only resampling of the real noise graphs; does not mutate or acquire cells. */
     public Diagnostic diagnose(float x, float z, double geographicZ, float height) {
-        float warpedX = this.warpXCoordinate(x, z) * this.biomeFreq;
-        float warpedZ = this.warpZCoordinate(x, z) * this.biomeFreq;
+        float warpedBlockX = this.warpXCoordinate(x, z);
+        float zOffset = this.warpZ.compute(x, z, 0) * this.warpStrength;
+        float warpedX = warpedBlockX * this.biomeFreq;
+        float warpedZ = (z + zOffset) * this.biomeFreq;
         float regionalT = this.temperature.compute(warpedX, warpedZ, 0);
         float regionalM = this.moisture.compute(warpedX, warpedZ, 0);
-        float blendedT = this.latitude.temperature(regionalT, geographicZ);
+        float targetT = this.temperatureTarget(warpedBlockX, z, zOffset, geographicZ);
+        float blendedT = this.latitude.temperatureFromTarget(regionalT, targetT);
         float blendedM = this.latitude.moisture(regionalM, geographicZ);
-        return new Diagnostic(regionalT, regionalM, this.latitude.targets(geographicZ), blendedT, blendedM,
+        return new Diagnostic(regionalT, regionalM, this.latitude.targets(geographicZ, targetT), blendedT, blendedM,
             this.modifyTemp(height, blendedT), this.modifyMoisture(height, blendedM));
     }
 

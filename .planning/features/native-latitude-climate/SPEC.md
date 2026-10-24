@@ -9,6 +9,8 @@ This is the canonical specification for the native approach. It takes precedence
 
 User refinement (2026-10-22): latitude should return to warm climate beyond each polar band and repeat indefinitely. New presets use the repeating draft model; saved v1 profiles retain polar caps. The explicit **Repeat latitude bands** toggle selects the behavior for a new-world preset.
 
+User refinement (2026-10-24): retain the original FTF temperature shape and warped boundaries, adding explicit equator/pole configuration. New v3 profiles implement this; saved v1/v2 profiles retain their existing output. See [original-band implementation](ORIGINAL-BANDS.md). This supersedes the earlier prohibition on reusing temperature warps; no new moisture subsystem or cooling formula is included.
+
 ## Goal
 
 Players creating an FTF world can enable native latitude climate, place an equator, choose the distance to polar climate, and independently blend latitude temperature and moisture targets with FTF's existing regional climate. The preview and generated world use the same owned surface-climate profile. The feature requires neither Natural Temperature nor TerraLatitude, is disabled by default, and preserves existing worlds' generator choice.
@@ -40,7 +42,7 @@ Altitude and moisture shaping currently consult mutable `PresetManager.PM` setti
 ### NL-03 — Geographic temperature behavior
 
 - **Current:** Temperature scale does not directly specify an equator and pole distance.
-- **Target:** The native target uses original geographic Z in blocks. Its baseline is symmetric about the equator, warmest there, monotone toward both poles, and returns to an equator at twice the pole distance, repeating in either direction before regional blending (saved nonrepeating profiles keep polar caps) and terrain shaping. Looping is the new default through an explicit model identity; boundary warp and added noise remain out of scope.
+- **Target:** The native target uses original geographic Z in blocks. Its baseline is symmetric about the equator, warmest there, monotone toward both poles, and returns to an equator at twice the pole distance, repeating in either direction before regional blending (saved nonrepeating profiles keep polar caps) and terrain shaping. For v1/v2 this remains an unwarped smooth target. For v3 the baseline uses the original signed sine-power curve and its two existing Perlin warp stages. Equator/poles are nominal locations; final warped targets need not be symmetric or monotone at a fixed X. No additional warp stages are introduced.
 - **Acceptance:** AC-03 checks endpoints, both hemispheres, shifted equators, positions around repeating equators/poles and legacy caps, negative coordinates, block/quart conversion and large-coordinate fixtures. Translation of equator and position by the same amount preserves the geographic target within the specified arithmetic tolerance.
 
 ### NL-04 — One defined composition pipeline
@@ -100,7 +102,7 @@ Altitude and moisture shaping currently consult mutable `PresetManager.PM` setti
 ### NL-13 — Model selection and release evidence
 
 - **Current:** Research compares scalar curves and synthetic fields; no candidate has been validated against FTF biomes.
-- **Target:** Compare cubic smoothstep and raised cosine for temperature using identical baseline presets, seeds, coordinates and biome catalogs. Validate the paired latitude moisture curve independently and in combination with the unchanged regional/terrain moisture pipeline. Freeze one versioned model, both curve definitions, arithmetic contract and explicit defaults with a decision record and golden fixtures before any build is presented as generation-stable. Validate Fabric and NeoForge 1.21.1 in client and dedicated-server configurations.
+- **Target:** Compare the restored original-band v3 model with saved smooth v1/v2 temperature using identical baseline presets, seeds, coordinates and biome catalogs. Validate the paired latitude moisture curve independently and in combination with the unchanged regional/terrain moisture pipeline. Freeze one versioned model, both curve definitions, arithmetic contract and explicit defaults with a decision record and golden fixtures before any build is presented as generation-stable. Validate Fabric and NeoForge 1.21.1 in client and dedicated-server configurations.
 - **Acceptance:** AC-13 includes comparative maps, temperature/biome coverage and diagnostics; AC-14 includes successful builds and runtime matrix evidence. An algorithm/default change after release uses explicit migration/version rules instead of silently changing saved output.
 
 ## Data and user-facing contract
@@ -111,21 +113,25 @@ The logical profile is an optional `latitude` object under the existing climate 
 | --- | --- | --- |
 | `enabled` | Boolean; absent entire profile means disabled | `false` |
 | `schemaVersion` | Integer; initially 1; independent from model identity | `1` |
-| `model` | Exact supported identifier; saved `ftf:latitude_v1_draft` retains caps | `ftf:latitude_v2_repeating_draft`; stable freeze still pending |
+| `model` | Exact supported identifier; saved v1/v2 retain their output | `ftf:latitude_v3_original_repeating_draft`; stable freeze still pending |
 | `equatorZ` | Integer block Z, inclusive −30,000,000 to +30,000,000 | `0` |
 | `poleDistance` | Integer blocks, inclusive 1 to 30,000,000 | `50000` |
-| `temperatureStrength` | Finite number in [0,1] | `0.75` |
+| `temperatureStrength` | Finite number in [0,1] | `1.0` |
 | `moistureStrength` | Independently stored finite number in [0,1]; zero retains existing moisture exactly | `0.5` |
 
 The initial distance/strengths are **draft tuning values**, not a claim of physically accurate or ideal gameplay defaults. NL-13 must explicitly retain or revise them based on evidence before freezing the model. They are always serialized into a new world's profile; later default changes affect only new profiles. Do not infer missing enabled-profile fields from mutable installation defaults.
 
 For backward compatibility, an absent `latitude` object decodes to legacy behavior. A present object must contain a complete supported profile. Null, malformed fields and unsupported model/schema values are errors even if that object's enabled flag is false. Version identifiers use exact resource-ID comparison; locale/case folding or fuzzy matching is not supported. No user-authored arbitrary model name or curve is accepted in v1.
 
-Controls: **Native latitude climate** toggle; **Repeat latitude bands** toggle (on for fresh profiles, retained from saved model when editing); **Equator Z** integer input; **Distance to polar climate** integer input; separate **Temperature latitude strength** and **Moisture latitude strength** controls. Show block units and validate before preview/export/create. Disabled fields retain their edited values when toggled off and back on. Explain the north–south temperature gradient, broad wet/dry latitude regions and the retained existing regional/terrain effects. Label zero moisture strength “Existing moisture.” Use biome temperature/moisture terminology, not Celsius, measured rainfall or live weather.
+Controls: **Native latitude climate** toggle; **Original FTF temperature bands** toggle (v3 on, saved smooth models off); **Repeat latitude bands** toggle (on for fresh profiles, retained from saved model when editing); **Equator Z** integer input; **Distance to polar climate** integer input; separate **Temperature band influence** and **Moisture latitude strength** controls. Show block units and validate before preview/export/create. Disabled fields retain their edited values when toggled off and back on. Explain the north–south temperature gradient, broad wet/dry latitude regions and the retained existing regional/terrain effects. Label zero moisture strength “Existing moisture.” Use biome temperature/moisture terminology, not Celsius, measured rainfall or live weather.
 
-New-world creation and preset export must serialize the same effective values shown in the accepted preview. A separate player-facing curve picker, model-ID picker, seasonal control and replacement moisture editor are excluded. Existing moisture settings remain available with their current meanings.
+New-world creation and preset export must serialize the same effective values shown in the accepted preview. An arbitrary curve editor, raw model-ID picker, seasonal control and replacement moisture editor are excluded. Existing moisture settings remain available with their current meanings.
 
 ## Mathematical behavior and version freeze
+
+For v3 temperature, convert X and equator-relative Z to radians with `pi / poleDistance`, offset the sine phase by `pi/2`, and apply the original detail-then-broad Perlin domain warps (normalized scale/strength 1 then 4, octaves 1 then 2). Reuse the original temperature seeds without additional root seed draws. Evaluate the original signed sine-power curve with the existing Falloff, then the existing range/bias and terrain pipeline. In capped v3, clamp the warped equator-relative phase to [-pi, pi] before evaluation. In repeating v3, reduce the final angle in double precision before the legacy sine-table lookup. Temperature Scale controls only the unconfigured contribution; pole distance controls the configured contribution. Biome and edge displacements remain part of the original-style temperature boundaries. Full warp maps do not repeat identically each cycle.
+
+The following folded fraction still governs moisture in every model and smooth temperature in v1/v2. v3 nominal unwarped temperature follows the original curve; its actual diagnostic target additionally includes warping.
 
 At original geographic Z `z`, let `d=abs(z-equatorZ)` and `D=poleDistance`. For the repeating draft model, compute the block-space phase `p=d % (2D)`, then `u=min(p,2D-p)/D`. For saved nonrepeating v1 profiles, retain `u=min(1,d/D)`. The repeating fraction reaches equators at every even multiple of D and poles at every odd multiple, symmetrically in both directions. Block-space reduction occurs before division to preserve short-period precision near world limits. Use sufficiently wide arithmetic for subtraction/absolute value and normalized geography. Evaluate the candidate `L(u)`:
 
@@ -153,7 +159,7 @@ These are draft latitude-layer values from the research fixture, not new regiona
 
 The final model decision must fix operation order, intermediate precision, transcendental implementation if any, coordinate conversion and quantization behavior. It must preserve current legacy arithmetic for legacy mode. The existing public raw API continues to return raw regional values. Diagnostics distinguish raw geographic L from range-shaped Lr and final climate.
 
-v1 consumes no new regional noise seeds and adds no geographic warp. Existing regional coordinate warps remain. The new target uses original geography even when FTF retries climate at an edge-displaced regional coordinate. Trace original coordinate precision into the evaluator: converting an already rounded float to double does not recover block precision. AC-03 must exercise the supported coordinate path, not only a double-only test helper.
+v1 consumes no new regional noise seeds and adds no geographic warp. Existing regional coordinate warps remain. The v1/v2 temperature and all moisture targets use original geography even when FTF retries climate at an edge-displaced regional coordinate. v3 temperature deliberately retains edge and biome displacement while preserving the double-precision geographic phase. Trace original coordinate precision into the evaluator: converting an already rounded float to double does not recover block precision. AC-03 must exercise the supported coordinate path, not only a double-only test helper.
 
 ## World lifecycle and compatibility matrix
 
@@ -223,7 +229,7 @@ Proposed engineering budget for this draft: at least five paired runs per loader
 - Seasonal/weather/player-temperature simulation or physical Celsius/PET conversion — different modeled quantities.
 - NT calculator dependency, source copying or full NT mode parity — native independence is the selected approach.
 - Exact TerraLatitude migration, retrogen and active-world climate editing — different persistence/continuity scope.
-- Repeating/radial/rotated latitude, user-authored curves, new octave noise or new boundary warp — optional later model versions; model-owned latitude moisture knots are in scope.
+- Radial/rotated latitude, user-authored curves, additional octave noise or additional boundary warp stages remain out of scope. Repetition and reuse of original temperature warps are now included; model-owned latitude moisture knots remain in scope.
 - River/erosion redesign, global preset-manager refactoring, unrelated custom-branch cleanup — no dependency established.
 - Immediate upstream PR submission or merge — this task authors and stores the specification.
 

@@ -2,19 +2,20 @@
 
 Native latitude adds broad north–south climate patterns to new FreeTerraForged worlds. It is disabled by default and needs neither Natural Temperature nor TerraLatitude.
 
-In the climate editor, enable **Native latitude climate**, set **Equator Z** and **Distance to polar climate** in blocks, leave **Repeat latitude bands** on for a repeating world, then choose independent temperature and moisture strengths.
+In the climate editor, enable **Native latitude climate**, set **Equator Z** and **Distance to polar climate** in blocks, leave **Repeat latitude bands** on for a repeating world, leave **Original FTF temperature bands** on to retain the original curve and warped boundaries, then choose independent temperature and moisture strengths. Start with **Temperature band influence = 1.0** to see the configured original pattern alone.
 
 | Control | Meaning |
 | --- | --- |
-| Equator Z | Warmest geographic latitude before regional and terrain effects |
-| Distance to polar climate | Distance from an equator to a polar band; with repeating enabled, the next equator is twice this distance away |
+| Equator Z | Nominal warm-band center; original temperature warps make boundaries wander |
+| Distance to polar climate | Nominal equator-to-pole spacing; the broad repeating cycle is twice this distance |
 | Repeat latitude bands | On: warm → polar → warm, repeating north and south. Off: the polar target continues beyond the first poles |
-| Temperature latitude strength | 0 retains regional temperature; 1 uses the geographic target before existing cooling |
+| Original FTF temperature bands | On retains the original signed sine-power curve and both temperature Perlin warps; off selects the earlier smooth latitude model |
+| Temperature band influence | 0 retains unconfigured temperature; 1 uses the configured pattern alone; intermediate values blend the two |
 | Moisture latitude strength | 0 retains existing moisture; higher values blend broad wet/dry latitude bands with regional moisture |
 
-The moisture pipeline remains **existing regional moisture → optional latitude blend → existing coastal boost and elevation drying**. Existing moisture settings keep their meanings. At strength 1 there is no regional contribution for that axis, so its regional scale/falloff controls have no influence; range/bias and terrain shaping still apply. These are biome climate values, not Celsius, measured rainfall or live weather.
+The moisture pipeline remains **existing regional moisture → optional latitude blend → existing coastal boost and elevation drying**. Existing moisture settings keep their meanings. At moisture strength 1, its regional scale/falloff controls have no influence. In original temperature mode, **Falloff** and the temperature seed offset still shape the configured bands at strength 1; **Distance to polar climate** replaces temperature **Scale** for that contribution. Range/bias and terrain shaping still apply once. Temperature Scale continues to affect the unconfigured contribution at influences below 1. These are biome climate values, not Celsius, measured rainfall or live weather.
 
-For example, equator Z **0** and polar distance **5,000** gives warm bands at Z=0, ±10,000, ±20,000 and polar bands at ±5,000, ±15,000. Both latitude temperature and latitude moisture follow the repeating pattern; regional and terrain effects still apply. Change the toggle in **Climate Settings** and use **Preview: Temperature**, **Moisture** or **Biome** to inspect the result.
+For example, equator Z **0** and polar distance **5,000** places nominal warm bands at Z=0, ±10,000, ±20,000 and nominal polar bands at ±5,000, ±15,000. Original temperature warps distort those boundaries and do not repeat identically from one cycle to the next. Both latitude temperature and latitude moisture follow the repeating pattern; regional and terrain effects still apply. Change the toggle in **Climate Settings** and use **Preview: Temperature**, **Moisture** or **Biome** to inspect the result.
 
 ## Saves and compatibility
 
@@ -26,7 +27,11 @@ An owned Overworld with an enabled `terralatitude-climate.json` schema-1 marker 
 
 ## Draft model and verification status
 
-New presets use **`ftf:latitude_v2_repeating_draft`**, schema 1. Existing **`ftf:latitude_v1_draft`** profiles keep their original nonrepeating polar caps; decoding never upgrades them. The **Repeat latitude bands** toggle explicitly selects between the two models for a new-world preset. It uses cubic smoothstep temperature and bounded piecewise smoothstep moisture knots. The initial editor values are equator 0, pole distance 50,000, temperature strength 0.75 and moisture strength 0.5. They are provisional tuning values.
+New presets use **`ftf:latitude_v3_original_repeating_draft`**, schema 1, with native climate still off. Turning repetition off selects **`ftf:latitude_v3_original_capped_draft`**. Both retain the original signed sine-power temperature shape and two Perlin warp stages, rescaled to the configured pole distance and shifted to the equator. This restores the style of the original generator; enabling it changes coordinates/output, so it is not an exact old-world migration.
+
+Existing **`ftf:latitude_v1_draft`** (capped) and **`ftf:latitude_v2_repeating_draft`** (repeating) profiles keep their smooth temperature model. Decoding never upgrades saved profiles. In a **new-world preset**, enable **Original FTF temperature bands** to switch an older profile; it retains your strengths, so set temperature influence to 1.0 if you want the configured pattern alone. A value such as 0.65 still works, but mixes the old and configured patterns.
+
+Initial editor values are equator 0, pole distance 50,000, temperature influence 1.0 and moisture influence 0.5. Moisture retains the same piecewise smoothstep latitude knots and the existing regional/coastal/elevation pipeline. Altitude cooling is unchanged. More physical cooling, actual coast-distance influence and directional rain shadows remain separate follow-up decisions.
 
 This build is not generation-stable. The final model/default decision, comparative biome maps, client preview checks, dedicated-server save/reopen matrix and performance budget remain release gates. Do not assume that draft worlds have a supported migration to a later stable model.
 
@@ -36,10 +41,10 @@ Example optional object inside a preset's `climate` settings:
 "latitude": {
   "enabled": true,
   "schemaVersion": 1,
-  "model": "ftf:latitude_v2_repeating_draft",
+  "model": "ftf:latitude_v3_original_repeating_draft",
   "equatorZ": 0,
   "poleDistance": 50000,
-  "temperatureStrength": 0.75,
+  "temperatureStrength": 1.0,
   "moistureStrength": 0.5
 }
 ```
@@ -58,7 +63,7 @@ Use count 1 for a point, 0 for an explicit empty export, and zero steps to retai
 
 Exports are UTF-8 JSON under the world's `debug/ftf-latitude/`. They contain version/model/profile/seed/dimension provenance, evaluator class SHA-256, requested and quart-aligned block coordinates, surface height, regional/latitude/blended/shaped values, final cell values, independently queried actual sampler coordinates, sampled biome and stored biome where a chunk is already loaded. No chunks are loaded or generated for the command; absent stored biome data is recorded as null. Existing terrain queries still perform the usual FTF terrain calculations.
 
-Regional and stage fields use 0–1 units; cell fields are signed −1–1; actual sampler fields are Minecraft's quantized climate values. Terrain filters, cache paths and biome policies can explain differences: a recomputed shaping value alone does not certify generated-world correctness. Compare equivalent coordinates and inspect stored generated biomes as part of release validation.
+For v3, the temperature target fields contain the actual warped original-band target; the fraction and moisture target remain unwarped geographic values. Regional and stage fields use 0–1 units; cell fields are signed −1–1; actual sampler fields are Minecraft's quantized climate values. Terrain filters, cache paths and biome policies can explain differences: a recomputed shaping value alone does not certify generated-world correctness. Compare equivalent coordinates and inspect stored generated biomes as part of release validation.
 
 ## Development checks
 

@@ -1,5 +1,7 @@
 # Repeating native latitude bands
 
+Historical v2 implementation record. New profiles now use original-band v3; see [ORIGINAL-BANDS.md](ORIGINAL-BANDS.md). Saved v1/v2 behavior described here remains supported.
+
 The user requested that travel beyond polar climate eventually returns to warm climate,
 particularly when using a short polar distance. New profiles now default to the model
 `ftf:latitude_v2_repeating_draft`, while native latitude itself remains disabled by default.

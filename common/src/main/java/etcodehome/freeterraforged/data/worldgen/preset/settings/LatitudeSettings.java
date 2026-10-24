@@ -10,7 +10,9 @@ public record LatitudeSettings(boolean enabled, int schemaVersion, String model,
     public static final int LIMIT = 30_000_000;
     public static final String LEGACY_MODEL = "ftf:latitude_v1_draft";
     public static final String MODEL = "ftf:latitude_v2_repeating_draft";
-    public static final LatitudeSettings DEFAULT = new LatitudeSettings(false, 1, MODEL, 0, 50_000, 0.75F, 0.5F);
+    public static final String ORIGINAL_MODEL = "ftf:latitude_v3_original_repeating_draft";
+    public static final String ORIGINAL_CAPPED_MODEL = "ftf:latitude_v3_original_capped_draft";
+    public static final LatitudeSettings DEFAULT = new LatitudeSettings(false, 1, ORIGINAL_MODEL, 0, 50_000, 1.0F, 0.5F);
 
     // Codec.INT silently truncates fractional numbers; geographic fields require exact integers.
     private static final Codec<Integer> INTEGER = Codec.PASSTHROUGH.comapFlatMap(dynamic -> {
@@ -31,7 +33,7 @@ public record LatitudeSettings(boolean enabled, int schemaVersion, String model,
         Codec.BOOL.fieldOf("enabled").forGetter(LatitudeSettings::enabled),
         INTEGER.validate(v -> v == 1 ? DataResult.success(v) : DataResult.error(() -> "Unsupported latitude schemaVersion: " + v))
             .fieldOf("schemaVersion").forGetter(LatitudeSettings::schemaVersion),
-        Codec.STRING.validate(v -> (MODEL.equals(v) || LEGACY_MODEL.equals(v)) ? DataResult.success(v) : DataResult.error(() -> "Unsupported latitude model: " + v))
+        Codec.STRING.validate(v -> supportedModel(v) ? DataResult.success(v) : DataResult.error(() -> "Unsupported latitude model: " + v))
             .fieldOf("model").forGetter(LatitudeSettings::model),
         INTEGER.validate(v -> v >= -LIMIT && v <= LIMIT ? DataResult.success(v) : DataResult.error(() -> "Latitude equatorZ outside world bounds"))
             .fieldOf("equatorZ").forGetter(LatitudeSettings::equatorZ),
@@ -61,7 +63,7 @@ public record LatitudeSettings(boolean enabled, int schemaVersion, String model,
     };
 
     public LatitudeSettings {
-        if (schemaVersion != 1 || !(MODEL.equals(model) || LEGACY_MODEL.equals(model)) || equatorZ < -LIMIT || equatorZ > LIMIT
+        if (schemaVersion != 1 || !supportedModel(model) || equatorZ < -LIMIT || equatorZ > LIMIT
             || poleDistance < 1 || poleDistance > LIMIT || !validStrength(temperatureStrength) || !validStrength(moistureStrength)) {
             throw new IllegalArgumentException("Invalid or unsupported native latitude profile");
         }
@@ -71,11 +73,24 @@ public record LatitudeSettings(boolean enabled, int schemaVersion, String model,
         return Float.isFinite(value) && value >= 0.0F && value <= 1.0F;
     }
 
-    public boolean repeating() { return MODEL.equals(model); }
+    private static boolean supportedModel(String model) {
+        return MODEL.equals(model) || LEGACY_MODEL.equals(model)
+            || ORIGINAL_MODEL.equals(model) || ORIGINAL_CAPPED_MODEL.equals(model);
+    }
+
+    public boolean originalBands() { return ORIGINAL_MODEL.equals(model) || ORIGINAL_CAPPED_MODEL.equals(model); }
+
+    public boolean repeating() { return MODEL.equals(model) || ORIGINAL_MODEL.equals(model); }
+
+    public LatitudeSettings withOriginalBands(boolean value) {
+        String selected = value ? (repeating() ? ORIGINAL_MODEL : ORIGINAL_CAPPED_MODEL)
+            : (repeating() ? MODEL : LEGACY_MODEL);
+        return new LatitudeSettings(enabled, schemaVersion, selected, equatorZ, poleDistance, temperatureStrength, moistureStrength);
+    }
 
     /** Explicit editor choice for new-world presets; decoding never migrates saved profiles. */
     public LatitudeSettings withRepeating(boolean value) {
-        return new LatitudeSettings(enabled, schemaVersion, value ? MODEL : LEGACY_MODEL,
+        return new LatitudeSettings(enabled, schemaVersion, originalBands() ? (value ? ORIGINAL_MODEL : ORIGINAL_CAPPED_MODEL) : (value ? MODEL : LEGACY_MODEL),
             equatorZ, poleDistance, temperatureStrength, moistureStrength);
     }
 

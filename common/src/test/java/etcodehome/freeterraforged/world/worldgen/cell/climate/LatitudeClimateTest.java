@@ -23,6 +23,9 @@ import java.util.concurrent.Executors;
 /** Focused offline tests. The frozen oracle exercises the pre-change implementation, not rewritten formulas. */
 public final class LatitudeClimateTest {
     private static int checks;
+    // Frozen v2 starting profile: keep all existing smooth-model regression tests.
+    private static final LatitudeSettings SMOOTH_DEFAULT = new LatitudeSettings(false, 1,
+        LatitudeSettings.MODEL, 0, 50_000, .75F, .5F);
     private static final Continent LAND = new Continent() {
         public void apply(Cell cell, float x, float z) {}
         public float getEdgeValue(float x, float z) { return 1.0F; }
@@ -34,7 +37,7 @@ public final class LatitudeClimateTest {
     public static void main(String[] args) throws Exception {
         net.minecraft.SharedConstants.tryDetectVersion();
         net.minecraft.server.Bootstrap.bootStrap();
-        codec(); geography(); repeatingGeography(); ranges(); regression(); ownership(); coordinatePath(); compatibility(); diagnosticRequests();
+        codec(); originalBands(); geography(); repeatingGeography(); ranges(); regression(); ownership(); coordinatePath(); compatibility(); diagnosticRequests();
         System.out.println("Native latitude offline checks passed: " + checks);
     }
 
@@ -43,7 +46,7 @@ public final class LatitudeClimateTest {
         JsonObject legacy = ClimateSettings.CODEC.encodeStart(JsonOps.INSTANCE, settings).getOrThrow().getAsJsonObject();
         check(!legacy.has("latitude"), "default omission preserves existing preset fingerprints");
         check(!ClimateSettings.CODEC.parse(JsonOps.INSTANCE, legacy).getOrThrow().latitude.enabled(), "absent legacy");
-        settings.latitude = LatitudeSettings.DEFAULT.withEnabled(true).withGeometry(-29_999_999, 1).withStrengths(0, 1);
+        settings.latitude = SMOOTH_DEFAULT.withEnabled(true).withGeometry(-29_999_999, 1).withStrengths(0, 1);
         JsonObject encoded = ClimateSettings.CODEC.encodeStart(JsonOps.INSTANCE, settings).getOrThrow().getAsJsonObject();
         check(ClimateSettings.CODEC.parse(JsonOps.INSTANCE, encoded).getOrThrow().latitude.equals(settings.latitude), "round trip");
         var nbt = ClimateSettings.CODEC.encodeStart(net.minecraft.nbt.NbtOps.INSTANCE, settings).getOrThrow();
@@ -83,13 +86,107 @@ public final class LatitudeClimateTest {
         invalid.getAsJsonObject("latitude").addProperty("model", "ftf:unknown"); rejects(invalid, "disabled unknown model");
     }
 
+    private static void originalBands() {
+        check(LatitudeSettings.DEFAULT.originalBands(), "new presets select original bands");
+        check(!LatitudeSettings.DEFAULT.enabled(), "new presets remain opt-in");
+        bits(1, LatitudeSettings.DEFAULT.temperatureStrength(), "configured source alone by default");
+        var world = WorldSettings.makeDefault(); var levels = new Levels(world.properties);
+        var settings = ClimateSettings.makeDefault();
+        for (boolean original : new boolean[]{false, true}) for (boolean repeat : new boolean[]{false, true}) {
+            var profile = LatitudeSettings.DEFAULT.withOriginalBands(original).withRepeating(repeat).withEnabled(true);
+            check(profile.originalBands() == original && profile.repeating() == repeat, "model family selection");
+            check(profile.withRepeating(!repeat).originalBands() == original, "repeat preserves shape");
+            var json = LatitudeSettings.CODEC.encodeStart(JsonOps.INSTANCE, profile).getOrThrow();
+            check(LatitudeSettings.CODEC.parse(JsonOps.INSTANCE, json).getOrThrow().equals(profile), "all model JSON identities");
+            var nbt = LatitudeSettings.CODEC.encodeStart(net.minecraft.nbt.NbtOps.INSTANCE, profile).getOrThrow();
+            check(LatitudeSettings.CODEC.parse(net.minecraft.nbt.NbtOps.INSTANCE, nbt).getOrThrow().equals(profile), "all model NBT identities");
+        }
+        // Compare with the original production graph at equivalent coordinates.
+        // The small tolerance is one sine-table bin plus float coordinate rounding.
+        var profile = LatitudeSettings.DEFAULT.withEnabled(true).withGeometry(0, 10000);
+        for (int falloff : new int[]{1, 2, 5, 10}) {
+            var bands = new OriginalTemperatureBands(profile, falloff, 1234, 1235);
+            Noise oracle = new etcodehome.freeterraforged.world.worldgen.noise.module.LegacyTemperature(1, falloff);
+            oracle = Noises.warpPerlin(oracle, 1234, 4, 2, 4);
+            oracle = Noises.warpPerlin(oracle, 1235, 1, 1, 1);
+            for (int i = 0; i < 1000; i++) {
+                double x = i * 37 - 17000, z = i * 71 - 30000;
+                float expected = oracle.compute((float)(x * Math.PI / 10000), (float)(z * Math.PI / 10000 + Math.PI / 2), 0);
+                check(Math.abs(expected - bands.sample(x, z)) < .002F, "preserved legacy curve and warp composition");
+            }
+        }
+        // Configured shape remains responsive to Falloff; spacing scales the whole
+        // temperature pattern, and translating the equator translates its warps.
+        var bands = new OriginalTemperatureBands(profile, 5, 7, 8);
+        var shifted = new OriginalTemperatureBands(profile.withGeometry(12345, 10000), 5, 7, 8);
+        var stretched = new OriginalTemperatureBands(profile.withGeometry(0, 20000), 5, 7, 8);
+        for (int i = 0; i < 100; i++) {
+            double x = i * 113, z = i * 517 - 25000;
+            bits(bands.sample(x, z), shifted.sample(x, z + 12345), "equator translation");
+            bits(bands.sample(x, z), stretched.sample(x * 2, z * 2), "original pattern spacing");
+        }
+        check(Math.abs(OriginalTemperatureBands.curve(.8, 1) - OriginalTemperatureBands.curve(.8, 5)) > .1F, "falloff shapes configured bands");
+        for (int distance : new int[]{1, 2, 5000, 30000000}) for (boolean repeat : new boolean[]{false, true}) {
+            settings.latitude = profile.withGeometry(30000000, distance).withRepeating(repeat).withStrengths(1, 0);
+            settings.temperature.distributionBias = .7F;
+            var module = new ClimateModule(new Seed(123), LAND, world.controlPoints, settings, levels);
+            for (int i = 0; i < 100; i++) {
+                int z = 29999900 + i;
+                Cell actual = cell(levels, i);
+                module.apply(actual, 123, z, 123, (double)z, false);
+                var d = module.diagnose(123, z, z, actual.height);
+                bits(actual.temperature, d.shapedTemperature() * 2 - 1, "original diagnostics match real sampling");
+                check(Float.isFinite(actual.temperature) && actual.temperature >= -1 && actual.temperature <= 1, "original world-limit bounds");
+                bits(d.targets().rangedTemperature(), d.blendedTemperature(), "one range mapping of warped original target");
+                var legacy = settings.copy(); legacy.latitude = settings.latitude.withEnabled(false);
+                var oldModule = new ClimateModule(new Seed(123), LAND, world.controlPoints, legacy, levels);
+                Cell old = cell(levels, i); oldModule.apply(old, 123, z, 123, (double)z, false);
+                bits(old.moisture, actual.moisture, "original mode leaves zero-strength moisture exact");
+                bits(oldModule.sampleRaw(123, z).temperature(), module.sampleRaw(123, z).temperature(), "original mode retains raw API");
+            }
+        }
+        // Exercise the integer Heightmap path at odd Z beyond float integer precision.
+        var farSettings = ClimateSettings.makeDefault();
+        farSettings.biomeShape.biomeWarpStrength = 0;
+        farSettings.latitude = profile.withGeometry(30000000, 2).withStrengths(1, 0);
+        var nearSettings = farSettings.copy(); nearSettings.latitude = farSettings.latitude.withGeometry(0, 2);
+        var farModule = new ClimateModule(new Seed(3), LAND, world.controlPoints, farSettings, levels);
+        var nearModule = new ClimateModule(new Seed(3), LAND, world.controlPoints, nearSettings, levels);
+        var farClimate = new Climate(0, Noises.zero(), Noises.zero(), 0, levels, farModule);
+        var farHeightmap = new Heightmap(null, null, LAND, farClimate, levels, world.controlPoints, 1, Noises.zero());
+        for (int i = 1; i <= 99; i += 2) {
+            Cell far = cell(levels, 0), near = cell(levels, 0);
+            farHeightmap.applyClimate(far, 0, 30000000 - i, true);
+            nearModule.apply(near, 0, -i, 0, (double)-i, true);
+            bits(near.temperature, far.temperature, "original integer-world coordinate precision");
+        }
+        // Enabled zero-temperature and disabled v3 profiles preserve the frozen oracle.
+        for (float strength : new float[]{0, .65F, 1}) for (boolean enabled : new boolean[]{false, true}) {
+            settings.latitude = profile.withEnabled(enabled).withStrengths(strength, 0);
+            PresetManager.PM.climateSettings = settings.copy();
+            var beforeSeed = new Seed(19); var afterSeed = new Seed(19);
+            var before = new LegacyClimateModuleFixture(beforeSeed, LAND, world.controlPoints, settings, levels);
+            var after = new ClimateModule(afterSeed, LAND, world.controlPoints, settings, levels);
+            check(beforeSeed.next() == afterSeed.next(), "original mode preserves root seed sequence");
+            for (int i = 0; i < 100; i++) {
+                int x = i * 211, z = i * 397 - 20000;
+                Cell old = cell(levels, i), actual = cell(levels, i);
+                before.apply(old, x, z, x, z, false); after.apply(actual, x, z, x, z, false);
+                if (!enabled || strength == 0) bits(old.temperature, actual.temperature, "original exact temperature bypass");
+                bits(old.moisture, actual.moisture, "original moisture bypass");
+                var d = after.diagnose(x, z, z, actual.height);
+                if (enabled) bits(LatitudeClimate.blend(d.regionalTemperature(), d.targets().rangedTemperature(), strength), d.blendedTemperature(), "original influence blend");
+            }
+        }
+    }
+
     private static void rejects(JsonObject value, String label) {
         check(ClimateSettings.CODEC.parse(JsonOps.INSTANCE, value).error().isPresent(), label);
     }
 
     private static void geography() {
         var settings = ClimateSettings.makeDefault();
-        settings.latitude = LatitudeSettings.DEFAULT.withEnabled(true).withGeometry(-12345, 50000);
+        settings.latitude = SMOOTH_DEFAULT.withEnabled(true).withGeometry(-12345, 50000);
         var model = new LatitudeClimate(settings);
         float previous = 1;
         for (int i = 0; i <= 10000; i++) {
@@ -119,7 +216,7 @@ public final class LatitudeClimateTest {
     private static void repeatingGeography() {
         var settings = ClimateSettings.makeDefault();
         for (boolean repeating : new boolean[]{false, true}) {
-            var profile = LatitudeSettings.DEFAULT.withEnabled(true).withRepeating(repeating);
+            var profile = SMOOTH_DEFAULT.withEnabled(true).withRepeating(repeating);
             var json = LatitudeSettings.CODEC.encodeStart(JsonOps.INSTANCE, profile).getOrThrow();
             check(LatitudeSettings.CODEC.parse(JsonOps.INSTANCE, json).getOrThrow().equals(profile), "saved model round trip");
             check(profile.repeating() == repeating, "explicit repeat choice");
@@ -131,7 +228,7 @@ public final class LatitudeClimateTest {
         }
         for (int equator : new int[]{-30_000_000, -12345, 0, 30_000_000}) {
             for (int distance : new int[]{1, 7, 5000, 30_000_000}) {
-                settings.latitude = LatitudeSettings.DEFAULT.withEnabled(true).withGeometry(equator, distance).withStrengths(1, 1);
+                settings.latitude = SMOOTH_DEFAULT.withEnabled(true).withGeometry(equator, distance).withStrengths(1, 1);
                 var model = new LatitudeClimate(settings);
                 for (int k = -8; k <= 8; k++) {
                     double z = equator + (double) k * distance;
@@ -164,7 +261,7 @@ public final class LatitudeClimateTest {
                 bits(-0.0F, zero.moisture(-0.0F, equator + 2D * distance), "repeating zero moisture exact");
             }
         }
-        settings.latitude = LatitudeSettings.DEFAULT.withEnabled(true).withGeometry(0, 5000).withStrengths(1, 1);
+        settings.latitude = SMOOTH_DEFAULT.withEnabled(true).withGeometry(0, 5000).withStrengths(1, 1);
         var model = new LatitudeClimate(settings);
         check(model.fraction(0) == 0 && model.fraction(5000) == 1 && model.fraction(10000) == 0, "user 5000-block example");
         check(!settings.latitude.withRepeating(false).equals(settings.latitude), "repeat changes profile identity for preview");
@@ -172,7 +269,7 @@ public final class LatitudeClimateTest {
 
     private static void ranges() {
         var settings = ClimateSettings.makeDefault();
-        settings.latitude = LatitudeSettings.DEFAULT.withEnabled(true).withStrengths(1, 1);
+        settings.latitude = SMOOTH_DEFAULT.withEnabled(true).withStrengths(1, 1);
         for (float bias : new float[]{-1, -.2F, 0, .2F, 1}) for (float distribution : new float[]{-3, 0, 3}) {
             settings.temperature = new ClimateSettings.RangeValue(0, 1, 1, .1F, .9F, bias, distribution);
             var model = new LatitudeClimate(settings);
@@ -199,13 +296,13 @@ public final class LatitudeClimateTest {
             if (preset == 1) { settings.moisture.distributionBias = -1.5F; settings.temperature.min = .2F; settings.coastalMoistureBoost = 0; }
             if (preset == 2) { settings.altitudeCoolingStrength = 0; settings.rainShadowStrength = 3; settings.moisture.offsetBias = -.15F; }
             PresetManager.PM.climateSettings = settings.copy();
-            settings.latitude = LatitudeSettings.DEFAULT.withGeometry(-321, 1234).withStrengths(.2F, .9F);
+            settings.latitude = SMOOTH_DEFAULT.withGeometry(-321, 1234).withStrengths(.2F, .9F);
             var oldSeed = new Seed(seed); var newSeed = new Seed(seed);
             var old = new LegacyClimateModuleFixture(oldSeed, LAND, world.controlPoints, settings, levels);
             var legacy = new ClimateModule(newSeed, LAND, world.controlPoints, settings, levels);
             check(oldSeed.next() == newSeed.next(), "seed sequence");
             for (float t : new float[]{0, .5F, 1}) for (float m : new float[]{0, .5F, 1}) {
-                settings.latitude = LatitudeSettings.DEFAULT.withEnabled(true).withStrengths(t, m);
+                settings.latitude = SMOOTH_DEFAULT.withEnabled(true).withStrengths(t, m);
                 var nativeModule = new ClimateModule(new Seed(seed), LAND, world.controlPoints, settings, levels);
                 for (int i = 0; i < 120; i++) {
                     int x = i * 71 - 4231, z = i * 1031 - 60001;
@@ -235,7 +332,7 @@ public final class LatitudeClimateTest {
     private static void ownership() throws Exception {
         var world = WorldSettings.makeDefault(); var levels = new Levels(world.properties);
         var settings = ClimateSettings.makeDefault();
-        settings.latitude = LatitudeSettings.DEFAULT.withEnabled(true);
+        settings.latitude = SMOOTH_DEFAULT.withEnabled(true);
         var a = new ClimateModule(new Seed(12), LAND, world.controlPoints, settings, levels);
         Cell expected = cell(levels, 3); a.apply(expected, 351, 283, 351, 283, true);
         settings.altitudeCoolingStrength = 0; settings.coastalMoistureBoost = 1; settings.rainShadowStrength = 0;
@@ -258,7 +355,7 @@ public final class LatitudeClimateTest {
         var world = WorldSettings.makeDefault(); var levels = new Levels(world.properties);
         var settings = ClimateSettings.makeDefault();
         settings.temperature.min = 0; settings.temperature.max = 1; settings.temperature.offsetBias = 0;
-        settings.latitude = LatitudeSettings.DEFAULT.withEnabled(true).withGeometry(30_000_000, 2).withStrengths(1, 0);
+        settings.latitude = SMOOTH_DEFAULT.withEnabled(true).withGeometry(30_000_000, 2).withStrengths(1, 0);
         var module = new ClimateModule(new Seed(0), LAND, world.controlPoints, settings, levels);
         var climate = new Climate(0, Noises.constant(17), Noises.constant(29), 300, levels, module);
         var heightmap = new Heightmap(null, null, LAND, climate, levels, world.controlPoints, 1, Noises.zero());
@@ -271,7 +368,7 @@ public final class LatitudeClimateTest {
     }
 
     private static void compatibility() throws Exception {
-        var off = LatitudeSettings.DEFAULT; var on = off.withEnabled(true);
+        var off = SMOOTH_DEFAULT; var on = off.withEnabled(true);
         LatitudeCompatibility.validateMods(off, id -> true);
         for (String id : new String[]{"naturaltemperature", "terralatitude", "fnf_altitude"}) {
             fails(() -> LatitudeCompatibility.validateMods(on, id::equals), "active conflict " + id);
@@ -306,7 +403,7 @@ public final class LatitudeClimateTest {
         try { LatitudeDiagnosticPoints.transect(30_000_000, 0, Integer.MAX_VALUE, 0, 2); throw new AssertionError("diagnostic overflow"); }
         catch (IllegalArgumentException expected) { checks++; }
         var world = WorldSettings.makeDefault(); var levels = new Levels(world.properties);
-        var settings = ClimateSettings.makeDefault(); settings.latitude = LatitudeSettings.DEFAULT.withEnabled(true).withStrengths(1, 1);
+        var settings = ClimateSettings.makeDefault(); settings.latitude = SMOOTH_DEFAULT.withEnabled(true).withStrengths(1, 1);
         var module = new ClimateModule(new Seed(0), LAND, world.controlPoints, settings, levels);
         var cell = cell(levels, 2); module.apply(cell, 0, 0, 0, 0, true);
         var diagnostic = module.diagnose(0, 0, 0, cell.height);

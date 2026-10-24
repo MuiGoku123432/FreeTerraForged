@@ -260,6 +260,10 @@ class ClimateSettingsPage extends PresetEditorPage {
             climate.latitude = climate.latitude.withEnabled(value);
             if (this.latitudeValid) this.regenerate();
         }));
+        this.left.addWidget(PresetWidgets.createToggle(profile.originalBands(), LATITUDE + "original", (button, value) -> {
+            climate.latitude = climate.latitude.withOriginalBands(value);
+            if (this.latitudeValid) this.regenerate();
+        }));
         this.left.addWidget(PresetWidgets.createToggle(profile.repeating(), LATITUDE + "repeating", (button, value) -> {
             climate.latitude = climate.latitude.withRepeating(value);
             if (this.latitudeValid) this.regenerate();

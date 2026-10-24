@@ -11,9 +11,11 @@ public final class LatitudeClimate {
     private final LatitudeSettings settings;
     private final Range temperature;
     private final Range moisture;
+    private final int temperatureFalloff;
 
     public LatitudeClimate(ClimateSettings settings) {
         this.settings = settings.latitude;
+        this.temperatureFalloff = settings.temperature.falloff;
         this.temperature = new Range(settings.temperature);
         this.moisture = new Range(settings.moisture);
     }
@@ -46,8 +48,17 @@ public final class LatitudeClimate {
     }
 
     public float temperature(float regional, double geographicZ) {
+        return temperatureFromTarget(regional, nominalTemperatureTarget(geographicZ));
+    }
+
+    public float nominalTemperatureTarget(double geographicZ) {
+        double u = fraction(geographicZ);
+        return settings.originalBands() ? OriginalTemperatureBands.curve(u * Math.PI, temperatureFalloff) : temperatureTarget(u);
+    }
+
+    public float temperatureFromTarget(float regional, float target) {
         if (!settings.enabled() || settings.temperatureStrength() == 0.0F) return regional;
-        return blend(regional, temperature.apply(temperatureTarget(fraction(geographicZ))), settings.temperatureStrength());
+        return blend(regional, temperature.apply(target), settings.temperatureStrength());
     }
 
     public float moisture(float regional, double geographicZ) {
@@ -63,8 +74,12 @@ public final class LatitudeClimate {
 
     /** Diagnostic-only allocation; hot-path blending returns scalars. */
     public Targets targets(double geographicZ) {
+        return targets(geographicZ, nominalTemperatureTarget(geographicZ));
+    }
+
+    /** Temperature is the actual warped target when supplied by ClimateModule. */
+    public Targets targets(double geographicZ, float t) {
         double u = fraction(geographicZ);
-        float t = temperatureTarget(u);
         float m = moistureTarget(u);
         return new Targets(u, t, m, temperature.apply(t), moisture.apply(m));
     }
