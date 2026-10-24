@@ -36,8 +36,6 @@ Additional feature contributions are welcomed via forking and raising a merge PR
 - Click Done to save your edits.
 - Click Cancel to abandon your edits.
 
-The custom branch also includes experimental [native latitude climate](docs/native-latitude.md), with independent temperature and moisture influence. It is disabled by default.
-
 ---
 
 ## Biome replacement

@@ -15,24 +15,6 @@ public final class FTFLanguageProvider {
 
 		@Override
 		protected void addTranslations() {
-			this.add("freeterraforged.gui.latitude.title", "Native latitude climate (experimental)");
-			this.add("freeterraforged.gui.latitude.original.tooltip", "Use the original sine-power temperature shape and Perlin-warped boundaries, with configurable equator and spacing. Off selects the earlier smooth latitude model. Falloff still controls the original shape. For new-world presets only.");
-			this.add("freeterraforged.gui.latitude.original", "Original FTF temperature bands");
-			this.add("freeterraforged.gui.latitude.enabled", "Native latitude climate");
-			this.add("freeterraforged.gui.latitude.enabled.tooltip", "Configure north-south temperature and moisture patterns. Disabled preserves existing climate. Configure new worlds only; this draft model is not generation-stable.");
-			this.add("freeterraforged.gui.latitude.repeating", "Repeat latitude bands");
-			this.add("freeterraforged.gui.latitude.repeating.tooltip", "Repeat warm-polar-warm bands in both directions. Off keeps polar targets beyond the first poles (original temperature boundaries still warp). Applies independently to temperature and moisture according to their strengths.");
-			this.add("freeterraforged.gui.latitude.equator", "Equator Z (blocks)");
-			this.add("freeterraforged.gui.latitude.equator.tooltip", "Nominal warm-band center before warping and terrain effects. Original FTF bands wander around this latitude. Enter an integer from -30000000 to 30000000.");
-			this.add("freeterraforged.gui.latitude.distance", "Distance to polar climate (blocks)");
-			this.add("freeterraforged.gui.latitude.distance.tooltip", "Nominal equator-to-pole spacing, 1 to 30000000 blocks. Repeating gives a warm-polar-warm cycle of twice this distance. Original FTF boundaries wander; these are not exact climate guarantees at each Z.");
-			this.add("freeterraforged.gui.latitude.temperature", "Temperature band influence");
-			this.add("freeterraforged.gui.latitude.temperature.tooltip", "0 keeps unconfigured temperature; 1 uses the configured bands. Original FTF mode retains its warps and Falloff even at 1; pole distance replaces Scale for this contribution. Intermediate values blend both patterns. Range, bias and altitude cooling still apply.");
-			this.add("freeterraforged.gui.latitude.moisture", "Moisture latitude strength");
-			this.add("freeterraforged.gui.latitude.moisture.tooltip", "0 retains existing moisture exactly. Higher values blend wet/dry latitude regions before the existing coastal boost and elevation drying. At 1 the regional moisture contribution is zero.");
-			this.add("freeterraforged.gui.latitude.moisture_zero", "0 = Existing moisture");
-			this.add("freeterraforged.gui.latitude.invalid", "Invalid block coordinates; preview not applied.");
-
 			this.add(FTFTranslationKeys.METADATA_DESCRIPTION, "FreeTerraForged resources");
 			this.add(FTFTranslationKeys.PRESET_METADATA_DESCRIPTION, "FreeTerraForged preset");
 			this.add(FTFTranslationKeys.DEFAULT_PRESET_PACK_DESCRIPTION, "FreeTerraForged default world preset");

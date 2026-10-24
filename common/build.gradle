@@ -19,17 +19,6 @@ repositories {
     maven { url "https://api.modrinth.com/maven" }
 }
 
-// Runs real common climate/codec code with a test-only registry binding, without launching Minecraft.
-// This does not substitute for loader, saved-world, or client/server acceptance tests.
-tasks.register("latitudeTest", JavaExec) {
-    dependsOn testClasses
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = "etcodehome.freeterraforged.world.worldgen.cell.climate.LatitudeClimateTest"
-    workingDir = layout.buildDirectory.dir("latitude-test").get().asFile
-    doFirst { workingDir.mkdirs() }
-}
-check.dependsOn tasks.named("latitudeTest")
-
 remapJar {
     archiveClassifier.set("${rootProject.minecraft_version}")
 }

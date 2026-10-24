@@ -1,5 +1,7 @@
 # Upstream PR #321 integration
 
+Historical integration/testing record. Native latitude has since been removed; the biome replacement and other custom integrations remain. See [current custom build](../../../docs/custom-build.md).
+
 Integrated 2026-10-22 into `1_21_1-unstable-custom`, preserving native latitude and earlier custom changes.
 
 - Latest fetched upstream `1.21.1_unstable`: `22c2801b4772dbde04044ec80551e5bb89c845a1`. The custom branch already contained it; zero upstream commits were missing.

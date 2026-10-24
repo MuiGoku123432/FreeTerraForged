@@ -1,5 +1,7 @@
 # Combined custom build for F&F Terra
 
+Historical integration/testing record. Native latitude has since been removed; the biome replacement and other custom integrations remain. See [current custom build](../../../docs/custom-build.md).
+
 ## Retained and restored work
 
 The integration starts from `3a3592ed` (native latitude plus upstream PR #321).

@@ -37,14 +37,14 @@ final class PreviewTileClimateSampler implements MarkerFunction.Mapped {
 		private final Tile tile;
 		private final WorldLookup worldLookup;
 		private final Cell sampledCell = new Cell();
-		private final double translateX;
-		private final double translateZ;
+		private final float translateX;
+		private final float translateZ;
 		private final float zoom;
 		private int lastX = Integer.MIN_VALUE;
 		private int lastZ = Integer.MIN_VALUE;
 		private Cell lastCell;
 
-		TileLookup(Tile tile, WorldLookup worldLookup, double originX, double originZ, int zoom) {
+		TileLookup(Tile tile, WorldLookup worldLookup, float originX, float originZ, int zoom) {
 			if (zoom <= 0) {
 				throw new IllegalArgumentException("Preview zoom must be positive");
 			}
