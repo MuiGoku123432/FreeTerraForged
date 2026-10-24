@@ -162,6 +162,11 @@ public class TileGenerator {
 	}
 
 	/** Generates a preview tile while allowing superseded UI requests to stop work promptly. */
+    public CompletableFuture<Tile> generateZoomed(int centerX, int centerZ, float zoom, BooleanSupplier cancelled) {
+        return this.submitGeneration(0, 0, cancelled, tile ->
+            this.generateZoomedTile(tile, (float) centerX, (float) centerZ, (double) centerX, (double) centerZ, zoom, cancelled));
+    }
+
 	public CompletableFuture<Tile> generateZoomed(
 		float centerX,
 		float centerZ,
@@ -169,7 +174,7 @@ public class TileGenerator {
 		BooleanSupplier cancelled
 	) {
 		return this.submitGeneration(0, 0, cancelled, tile ->
-			this.generateZoomedTile(tile, centerX, centerZ, zoom, cancelled)
+			this.generateZoomedTile(tile, centerX, centerZ, (double) centerX, (double) centerZ, zoom, cancelled)
 		);
 	}
 
@@ -177,6 +182,8 @@ public class TileGenerator {
 		Tile tile,
 		float centerX,
 		float centerZ,
+        double geographicCenterX,
+        double geographicCenterZ,
 		float zoom,
 		BooleanSupplier cancelled
 	) {
@@ -184,6 +191,9 @@ public class TileGenerator {
 		int submitted = 0;
         float translateX = centerX - this.tileSizeBlocks.size() * zoom / 2.0F;
         float translateZ = centerZ - this.tileSizeBlocks.size() * zoom / 2.0F;
+        boolean precisePreview = this.heightmap.climate().biomeNoise().latitude().settings().active();
+        double geographicTranslateX = geographicCenterX - this.tileSizeBlocks.size() * (double) zoom / 2.0;
+        double geographicTranslateZ = geographicCenterZ - this.tileSizeBlocks.size() * (double) zoom / 2.0;
 		try {
 			for (int batchZ = 0; batchZ < this.batchCount; batchZ++) {
 				for (int batchX = 0; batchX < this.batchCount; batchX++) {
@@ -204,12 +214,17 @@ public class TileGenerator {
 									for (int dx = 0; dx < 16; dx++) {
 										float worldX = (chunk.getBlockX() + dx) * zoom + translateX;
 										float worldZ = (chunk.getBlockZ() + dz) * zoom + translateZ;
+                                        double geographicZ = ((double) chunk.getBlockZ() + dz) * zoom + geographicTranslateZ;
+                                        if (precisePreview) {
+                                            worldX = (float) (((double) chunk.getBlockX() + dx) * zoom + geographicTranslateX);
+                                            worldZ = (float) geographicZ;
+                                        }
 										Cell cell = chunk.getCell(dx, dz);
 
 										this.heightmap.applyTerrain(cell, worldX, worldZ);
 										rivers = Rivermap.get(cell, rivers, this.heightmap);
 										this.heightmap.applyRivers(cell, worldX, worldZ, rivers);
-										this.heightmap.applyClimate(cell, worldX, worldZ, true);
+										this.heightmap.applyClimate(cell, worldX, worldZ, geographicZ, true);
 									}
 								}
 							}

@@ -19,13 +19,17 @@ public record Climate(int randomSeed, Noise offsetX, Noise offsetZ, int offsetDi
 	private static final float EDGE_BLEND = 0.4F;
 
 	public void apply(Cell cell, float x, float z, boolean applyClimate) {
-		this.biomeNoise.apply(cell, x, z, x, z, true);
+		this.apply(cell, x, z, (double) z, applyClimate);
+	}
+
+	public void apply(Cell cell, float x, float z, double geographicZ, boolean applyClimate) {
+		this.biomeNoise.apply(cell, x, z, x, geographicZ, true);
 		if (cell.height <= this.levels.water) {
 			if (cell.terrain == TerrainType.COAST) {
 				cell.terrain = TerrainType.SHALLOW_OCEAN;
 			}
 		} else if (this.usesEdgeClimate(cell)) {
-			this.applyEdge(cell, x, z, false);
+			this.applyEdge(cell, x, z, geographicZ, false);
 		}
 	}
 
@@ -50,6 +54,19 @@ public record Climate(int randomSeed, Noise offsetX, Noise offsetZ, int offsetDi
 		return cell.biomeRegionEdge < EDGE_BLEND || cell.terrain == TerrainType.MOUNTAIN_CHAIN;
 	}
 
+    public ClimateModule.Diagnostic diagnose(Cell cell, int blockX, int blockZ) {
+        float x = blockX;
+        float z = blockZ;
+        if (cell.height > this.levels.water && this.usesEdgeClimate(cell)) {
+            float distance = this.edgeDistance(cell);
+            float dx = this.offsetX.compute(x, z, 0) * distance;
+            float dz = this.offsetZ.compute(x, z, 0) * distance;
+            x += dx;
+            z += dz;
+        }
+        return this.biomeNoise.diagnose(x, z, (double) blockZ, cell.height);
+    }
+
 	private float edgeDistance(Cell cell) {
 		float modifier = 1.0F - NoiseUtil.map(cell.biomeRegionEdge, 0.0F, EDGE_BLEND, EDGE_BLEND);
 		return this.offsetDistance * modifier;
@@ -61,17 +78,17 @@ public record Climate(int randomSeed, Noise offsetX, Noise offsetZ, int offsetDi
 	}
 
 	public void applyEdgeRegion(Cell cell, float x, float z) {
-		this.applyEdge(cell, x, z, true);
+		this.applyEdge(cell, x, z, (double) z, true);
 	}
 
-	private void applyEdge(Cell cell, float x, float z, boolean regionOnly) {
+	private void applyEdge(Cell cell, float x, float z, double geographicZ, boolean regionOnly) {
 		float distance = this.edgeDistance(cell);
 		float dx = this.offsetX.compute(x, z, 0) * distance;
 		float dz = this.offsetZ.compute(x, z, 0) * distance;
 		if (regionOnly) {
 			this.biomeNoise.applyRegion(cell, x + dx, z + dz, false);
 		} else {
-			this.biomeNoise.apply(cell, x + dx, z + dz, x, z, false);
+			this.biomeNoise.apply(cell, x + dx, z + dz, x, geographicZ, false);
 		}
 	}
 	

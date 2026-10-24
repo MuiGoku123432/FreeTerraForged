@@ -25,7 +25,16 @@ public class GeneratorContext implements AutoCloseable {
     public WorldLookup lookup;
     
     public GeneratorContext(Preset preset, HolderGetter<Noise> noiseLookup, long seed, int tileSize, int tileBorder, int batchCount, @Nullable TileCache cache) {
-        this.preset = preset;
+        this(preset, noiseLookup, seed, tileSize, tileBorder, batchCount, cache, true);
+    }
+
+    private GeneratorContext(Preset preset, HolderGetter<Noise> noiseLookup, long seed, int tileSize, int tileBorder,
+                             int batchCount, @Nullable TileCache cache, boolean latitudeScope) {
+        this.preset = preset.copy();
+        if (!latitudeScope) this.preset.climate().latitude = this.preset.climate().latitude.withEnabled(false);
+        etcodehome.freeterraforged.world.worldgen.cell.climate.LatitudeCompatibility.validateMods(
+            this.preset.climate().latitude, etcodehome.freeterraforged.platform.ModLoaderUtil::isLoaded);
+
         this.levels = new Levels(preset.world().properties);
         this.noiseLookup = noiseLookup;
         this.seed = new Seed(seed);
@@ -45,7 +54,12 @@ public class GeneratorContext implements AutoCloseable {
     }
 
     public static GeneratorContext makeCached(Preset preset, HolderGetter<Noise> noiseLookup, long seed, int tileSize, int batchCount, boolean queue) {
-    	GeneratorContext ctx = makeUncached(preset, noiseLookup, seed, tileSize, 2, batchCount);
+        return makeCached(preset, noiseLookup, seed, tileSize, batchCount, queue, true);
+    }
+
+    public static GeneratorContext makeCached(Preset preset, HolderGetter<Noise> noiseLookup, long seed, int tileSize,
+                                               int batchCount, boolean queue, boolean latitudeScope) {
+        GeneratorContext ctx = new GeneratorContext(preset, noiseLookup, seed, tileSize, 2, batchCount, null, latitudeScope);
 		try {
 			ctx.cache = new TileCache(tileSize, queue, ctx.generator);
 			ctx.lookup = new WorldLookup(ctx);

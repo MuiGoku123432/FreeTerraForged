@@ -12,5 +12,6 @@ public final class FTFCommands {
 
 	public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
 		LocateTerrainCommand.register(dispatcher);
+		LatitudeClimateCommand.register(dispatcher);
 	}
 }

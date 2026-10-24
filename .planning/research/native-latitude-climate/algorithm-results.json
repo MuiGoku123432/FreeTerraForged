@@ -1,0 +1,152 @@
+{
+  "constant_albedo_P2_EBM": [
+    {
+      "diffusion": 0,
+      "equator_minus_pole_model_degrees": 85.743,
+      "normalized_difference_from_raised_cosine": 2.7755575615628914e-16
+    },
+    {
+      "diffusion": 0.3,
+      "equator_minus_pole_model_degrees": 45.127894736842094,
+      "normalized_difference_from_raised_cosine": 3.3306690738754696e-16
+    },
+    {
+      "diffusion": 0.6,
+      "equator_minus_pole_model_degrees": 30.6225,
+      "normalized_difference_from_raised_cosine": 2.914335439641036e-16
+    },
+    {
+      "diffusion": 1.2,
+      "equator_minus_pole_model_degrees": 18.639782608695654,
+      "normalized_difference_from_raised_cosine": 3.3306690738754696e-16
+    }
+  ],
+  "curves": {
+    "cubic_smoothstep": {
+      "cold_fraction_below_0_2": 0.28717128287171284,
+      "maximum_slope_per_normalized_latitude": 1.4999999799997568,
+      "temperature_bin_fraction": [
+        0.28717128287171284,
+        0.14578542145785423,
+        0.13408659134086592,
+        0.14578542145785423,
+        0.28717128287171284
+      ],
+      "warm_fraction_above_0_8": 0.28717128287171284
+    },
+    "linear": {
+      "cold_fraction_below_0_2": 0.20007999200079993,
+      "maximum_slope_per_normalized_latitude": 1.000000000001819,
+      "temperature_bin_fraction": [
+        0.20007999200079993,
+        0.19988001199880012,
+        0.20007999200079993,
+        0.19988001199880012,
+        0.20007999200079993
+      ],
+      "warm_fraction_above_0_8": 0.1999800019998
+    },
+    "normalized_annual_insolation": {
+      "cold_fraction_below_0_2": 0.29657034296570345,
+      "maximum_slope_per_normalized_latitude": 1.782605448920549,
+      "temperature_bin_fraction": [
+        0.29657034296570345,
+        0.11398860113988601,
+        0.11838816118388161,
+        0.1436856314368563,
+        0.32736726327367266
+      ],
+      "warm_fraction_above_0_8": 0.32736726327367266
+    },
+    "quintic_smootherstep": {
+      "cold_fraction_below_0_2": 0.32656734326567344,
+      "maximum_slope_per_normalized_latitude": 1.8749999500005288,
+      "temperature_bin_fraction": [
+        0.32656734326567344,
+        0.11968803119688032,
+        0.10748925107489252,
+        0.11968803119688032,
+        0.32656734326567344
+      ],
+      "warm_fraction_above_0_8": 0.32656734326567344
+    },
+    "raised_cosine": {
+      "cold_fraction_below_0_2": 0.29517048295170484,
+      "maximum_slope_per_normalized_latitude": 1.570796300956772,
+      "temperature_bin_fraction": [
+        0.29517048295170484,
+        0.14078592140785923,
+        0.12808719128087193,
+        0.14078592140785923,
+        0.29517048295170484
+      ],
+      "warm_fraction_above_0_8": 0.29517048295170484
+    }
+  },
+  "environment": {
+    "matplotlib": "3.11.2",
+    "numpy": "2.5.4",
+    "python": "3.14.7",
+    "scipy": "1.18.1"
+  },
+  "insolation": {
+    "equator_Q_over_S0": 0.3053172933634285,
+    "orbital_quadrature_max_change_Q_over_S0": 7.533337675891261e-08,
+    "pole_Q_over_S0": 0.12662011495954972,
+    "spherical_mean_Q_over_S0_expected_one_quarter": 0.24999996787715073,
+    "zero_tilt_max_error_from_cos_phi_over_pi": 1.1102230246251565e-16
+  },
+  "interpolation": {
+    "natural_cubic_increasing_steps": 3986,
+    "natural_cubic_max": 1.1125378503827732,
+    "natural_cubic_min": -0.04160015202342044,
+    "pchip_increasing_steps": 0,
+    "pchip_max": 1.0,
+    "pchip_min": -5.637851296924623e-18
+  },
+  "moisture_budget": {
+    "final_storage": 0.9511360740429596,
+    "initial_storage": 1.0,
+    "mass_balance_residual": 1.2212453270876722e-15,
+    "total_evaporation": 1.182060221097,
+    "total_rain": 1.2309241470540393,
+    "warning": "Toy budget without cloud delay, thermodynamics or observed calibration",
+    "windward_to_lee_mean_rain_ratio": 95.6019349100869
+  },
+  "moisture_uplift_sensitivity": [
+    {
+      "mass_balance_residual": 1.1102230246251565e-16,
+      "uplift_coefficient": 0.25,
+      "windward_to_lee_mean_rain_ratio": 3.5108152025399972
+    },
+    {
+      "mass_balance_residual": 1.1102230246251565e-15,
+      "uplift_coefficient": 0.75,
+      "windward_to_lee_mean_rain_ratio": 10.36954202529387
+    },
+    {
+      "mass_balance_residual": 3.3306690738754696e-16,
+      "uplift_coefficient": 1.5,
+      "windward_to_lee_mean_rain_ratio": 30.23578164286446
+    },
+    {
+      "mass_balance_residual": 1.2212453270876722e-15,
+      "uplift_coefficient": 2.5,
+      "windward_to_lee_mean_rain_ratio": 95.6019349100869
+    }
+  ],
+  "scope": "Synthetic algorithm experiments only; no FTF runtime, NT parity or biome coverage claims.",
+  "status": "pass",
+  "tile_boundaries": {
+    "capped_ocean_distance_with_halo_max_error_cells": 0.0,
+    "capped_ocean_distance_without_halo_max_error_cells": 38.0,
+    "gaussian_with_halo_max_error": 0.0,
+    "gaussian_without_halo_max_error": 0.11133920809595654
+  },
+  "variation": {
+    "additive_clamp_exact_endpoints_fraction": 0.21062209341511087,
+    "base_exact_endpoints_fraction": 0.17255717255717257,
+    "bounded_modulation_exact_endpoints_fraction": 0.17255717255717257,
+    "warp_min_dzprime_dz_bound": 0.6230088815692248
+  }
+}

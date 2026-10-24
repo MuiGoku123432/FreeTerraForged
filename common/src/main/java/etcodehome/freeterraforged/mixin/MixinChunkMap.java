@@ -29,6 +29,7 @@ import etcodehome.freeterraforged.FTFCommon;
 import etcodehome.freeterraforged.world.worldgen.FTFRandomState;
 import etcodehome.freeterraforged.world.worldgen.FlowSettingsSnapshot;
 import etcodehome.freeterraforged.world.worldgen.IFlowSettingsHolder;
+import etcodehome.freeterraforged.world.worldgen.runtime.BiomeReplacementConfigStore;
 import etcodehome.freeterraforged.world.worldgen.runtime.TagEpoch;
 import etcodehome.freeterraforged.world.worldgen.runtime.TerraForgedChunkGenerator;
 import etcodehome.freeterraforged.world.worldgen.runtime.WorldgenEpoch;
@@ -72,6 +73,15 @@ public class MixinChunkMap {
 			return;
 		}
 
+        if (serverLevel.dimension() == Level.OVERWORLD) {
+            var profile = serverLevel.registryAccess()
+                .lookupOrThrow(etcodehome.freeterraforged.registries.FTFRegistries.PRESET)
+                .getOrThrow(etcodehome.freeterraforged.data.worldgen.preset.settings.Preset.KEY).value().climate().latitude;
+            etcodehome.freeterraforged.world.worldgen.cell.climate.LatitudeCompatibility.validateSavedExternalProfile(
+                serverLevel.getServer().getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT),
+                profile, etcodehome.freeterraforged.platform.ModLoaderUtil::isLoaded);
+        }
+
 		LevelStem selectedStem = new LevelStem(serverLevel.dimensionTypeRegistration(), chunkGenerator);
 		String settingsIdentity = etcodehome.freeterraforged.world.worldgen.runtime.WorldgenSettingsIdentity
 			.describe(chunkGenerator);
@@ -91,6 +101,7 @@ public class MixinChunkMap {
 				resourceRevision
 			),
 			new TagEpoch(0L, WorldgenFingerprints.tags(serverLevel.registryAccess())),
+			BiomeReplacementConfigStore.capture(),
 			WorldgenContributionRevision.snapshot(dimension, providerCatalog)
 		);
 		try {
