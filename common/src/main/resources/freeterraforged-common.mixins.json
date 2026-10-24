@@ -48,6 +48,7 @@
     "MixinJigsawStructure",
     "MixinServerLevel",
     "compat.MixinBiolithDimensionBiomePlacement",
+    "MixinContext",
     "compat.MixinLithostitchedBiomeInjectorManager",
     "compat.MixinLithostitchedEvent"
   ],
