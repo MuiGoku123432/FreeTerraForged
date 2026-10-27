@@ -1,7 +1,5 @@
 package etcodehome.freeterraforged.world.worldgen.highlands;
 
-import java.util.LinkedHashMap;
-import java.util.Map;
 import etcodehome.freeterraforged.data.worldgen.preset.settings.RollingHighlandsSettings;
 import etcodehome.freeterraforged.world.worldgen.GeneratorContext;
 import etcodehome.freeterraforged.world.worldgen.cell.Cell;
@@ -33,7 +31,10 @@ public final class RollingHighlandsContinent implements Continent {
     private final double coastMarker;
     private final etcodehome.freeterraforged.world.worldgen.cell.CellPopulator oceans;
     private final etcodehome.freeterraforged.world.worldgen.noise.module.Noise beachNoise;
-    private final Map<Long, HighlandPlanIndex> cache = new LinkedHashMap<>(16, .75F, true);
+    static final int MAX_PLANS = 8;
+    private final java.util.concurrent.ConcurrentHashMap<Long, PlanEntry> cache = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.concurrent.atomic.AtomicLong useClock = new java.util.concurrent.atomic.AtomicLong();
+    private final ThreadLocal<LastPlan> lastPlan = new ThreadLocal<>();
     private volatile boolean closed;
 
     public RollingHighlandsContinent(GeneratorContext context) {
@@ -60,17 +61,66 @@ public final class RollingHighlandsContinent implements Continent {
         this.beachNoise = etcodehome.freeterraforged.world.worldgen.noise.module.Noises.mul(
             etcodehome.freeterraforged.world.worldgen.noise.module.Noises.perlin2(context.seed.next(), 20, 1), levels.scale(5));
     }
-    private synchronized HighlandPlanIndex plan(int x, int z) {
+    /**
+     * Owner plans: lock-free lookups with a per-thread last-plan fast path; each plan is built once (concurrent
+     * requests for the same owner wait on the same future) and the cache keeps the MAX_PLANS most recently used.
+     * A plan that cannot be built is replaced by a deterministic river-less plan for that owner and logged once,
+     * so world generation never fails on a single continent. Cancellation is not cached.
+     */
+    private HighlandPlanIndex plan(int x, int z) {
         if (closed) throw new IllegalStateException("Rolling Highlands owner is closed");
         long key = PosUtil.pack(x, z);
-        HighlandPlanIndex existing = cache.get(key);
-        if (existing != null) return existing;
-        // At most one build per owner, with no calls into raw/filtered chunk caches.
-        HighlandPlanIndex built = new HighlandPlanIndex(drainage.build(x, z));
-        if (cache.size() == 8) cache.remove(cache.keySet().iterator().next());
-        cache.put(key, built);
-        return built;
+        LastPlan last = lastPlan.get();
+        if (last != null && last.key == key) return last.index;
+        PlanEntry entry = cache.get(key);
+        if (entry == null) {
+            PlanEntry created = new PlanEntry(new java.util.concurrent.CompletableFuture<>());
+            entry = cache.putIfAbsent(key, created);
+            if (entry == null) {
+                entry = created;
+                try {
+                    created.future.complete(buildIndex(x, z));
+                } catch (RuntimeException | Error failure) {
+                    created.future.completeExceptionally(failure);
+                    cache.remove(key, created);
+                    throw failure;
+                }
+                evict();
+            }
+        }
+        entry.lastUse = useClock.incrementAndGet();
+        HighlandPlanIndex index = entry.future.join();
+        lastPlan.set(new LastPlan(key, index));
+        return index;
     }
+    private HighlandPlanIndex buildIndex(int x, int z) {
+        try {
+            return new HighlandPlanIndex(drainage.build(x, z));
+        } catch (java.util.concurrent.CancellationException cancelled) {
+            throw cancelled;
+        } catch (RuntimeException failure) {
+            etcodehome.freeterraforged.FTFCommon.LOGGER.warn("Rolling Highlands: continent {},{} has no river plan ({}); generating it without rivers",
+                x, z, failure.getMessage());
+            return new HighlandPlanIndex(drainage.emptyPlan(x, z));
+        }
+    }
+    private void evict() {
+        while (cache.size() > MAX_PLANS) {
+            long oldest = Long.MAX_VALUE; Long victim = null;
+            for (var e : cache.entrySet()) {
+                if (!e.getValue().future.isDone()) continue;
+                if (e.getValue().lastUse < oldest) { oldest = e.getValue().lastUse; victim = e.getKey(); }
+            }
+            if (victim == null) return;
+            cache.remove(victim);
+        }
+    }
+    private static final class PlanEntry {
+        final java.util.concurrent.CompletableFuture<HighlandPlanIndex> future;
+        volatile long lastUse;
+        PlanEntry(java.util.concurrent.CompletableFuture<HighlandPlanIndex> future) { this.future = future; }
+    }
+    private record LastPlan(long key, HighlandPlanIndex index) {}
     /** Test/diagnostic access to the owner plan containing a block position. */
     HighlandPlanIndex planAt(double x, double z) { var s = coast.sample(x, z); return plan(s.ownerX(), s.ownerZ()); }
     HighlandCoast coast() { return coast; }
@@ -313,5 +363,5 @@ public final class RollingHighlandsContinent implements Continent {
         var s = coast.sample(x, z); return PosUtil.pack(s.centerX(), s.centerZ());
     }
     @Override public Rivermap getRivermap(int x, int z) { return NO_LEGACY_RIVERS; }
-    @Override public synchronized void close() { closed = true; cache.clear(); coast.close(); }
+    @Override public synchronized void close() { closed = true; cache.clear(); lastPlan.remove(); coast.close(); }
 }

@@ -174,6 +174,11 @@ and the phase gates below. Phases are committed separately.
   drain them; WETLAND terrain + erosionMask from the strongest wetland weight. The river gasket only visits RH
   water and bank columns. HighlandWorldValidation now also checks flow-field bytes and lateral containment in FULL
   chunks (run in P9). Wetland share in the sample windows 0-0.55%; perched water 0 on all seeds.
+- P7 done: lock-free owner-plan cache (ConcurrentHashMap of futures, one build per owner, LRU of 8, per-thread
+  last-plan fast path, no per-sample monitor). Any non-cancellation build failure publishes a deterministic
+  river-less plan for that continent and logs once instead of failing chunk generation; reach queries never throw.
+  Feasibility repair (P3) plus 1e-9 solver tolerance: 364-plan sweep and 2 x 52 seed sweeps build without fallback.
+  Unfiltered sampling cost: ~1.8 us/sample for RH vs ~9.7 us for UPLIFT on this machine (with climate).
 
 ## 6. Execution order
 

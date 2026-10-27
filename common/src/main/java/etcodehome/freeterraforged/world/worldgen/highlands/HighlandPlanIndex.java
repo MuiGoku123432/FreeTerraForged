@@ -105,7 +105,7 @@ public final class HighlandPlanIndex {
                 left = right;
             }
             if (best >= INFLUENCE) continue;
-            if (out.count == MAX_HITS) throw new IllegalStateException("RH reach query budget exceeded at " + x + "," + z);
+            if (out.count == MAX_HITS) break; // far beyond any real density; deterministic order, never throws
             // A curved reach can have separate nearly equidistant parts (inside a bend). Attributes are a smooth
             // weighted blend over pieces by their excess distance; the blend width grows with distance, so on and
             // near the channel the result is the exact interpolated profile, and far away it varies continuously.

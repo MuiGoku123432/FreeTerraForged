@@ -37,4 +37,14 @@ class HighlandPlannerTest {
             }
         }
     }
+
+    @Test void riverlessFallbackPlanIsValidAndQuiet() {
+        var preset = Presets.makeFTFDefault();
+        try (var context = WorldgenFixture.context(preset, 0); var coast = new HighlandCoast(context)) {
+            var plan = new HighlandDrainage(coast, new HighlandFields(0, 4096), 4096, preset.world().controlPoints).emptyPlan(3, -2);
+            var index = new HighlandPlanIndex(plan);
+            assertEquals(0, index.near(12345, -6789).count);
+            assertNull(index.lake(12345, -6789));
+        }
+    }
 }

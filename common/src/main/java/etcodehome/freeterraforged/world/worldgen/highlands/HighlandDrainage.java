@@ -44,6 +44,12 @@ public final class HighlandDrainage {
     public record Plan(int ownerX, int ownerZ, int gridStep, int gridNodes, int landNodes, List<Node> nodes, List<Reach> reaches, HighlandBasins basins, long buildNanos) {}
     private record QueueNode(int index, double level, double distance) {}
 
+    /** Deterministic river-less plan used when an owner's drainage cannot be built. */
+    public Plan emptyPlan(int ownerX, int ownerZ) {
+        var basins = new HighlandBasins(fields.seed(), 0, 0, 1, 1, 64, new double[1], new double[1], new boolean[1], new boolean[1]);
+        return new Plan(ownerX, ownerZ, 64, 0, 0, List.of(), List.of(), basins, 0);
+    }
+
     public Plan build(int ownerX, int ownerZ) {
         long started = System.nanoTime();
         var bounds = coast.bounds(ownerX, ownerZ);
