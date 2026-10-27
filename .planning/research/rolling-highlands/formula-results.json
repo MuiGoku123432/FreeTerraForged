@@ -1,0 +1,75 @@
+{
+  "scope": "Mathematical/synthetic checks only; no FTF generation executed",
+  "tree_solver": {
+    "fixtures": 1000,
+    "feasible": 692,
+    "infeasible": 308,
+    "disagreements": 0,
+    "shared_junction_conflict_rejected": true
+  },
+  "cross_sections": {
+    "constant_bank_fixtures": 27,
+    "endpoint_and_continuity_checks": "passed",
+    "outward_monotonicity_checks": "passed",
+    "center_bed_independent_of_floor_width": true,
+    "limitation": "No spatially varying outer terrain, junction blending, filters, or voxel water tested"
+  },
+  "numerics": {
+    "height_units": [
+      {
+        "world_height": 128,
+        "terrain_scale": 128,
+        "normalized_delta_for_48_blocks": 0.375,
+        "actual_blocks_if_divided_by_world_height": 48.0
+      },
+      {
+        "world_height": 256,
+        "terrain_scale": 256,
+        "normalized_delta_for_48_blocks": 0.1875,
+        "actual_blocks_if_divided_by_world_height": 48.0
+      },
+      {
+        "world_height": 512,
+        "terrain_scale": 256,
+        "normalized_delta_for_48_blocks": 0.1875,
+        "actual_blocks_if_divided_by_world_height": 24.0
+      },
+      {
+        "world_height": 1024,
+        "terrain_scale": 256,
+        "normalized_delta_for_48_blocks": 0.1875,
+        "actual_blocks_if_divided_by_world_height": 12.0
+      }
+    ],
+    "far_x": [
+      29999998.0,
+      30000000.0
+    ],
+    "adjacent_coordinates_can_alias_at_float_api": true,
+    "quintic_midpoint_derivative": 1.875,
+    "warning": "Quintic longitudinal easing increases maximum slope to 1.875 times the segment average"
+  },
+  "domain_budget": [
+    {
+      "continent_scale": 1000,
+      "conservative_span_blocks": 13320.0,
+      "coarse_spacing_power_of_two": 64,
+      "upper_grid_nodes": 44521,
+      "minimum_upland_spacing_for_8_samples": 512
+    },
+    {
+      "continent_scale": 4000,
+      "conservative_span_blocks": 53280.0,
+      "coarse_spacing_power_of_two": 256,
+      "upper_grid_nodes": 44521,
+      "minimum_upland_spacing_for_8_samples": 2048
+    },
+    {
+      "continent_scale": 10000,
+      "conservative_span_blocks": 133200.0,
+      "coarse_spacing_power_of_two": 1024,
+      "upper_grid_nodes": 17689,
+      "minimum_upland_spacing_for_8_samples": 8192
+    }
+  ]
+}
