@@ -17,6 +17,7 @@ import static etcodehome.freeterraforged.world.worldgen.highlands.HighlandMath.*
 
 /** Owns the RH terrain/hydrology pipeline; legacy generators never enter this path. */
 public final class RollingHighlandsContinent implements Continent {
+    static final double BANK_RUN = 16, MIN_OUTER_RUN = 64, MAX_OUTER_RUN = 512, CREASE_SOFTNESS = 24;
     private static final Rivermap NO_LEGACY_RIVERS = new Rivermap(0, 0, new Network[0], GenWarp.EMPTY);
     private final HighlandCoast coast;
     private final HighlandFields fields;
@@ -81,39 +82,14 @@ public final class RollingHighlandsContinent implements Continent {
             return;
         }
         var relief = fields.sample(x, z);
+        // Visible land is a pure field; valleys only carve into it, so interfluves never depend on which
+        // river is nearest.
         double land = blend * relief.height(settings.mountainHeight(), settings.foothillRelief());
-        double height = land;
         var index = plan(location.ownerX(), location.ownerZ());
-        var hit = index.nearest(x, z);
         cell.terrain = relief.ridge() > .65 ? TerrainType.MOUNTAIN_CHAIN : relief.basin() > .25 ? TerrainType.FLATS : TerrainType.HILLS;
         cell.erosion = (float) lerp(.5, -.6, relief.ridge());
         cell.weirdness = (float) lerp(.15, .65, relief.ridge());
-        if (hit != null) {
-            // Neighboring outlet basins share one divide envelope. Low regional saddles retain passes.
-            double divide = hit.divide() * smooth(35, 85, relief.upland());
-            double ridge = lerp(relief.ridge(), .65 * relief.ridge() + .35 * divide,
-                1 - smooth(1024, HighlandPlanIndex.INFLUENCE, hit.distance()));
-            land = blend * (relief.planningHeight() + settings.mountainHeight() * ridge
-                + settings.foothillRelief() * relief.foothill());
-            height = land;
-            double q = Math.max(.01, hit.area() / ((double) settings.uplandSpacing() * settings.uplandSpacing()));
-            double radius = clamp(16 * Math.pow(q, .35), 4, 12);
-            double dryWidth = settings.valleyWidth() * clamp(Math.pow(q, .2), .5, 1.5) * lerp(1, .3, hit.confinement());
-            double outer = clamp(1.875 * Math.abs(land - hit.water() - 4) / .35, 128, 1024);
-            var section = HighlandValley.sample(hit.distance(), land, hit.water(), 4, radius, 16, dryWidth, outer);
-            height = section.height();
-            cell.riverMask = (float) (1 - section.influence());
-            if (section.influence() > 0) {
-                cell.riverWaterLevel = normalized(hit.water());
-                cell.riverZone = RiverZone.values()[section.zone()];
-                if (section.wet()) {
-                    cell.hasRiverWater = true; cell.terrain = TerrainType.RIVER;
-                    cell.erosion = .5F; cell.weirdness = 0;
-                    cell.hasFlow = true;
-                    cell.flowAngle = etcodehome.freeterraforged.world.worldgen.ChunkFlowField.pack(.5F, Math.atan2(hit.flowZ(), hit.flowX()));
-                }
-            }
-        }
+        double height = carveValleys(cell, index.near(x, z), land);
         var lake = index.lake(x, z);
         if (lake != null && lake.depth() > -8) {
             double lakeBed = lake.water() - clamp(lake.depth(), -8, 16);
@@ -133,6 +109,56 @@ public final class RollingHighlandsContinent implements Continent {
         if (!cell.hasRiverWater && height < 5) cell.terrain = TerrainType.BEACH;
         cell.height = normalized(height);
         cell.terrainErosion = cell.erosion;
+    }
+    /**
+     * Composes every nearby reach's valley section.
+     * <ul>
+     * <li>Wet: a point inside any reach's wet radius belongs to the wet reach with the lowest bed, so a channel is
+     * never erased by a neighbouring valley floor.</li>
+     * <li>Dry: the two lowest candidates (including the land) are joined with a smooth minimum only where both lie
+     * on outer valley slopes and below the land, then lifted onto the support cone of every channel (one block
+     * above its water at the bank, falling one block per block). Channels at different levels therefore sit on
+     * terraces instead of being cut away, and dry ground never lies below adjacent channel water.</li>
+     * </ul>
+     * Every term is continuous in position and neutral when a reach enters or leaves query range.
+     */
+    private double carveValleys(Cell cell, HighlandPlanIndex.Hits hits, double land) {
+        double c1 = land, c2 = Double.POSITIVE_INFINITY, o1 = 1, o2 = 1, maxInfluence = 0, support = Double.NEGATIVE_INFINITY;
+        int owner = -1, wetOwner = -1;
+        HighlandValley.Section ownerSection = null, wetSection = null;
+        double area2 = (double) settings.uplandSpacing() * settings.uplandSpacing();
+        for (int k = 0; k < hits.count; k++) {
+            double water = hits.water[k], distance = hits.distance[k], confinement = hits.confinement[k];
+            double q = Math.max(.01, hits.area[k] / area2);
+            double radius = clamp(16 * Math.pow(q, .35), 4, 12);
+            double dryWidth = settings.valleyWidth() * clamp(Math.pow(q, .2), .5, 1.5) * lerp(1, .3, confinement);
+            double slopeLimit = lerp(.45, .9, confinement);
+            double outer = clamp(1.875 * Math.max(0, land - water - 4) / slopeLimit, MIN_OUTER_RUN, MAX_OUTER_RUN);
+            var section = HighlandValley.sample(distance, land, water, 4, radius, BANK_RUN, dryWidth, outer);
+            maxInfluence = Math.max(maxInfluence, section.influence());
+            support = Math.max(support, water + 1 - Math.max(0, distance - (radius + BANK_RUN)));
+            double carve = section.height(), outerness = 1 - section.influence();
+            if (section.wet() && (wetSection == null || carve < wetSection.height())) { wetOwner = k; wetSection = section; }
+            if (carve < c1) { c2 = c1; o2 = o1; c1 = carve; o1 = outerness; owner = k; ownerSection = section; }
+            else if (carve < c2) { c2 = carve; o2 = outerness; }
+        }
+        cell.riverMask = (float) (1 - maxInfluence);
+        if (wetOwner >= 0) {
+            cell.riverWaterLevel = normalized(hits.water[wetOwner]);
+            cell.riverZone = RiverZone.Riverbed;
+            cell.hasRiverWater = true; cell.terrain = TerrainType.RIVER;
+            cell.erosion = .5F; cell.weirdness = 0;
+            cell.hasFlow = true;
+            cell.flowAngle = etcodehome.freeterraforged.world.worldgen.ChunkFlowField.pack(.5F, Math.atan2(hits.flowZ[wetOwner], hits.flowX[wetOwner]));
+            return wetSection.height();
+        }
+        double softness = CREASE_SOFTNESS * Math.min(o1, o2) * smooth(0, 8, land - c2);
+        double height = Math.max(smin(c1, c2, softness), support);
+        if (owner >= 0 && ownerSection.influence() > 0) {
+            cell.riverWaterLevel = normalized(hits.water[owner]);
+            cell.riverZone = RiverZone.values()[ownerSection.zone()];
+        }
+        return height;
     }
     private float normalized(double height) { return levels.water + (float) (height / levels.terrainScaleFactor); }
     @Override public float getEdgeValue(float x, float z) { return (float) coast.sample(x, z).edge(); }

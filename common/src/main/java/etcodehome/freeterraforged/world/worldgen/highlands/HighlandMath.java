@@ -10,6 +10,12 @@ public final class HighlandMath {
         return t * t * t * (t * (t * 6 - 15) + 10);
     }
     public static double smooth(double lo, double hi, double v) { return smooth((v - lo) / (hi - lo)); }
+    /** Polynomial smooth minimum; k <= 0 is the exact minimum. Continuous in a, b and k. */
+    public static double smin(double a, double b, double k) {
+        if (!(k > 0) || Double.isInfinite(b) || Double.isInfinite(a)) return Math.min(a, b);
+        double h = Math.max(k - Math.abs(a - b), 0) / k;
+        return Math.min(a, b) - h * h * k * .25;
+    }
     public static double lerp(double a, double b, double t) { return a + (b - a) * t; }
     public static long mix(long v) {
         v = (v ^ (v >>> 30)) * 0xbf58476d1ce4e5b9L;

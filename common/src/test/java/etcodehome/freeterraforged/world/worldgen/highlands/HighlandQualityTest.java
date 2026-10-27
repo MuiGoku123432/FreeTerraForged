@@ -17,6 +17,9 @@ class HighlandQualityTest {
             var m = HighlandQualityProbe.measure(seed, true);
             System.out.println(m.summary());
             check(failures, m, Double.isFinite(m.worstJump()) && Double.isFinite(m.oceanFloorMin()), "finite metrics");
+            // P1: valleys are composed, so interfluves remain land and channels are contained.
+            check(failures, m, m.valleyZone() <= .6, "P1 valley zone <= 60% of dry land");
+            check(failures, m, m.waterSteps() == 0, "P1 no adjacent wet water steps >= 2 blocks");
         }
         assertTrue(failures.isEmpty(), String.join("\n", failures));
     }
