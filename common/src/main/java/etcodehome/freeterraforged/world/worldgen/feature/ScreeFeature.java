@@ -245,7 +245,7 @@ public class ScreeFeature extends Feature<Config> {
         );
 
         // Uplift baseline in normalized float space (sea level + uplift)
-        float upliftBaselineNormalized = levels.water + upliftNormalized;
+        float upliftBaselineNormalized = cell.rollingHighlands ? cell.riverWaterLevel : levels.water + upliftNormalized;
 
         // Add config relative offsets (converted from 0..255 scale to 0.0..1.0 float scale)
         float effectiveRockBias = upliftBaselineNormalized + (config.rockMin() / 255.0f);

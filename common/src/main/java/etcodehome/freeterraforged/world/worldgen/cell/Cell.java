@@ -47,6 +47,9 @@ public class Cell {
     public float macroBiomeId;
     public float riverMask;
     public float riverWaterLevel = 0.0F;
+    // RH uses an absolute normalized profile, including valid ocean-height water.
+    public boolean rollingHighlands;
+    public boolean hasRiverWater;
     public int continentX;
     public int continentZ;
     public float globalContinentScale;
@@ -105,6 +108,8 @@ public class Cell {
         this.beachNoise = other.beachNoise;
         this.continentSizeModifier = other.continentSizeModifier;
         this.riverWaterLevel = other.riverWaterLevel;
+        this.rollingHighlands = other.rollingHighlands;
+        this.hasRiverWater = other.hasRiverWater;
         this.riverZone = other.riverZone;
         this.waterTable = other.waterTable;
         this.flowAngle = other.flowAngle;

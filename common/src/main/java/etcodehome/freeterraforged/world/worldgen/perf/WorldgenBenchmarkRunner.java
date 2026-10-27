@@ -217,7 +217,8 @@ public final class WorldgenBenchmarkRunner {
                     System.getProperty("freeterraforged.benchmark.exit", "true")
                 );
                 ServerLevel overworld = server.overworld();
-                BlockPos center = resolveContinentCenter(overworld, probeX, probeZ);
+                BlockPos center = Boolean.getBoolean("freeterraforged.benchmark.exact")
+                    ? new BlockPos(probeX, 0, probeZ) : resolveContinentCenter(overworld, probeX, probeZ);
                 FTFCommon.LOGGER.info(
                     "[FTF-Perf] Auto-benchmark triggered via JVM properties (seed={}, radius={}, probe=({}, {}), resolvedContinentCenter=({}, {}), exit={})",
                     overworld.getSeed(), radius, probeX, probeZ, center.getX(), center.getZ(), exitOnComplete
@@ -258,8 +259,15 @@ public final class WorldgenBenchmarkRunner {
             return;
         }
 
+        if (Boolean.getBoolean("freeterraforged.benchmark.validateHighlands")) {
+            if (current.validationTick == 0) { WorldgenPerfTracker.stop(); current.validationTick = server.getTickCount() + 40; return; }
+            if (server.getTickCount() < current.validationTick) return;
+            String validation = etcodehome.freeterraforged.world.worldgen.highlands.HighlandWorldValidation.validate(current.level, current.positions);
+            FTFCommon.LOGGER.info(validation);
+            writeReportFile(validation);
+        }
         // All target FULL chunks have finished generating!
-        WorldgenPerfTracker.stop();
+        if (current.validationTick == 0) WorldgenPerfTracker.stop();
         activeBenchmark = null;
 
         // Release benchmark tickets
@@ -268,7 +276,7 @@ public final class WorldgenBenchmarkRunner {
         }
 
         String header = String.format(
-            "Seed=%d | Target: radius=%d (%d FULL chunks) at CONTINENT_CENTER (%d, %d) [%s]",
+            "Seed=%d | Target: radius=%d (%d FULL chunks) at resolved center (%d, %d) [%s]",
             current.worldSeed, current.radius, total, current.blockX, current.blockZ, current.terrainInfo
         );
         String report = WorldgenPerfTracker.buildReport(header, total, total);
@@ -348,6 +356,7 @@ public final class WorldgenBenchmarkRunner {
         final long startWallNanos;
         final boolean shutdownOnComplete;
         long lastProgressLogNanos;
+        int validationTick;
 
         ActiveBenchmark(
             CommandSourceStack source,

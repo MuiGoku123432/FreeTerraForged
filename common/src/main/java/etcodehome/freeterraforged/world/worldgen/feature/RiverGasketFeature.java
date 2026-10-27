@@ -19,7 +19,7 @@ import etcodehome.freeterraforged.world.worldgen.FTFRandomState;
 import etcodehome.freeterraforged.world.worldgen.IChunkCellsHolder;
 import etcodehome.freeterraforged.world.worldgen.cell.Cell;
 import etcodehome.freeterraforged.world.worldgen.cell.heightmap.Levels;
-import etcodehome.freeterraforged.world.worldgen.cell.rivermap.ContinentalHydrology;
+import etcodehome.freeterraforged.world.worldgen.cell.rivermap.RiverWater;
 import etcodehome.freeterraforged.world.worldgen.cell.rivermap.river.RiverCarverSettings;
 import etcodehome.freeterraforged.world.worldgen.densityfunction.CellSampler;
 
@@ -144,11 +144,7 @@ public class RiverGasketFeature extends Feature<NoneFeatureConfiguration> {
             // Reuse any already evaluated cell directly from the cache
             Cell cell = chunkCells[index];
 
-            float targetWaterLevel = (ContinentalHydrology.getComplexWaterHeight(
-                    cell.waterTable,
-                    cell.globalContinentScale,
-                    cell.continentSizeModifier)
-            ) + oceanHeightOffset;
+            float targetWaterLevel = RiverWater.level(cell, oceanHeightOffset);
 
             int localWaterY = levels.scale(targetWaterLevel);
             int currentFloorHeight = levels.scale(cell.height);
@@ -296,11 +292,7 @@ public class RiverGasketFeature extends Feature<NoneFeatureConfiguration> {
         // Reuse cached cell directly if the coordinate is within the current chunk bounds
         if (relX >= 0 && relX < 16 && relZ >= 0 && relZ < 16) {
             Cell cell = chunkCells[relX + (relZ * 16)];
-            float water = ContinentalHydrology.getComplexWaterHeight(
-                    cell.waterTable,
-                    cell.globalContinentScale,
-                    cell.continentSizeModifier
-            ) + oceanHeightOffset;
+            float water = RiverWater.level(cell, oceanHeightOffset);
             return levels.scale(water);
         }
 
@@ -321,11 +313,7 @@ public class RiverGasketFeature extends Feature<NoneFeatureConfiguration> {
                 false
         );
 
-        float water = ContinentalHydrology.getComplexWaterHeight(
-                cachedNeighbor.waterTable,
-                cachedNeighbor.globalContinentScale,
-                cachedNeighbor.continentSizeModifier
-        ) + oceanHeightOffset;
+        float water = RiverWater.level(cachedNeighbor, oceanHeightOffset);
 
         int computedY = levels.scale(water);
         cache[cacheIndex] = computedY;

@@ -104,9 +104,16 @@ public final class PreviewGrid implements FilterGrid {
         int size,
         BooleanSupplier cancelled
     ) {
+        return generateZoomed(heightmap, filters, (double) centerX, (double) centerZ, zoom, size, cancelled);
+    }
+
+    public static CompletableFuture<PreviewGrid> generateZoomed(
+        Heightmap heightmap, @Nullable TerrainFilters filters, double centerX, double centerZ,
+        float zoom, int size, BooleanSupplier cancelled
+    ) {
         PreviewGrid grid = new PreviewGrid(size);
-        float translateX = centerX - size * zoom / 2.0F;
-        float translateZ = centerZ - size * zoom / 2.0F;
+        float translateX = (float) centerX - size * zoom / 2.0F;
+        float translateZ = (float) centerZ - size * zoom / 2.0F;
         grid.blockX = (int) translateX;
         grid.blockZ = (int) translateZ;
 
@@ -132,6 +139,11 @@ public final class PreviewGrid implements FilterGrid {
                             float worldZ = z * zoom + translateZ;
                             Cell cell = grid.getCell(x, z);
 
+                            if (heightmap.continent() instanceof etcodehome.freeterraforged.world.worldgen.highlands.RollingHighlandsContinent) {
+                                heightmap.applyPrecise(cell, (double) centerX + (x - size / 2.0) * zoom,
+                                    (double) centerZ + (z - size / 2.0) * zoom, true);
+                                continue;
+                            }
                             heightmap.applyTerrain(cell, worldX, worldZ);
                             rivers = Rivermap.get(cell, rivers, heightmap);
                             heightmap.applyRivers(cell, worldX, worldZ, rivers);
@@ -145,7 +157,7 @@ public final class PreviewGrid implements FilterGrid {
 
         return CompletableFuture.allOf(futures).thenApply(v -> {
             checkCancelled(cancelled);
-            if (filters != null) {
+            if (filters != null && (!(heightmap.continent() instanceof etcodehome.freeterraforged.world.worldgen.highlands.RollingHighlandsContinent) || zoom == 1.0F)) {
                 filters.apply(grid);
             }
             checkCancelled(cancelled);

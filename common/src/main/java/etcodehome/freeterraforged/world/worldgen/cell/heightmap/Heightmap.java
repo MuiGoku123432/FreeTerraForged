@@ -1,6 +1,8 @@
 package etcodehome.freeterraforged.world.worldgen.cell.heightmap;
 
 import org.jetbrains.annotations.Nullable;
+import etcodehome.freeterraforged.data.worldgen.preset.settings.ContinentType;
+import etcodehome.freeterraforged.world.worldgen.highlands.RollingHighlandsContinent;
 
 import etcodehome.freeterraforged.data.worldgen.preset.settings.WorldSettings.ControlPoints;
 import etcodehome.freeterraforged.data.worldgen.preset.PresetNoiseData;
@@ -53,6 +55,25 @@ public record Heightmap(
     @Nullable TerrainCeiling terrainCeiling
 ) implements AutoCloseable {
 	
+    public void apply(Cell cell, int x, int z, boolean applyClimate) {
+        if (this.continent instanceof RollingHighlandsContinent highlands) {
+            highlands.apply(cell, (double) x, z);
+            this.applyClimate(cell, x, z, applyClimate);
+        } else this.apply(cell, (float) x, (float) z, applyClimate);
+    }
+
+    public void applyPrecise(Cell cell, double x, double z, boolean applyClimate) {
+        if (this.continent instanceof RollingHighlandsContinent highlands) {
+            highlands.apply(cell, x, z);
+            this.applyClimate(cell, (float) x, (float) z, applyClimate);
+        } else this.apply(cell, (float) x, (float) z, applyClimate);
+    }
+
+    public void applyBiomeRegion(Cell cell, int x, int z) {
+        if (this.continent instanceof RollingHighlandsContinent) this.apply(cell, x, z, true);
+        else this.applyBiomeRegion(cell, (float) x, (float) z);
+    }
+
 	public void apply(Cell cell, float x, float z, boolean applyClimate) {
 		if (!WorldgenPerfTracker.ACTIVE) {
 			this.applyTerrain(cell, x, z);
@@ -82,6 +103,10 @@ public record Heightmap(
 	}
 	
 	public void applyTerrain(Cell cell, float x, float z) {
+        if (this.continent instanceof RollingHighlandsContinent highlands) {
+            highlands.apply(cell, (double) x, z);
+            return;
+        }
         cell.terrain = TerrainType.FLATS;
         cell.beachNoise = this.beachNoise.compute(x, z, 0);
         this.continent.apply(cell, x, z);
@@ -93,6 +118,7 @@ public record Heightmap(
 	}
 	
 	public void applyRivers(Cell cell, float x, float z, Rivermap rivermap) {
+		if (this.continent instanceof RollingHighlandsContinent) return;
 		cell.terrainErosion = cell.erosion;
         rivermap.apply(cell, x, z);
         VolcanoPopulator.modifyVolcanoType(cell, this.levels);
@@ -114,6 +140,13 @@ public record Heightmap(
 	}
 	
 	public static Heightmap make(GeneratorContext ctx) {
+        if (ctx.preset.world().continent.continentType == ContinentType.ROLLING_HIGHLANDS) {
+            var continent = new RollingHighlandsContinent(ctx);
+            try {
+                return new Heightmap((c, x, z) -> {}, (c, x, z) -> {}, continent, Climate.make(continent, ctx),
+                    ctx.levels, ctx.preset.world().controlPoints, 1, Noises.constant(0), null);
+            } catch (RuntimeException | Error failure) { continent.close(); throw failure; }
+        }
     	HolderGetter<Noise> noiseLookup = ctx.noiseLookup;
     	
         Preset preset = ctx.preset;

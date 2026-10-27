@@ -68,7 +68,8 @@ public class WorldSettingsPage extends PresetEditorPage {
 				ContinentType.MULTI,
 				ContinentType.SINGLE,
 				ContinentType.MULTI_IMPROVED,
-				ContinentType.UPLIFT
+				ContinentType.UPLIFT,
+                ContinentType.ROLLING_HIGHLANDS
 			),
 			continent.continentType, FTFTranslationKeys.GUI_BUTTON_CONTINENT_TYPE,
 			(button, value) -> {
@@ -76,7 +77,7 @@ public class WorldSettingsPage extends PresetEditorPage {
 				this.applyContinentType(value);
 				this.regenerate();
 			}, 
-			ContinentType::name
+			value -> value == ContinentType.ROLLING_HIGHLANDS ? "Rolling Highlands (Experimental)" : value.name()
 		);
 		this.continentShape = PresetWidgets.createCycle(DistanceFunction.values(), continent.continentShape, FTFTranslationKeys.GUI_BUTTON_CONTINENT_SHAPE, (button, value) -> {
 			continent.continentShape = value;
@@ -236,11 +237,14 @@ public class WorldSettingsPage extends PresetEditorPage {
 	}
 	
 	private void applyContinentType(ContinentType type) {
+        boolean highlands = type == ContinentType.ROLLING_HIGHLANDS;
+        this.continentScale.setRange(highlands ? 1000 : 100, highlands ? 5000 : 10000);
+        if (highlands) this.preset.getPreset().world().continent.continentScale = (int) this.continentScale.getLerpedValue();
 		this.continentShape.active = type == ContinentType.MULTI || type == ContinentType.SINGLE;
 		
 		boolean isMultiImproved = type == ContinentType.MULTI_IMPROVED || type == ContinentType.UPLIFT;
-		this.continentSkipping.active = isMultiImproved;
-		this.continentSizeVariance.active = isMultiImproved;
+		this.continentSkipping.active = isMultiImproved || type == ContinentType.ROLLING_HIGHLANDS;
+		this.continentSizeVariance.active = isMultiImproved || type == ContinentType.ROLLING_HIGHLANDS;
 		this.continentNoiseOctaves.active = isMultiImproved;
 		this.continentNoiseGain.active = isMultiImproved;
 		this.continentNoiseLacunarity.active = isMultiImproved;

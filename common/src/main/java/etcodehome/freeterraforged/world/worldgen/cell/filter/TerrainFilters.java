@@ -6,6 +6,7 @@ import etcodehome.freeterraforged.world.worldgen.cell.heightmap.TerrainCeiling;
 import etcodehome.freeterraforged.world.worldgen.perf.WorldgenPerfTracker;
 
 public class TerrainFilters {
+    private final boolean rollingHighlands;
     private final CliffRelaxation cliffRelaxation1;
     private final Erosion erosion;
     private final CliffRelaxation cliffRelaxation2;
@@ -14,6 +15,7 @@ public class TerrainFilters {
     private final TerrainCeiling terrainCeiling;
 
     public TerrainFilters(GeneratorContext context) {
+        this.rollingHighlands = context.heightmap != null && context.heightmap.continent() instanceof etcodehome.freeterraforged.world.worldgen.highlands.RollingHighlandsContinent;
         this.cliffRelaxation1 = CliffRelaxation.factory(context, 1).apply(0);
         this.erosion = Erosion.factory(context).apply(0);
         this.cliffRelaxation2 = CliffRelaxation.factory(context, 2).apply(0);
@@ -27,6 +29,31 @@ public class TerrainFilters {
     }
 
     public void apply(FilterGrid grid) {
+        if (this.rollingHighlands) {
+            Cell[] cells = grid.getBacking();
+            float[] before = new float[cells.length];
+            for (int i = 0; i < cells.length; i++) before[i] = cells[i].height;
+            WorldgenPerfTracker.ThreadStats stats = WorldgenPerfTracker.ACTIVE ? WorldgenPerfTracker.stats() : null;
+            long start = stats == null ? 0 : System.nanoTime();
+            this.cliffRelaxation1.apply(grid, grid.getBlockX(), grid.getBlockZ(), 1);
+            long afterCliff = stats == null ? 0 : System.nanoTime();
+            this.erosion.apply(grid, grid.getBlockX(), grid.getBlockZ(), 1);
+            long afterErosion = stats == null ? 0 : System.nanoTime();
+            this.cliffRelaxation2.apply(grid, grid.getBlockX(), grid.getBlockZ(), 1);
+            if (stats != null) {
+                stats.filterCliff1Nanos += afterCliff - start;
+                stats.filterErosionNanos += afterErosion - afterCliff;
+                stats.filterCliff2Nanos += System.nanoTime() - afterErosion;
+            }
+            for (int i = 0; i < cells.length; i++) {
+                Cell c = cells[i];
+                double strength = c.hasRiverWater ? 0 : etcodehome.freeterraforged.world.worldgen.highlands.HighlandMath.smooth(0, .5, c.riverMask);
+                c.height = before[i] + (float) ((c.height - before[i]) * strength);
+            }
+            this.beachDetect.apply(grid, grid.getBlockX(), grid.getBlockZ(), 1);
+            this.steepness.apply(grid, grid.getBlockX(), grid.getBlockZ(), 1);
+            return;
+        }
         int seedX = grid.getBlockX();
         int seedZ = grid.getBlockZ();
 

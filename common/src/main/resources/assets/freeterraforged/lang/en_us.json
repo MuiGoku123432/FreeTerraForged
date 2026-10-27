@@ -414,5 +414,19 @@
   "freeterraforged.preset.default_pack.name": "FreeTerraForged Default Preset",
   "resourcePack.ftf_default_preset.name": "FreeTerraForged Default Preset",
   "freeterraforged.preset.metadata.description": "FreeTerraForged preset",
-  "generator.freeterraforged.freeterraforged": "FTF Enhanced"
+  "generator.freeterraforged.freeterraforged": "FTF Enhanced",
+  "gui.ftf.highlands.title": "Rolling Highlands (Experimental)",
+  "gui.ftf.highlands.scales": "Four controls replace legacy scales.",
+  "gui.ftf.highlands.spacing": "Upland spacing (blocks)",
+  "gui.ftf.highlands.spacing.tooltip": "Distance between uplands and broad basins. Changes landscape and drainage layout; does not change continent size.",
+  "gui.ftf.highlands.mountains": "Mountain height (blocks)",
+  "gui.ftf.highlands.mountains.tooltip": "Added mountain relief above the uplands. River layout stays fixed. Peaks compress gradually when world-height headroom is limited.",
+  "gui.ftf.highlands.foothills": "Foothill relief (blocks)",
+  "gui.ftf.highlands.foothills.tooltip": "Relief of rolling connectors and lower ridges, independent of the major mountain amplitude.",
+  "gui.ftf.highlands.valleys": "Dry valley width (blocks)",
+  "gui.ftf.highlands.valleys.tooltip": "Full dry floor width of a reference broad valley, excluding the wet channel and banks. Mountain valleys narrow naturally.",
+  "gui.ftf.highlands.preview": "Zoomed previews omit fine erosion detail.",
+  "gui.ftf.highlands.rivers": "Rivers and lakes follow the terrain.",
+  "gui.ftf.highlands.rivers_settings": "Fixed channels; valley width is on Terrain.",
+  "gui.ftf.highlands.islands": "Extra island overlays are unavailable."
 }

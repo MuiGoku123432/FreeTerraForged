@@ -14,6 +14,8 @@ final class WorldgenFixture {
         net.minecraft.server.Bootstrap.bootStrap();
     }
 
+    static void initialize() {}
+
     static GeneratorContext context(Preset preset, long seed) {
         var registries = new RegistrySetBuilder()
             .add(FTFRegistries.NOISE, ctx -> PresetNoiseData.bootstrap(preset, ctx))

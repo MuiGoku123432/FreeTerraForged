@@ -53,7 +53,8 @@ public record TerrainCeiling(float compressionStart, float linearEnd, float tail
 	}
 
 	public static boolean isEnabled(Preset preset) {
-		return preset.terrain().general.mountainVariety > 0.0F;
+		return preset.world().continent.continentType != etcodehome.freeterraforged.data.worldgen.preset.settings.ContinentType.ROLLING_HIGHLANDS
+            && preset.terrain().general.mountainVariety > 0.0F;
 	}
 
 	/**

@@ -79,6 +79,14 @@ class RiverSettingsPage extends PresetEditorPage {
 			flow.navigableWaterfalls = value;
 		});
 
+        if (preset.world().continent.continentType == etcodehome.freeterraforged.data.worldgen.preset.settings.ContinentType.ROLLING_HIGHLANDS) {
+            this.left.addWidget(PresetWidgets.createLabel("gui.ftf.highlands.rivers"));
+            this.left.addWidget(PresetWidgets.createLabel("gui.ftf.highlands.rivers_settings"));
+            this.left.addWidget(this.toggleFlowParticles);
+            this.left.addWidget(this.toggleBoatFlowDynamics);
+            this.left.addWidget(this.toggleNavigableWaterfalls);
+            return;
+        }
 		RiverSettings river = preset.rivers();
 		
 		this.seedOffset = PresetWidgets.createRandomButton(FTFTranslationKeys.GUI_BUTTON_RIVER_SEED_OFFSET, river.seedOffset, (value) -> {

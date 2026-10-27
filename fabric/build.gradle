@@ -38,6 +38,8 @@ loom {
             vmArg "-Dfreeterraforged.benchmark.x=${project.findProperty('ftfBenchmarkX') ?: '100000'}"
             vmArg "-Dfreeterraforged.benchmark.z=${project.findProperty('ftfBenchmarkZ') ?: '100000'}"
             vmArg "-Dfreeterraforged.benchmark.exit=true"
+            vmArg "-Dfreeterraforged.benchmark.exact=${project.findProperty('ftfBenchmarkExact') ?: 'false'}"
+            vmArg "-Dfreeterraforged.benchmark.validateHighlands=${project.findProperty('ftfValidateHighlands') ?: 'false'}"
         }
     }
 }
@@ -110,12 +112,21 @@ tasks.named("runBenchmarkServer").configure {
 level-type=freeterraforged\\:freeterraforged
 level-seed=${project.findProperty('ftfBenchmarkSeed') ?: '-7442486958049957310'}
 online-mode=false
+server-ip=127.0.0.1
+server-port=25585
 spawn-protection=0
 view-distance=10
 simulation-distance=10
 sync-chunk-writes=false
 max-tick-time=-1
 """.stripIndent()
+        if (project.hasProperty('ftfBenchmarkPresetPack')) {
+            copy {
+                from rootProject.file(project.property('ftfBenchmarkPresetPack'))
+                into new File(benchDir, "world/datapacks/rolling-highlands")
+            }
+            new File(benchDir, "server.properties") << "initial-enabled-packs=vanilla,freeterraforged:ftf_default_preset,file/rolling-highlands\n"
+        }
     }
 }
 

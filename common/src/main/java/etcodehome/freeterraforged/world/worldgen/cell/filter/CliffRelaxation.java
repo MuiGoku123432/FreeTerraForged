@@ -69,10 +69,14 @@ public class CliffRelaxation implements Filter {
             final Modifier modifier,
             final Levels levels
     ) {
+        this(seed, mapSize, modifier, levels, false);
+    }
+
+    private CliffRelaxation(int seed, int mapSize, Modifier modifier, Levels levels, boolean blockUnits) {
         this.seed = seed;
         this.mapSize = mapSize;
         this.modifier = modifier;
-        this.worldHeight = (float) levels.worldHeight;
+        this.worldHeight = blockUnits ? levels.terrainScaleFactor : (float) levels.worldHeight;
     }
 
     public int getSize() {
@@ -255,7 +259,7 @@ public class CliffRelaxation implements Filter {
      *             so their variation patterns do not line up.
      */
     public static IntFunction<CliffRelaxation> factory(final GeneratorContext context, final int salt) {
-        return new Factory(Seed.toInt(context.seed.root()) + SEED_OFFSET + salt * 31337, context.levels);
+        return new Factory(Seed.toInt(context.seed.root()) + SEED_OFFSET + salt * 31337, context.levels, context.heightmap != null && context.heightmap.continent() instanceof etcodehome.freeterraforged.world.worldgen.highlands.RollingHighlandsContinent);
     }
 
     private static class Factory implements IntFunction<CliffRelaxation> {
@@ -263,7 +267,9 @@ public class CliffRelaxation implements Filter {
         private final Modifier modifier;
         private final Levels levels;
 
-        private Factory(final int seed, final Levels levels) {
+        private final boolean blockUnits;
+        private Factory(final int seed, final Levels levels, boolean blockUnits) {
+            this.blockUnits = blockUnits;
             this.seed = seed;
             this.modifier = Modifier.range(levels.ground, levels.ground(RELAX_RAMP_LEVELS));
             this.levels = levels;
@@ -271,7 +277,7 @@ public class CliffRelaxation implements Filter {
 
         @Override
         public CliffRelaxation apply(final int size) {
-            return new CliffRelaxation(this.seed, size, this.modifier, this.levels);
+            return new CliffRelaxation(this.seed, size, this.modifier, this.levels, this.blockUnits);
         }
     }
 }

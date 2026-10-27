@@ -12,6 +12,7 @@ import etcodehome.freeterraforged.client.gui.screen.presetconfig.PresetListPage.
 import etcodehome.freeterraforged.data.worldgen.preset.settings.ContinentType;
 import etcodehome.freeterraforged.data.worldgen.preset.settings.Preset;
 import etcodehome.freeterraforged.data.worldgen.preset.settings.TerrainSettings;
+import etcodehome.freeterraforged.data.worldgen.preset.settings.RollingHighlandsSettings;
 import etcodehome.freeterraforged.data.worldgen.preset.settings.TerrainSettings.General;
 import etcodehome.freeterraforged.data.worldgen.preset.settings.TerrainSettings.Terrain;
 
@@ -84,6 +85,17 @@ public class TerrainSettingsPage extends PresetEditorPage {
 
 		Preset preset = this.preset.getPreset();
 		TerrainSettings terrain = preset.terrain();
+        if (preset.world().continent.continentType == ContinentType.ROLLING_HIGHLANDS) {
+            terrain.rollingHighlands = terrain.highlands();
+            this.left.addWidget(PresetWidgets.createLabel("gui.ftf.highlands.title"));
+            this.left.addWidget(PresetWidgets.createLabel("gui.ftf.highlands.scales"));
+            addHighlandSlider(terrain, 0, terrain.highlands().uplandSpacing(), 4096, 8192, "gui.ftf.highlands.spacing");
+            addHighlandSlider(terrain, 1, terrain.highlands().mountainHeight(), 32, 256, "gui.ftf.highlands.mountains");
+            addHighlandSlider(terrain, 2, terrain.highlands().foothillRelief(), 0, 96, "gui.ftf.highlands.foothills");
+            addHighlandSlider(terrain, 3, terrain.highlands().valleyWidth(), 64, 512, "gui.ftf.highlands.valleys");
+            this.left.addWidget(PresetWidgets.createLabel("gui.ftf.highlands.preview"));
+            return;
+        }
 		General general = terrain.general;
 		boolean isUpliftContinent = preset.world().continent.continentType == ContinentType.UPLIFT;
 		float flooredLowRange = isUpliftContinent ? 1.0F : 0.01F;
@@ -395,6 +407,18 @@ public class TerrainSettingsPage extends PresetEditorPage {
 		this.left.addWidget(this.volcanoVerticalScale);
 		this.left.addWidget(this.volcanoHorizontalScale);
 	}
+
+    private void addHighlandSlider(TerrainSettings terrain, int field, int initial, int min, int max, String label) {
+        this.left.addWidget(PresetWidgets.createIntSlider(initial, min, max, label, (slider, value) -> {
+            var old = terrain.highlands();
+            int blocks = (int) slider.scaleValue(value);
+            terrain.rollingHighlands = new RollingHighlandsSettings(old.modelVersion(),
+                field == 0 ? blocks : old.uplandSpacing(), field == 1 ? blocks : old.mountainHeight(),
+                field == 2 ? blocks : old.foothillRelief(), field == 3 ? blocks : old.valleyWidth());
+            this.regenerate();
+            return value;
+        }));
+    }
 
 	@Override
 	public Optional<Page> previous() {
