@@ -30,6 +30,7 @@ public final class RollingHighlandsContinent implements Continent {
     private final Levels levels;
     private final double coastEdge;
     private final long classSeed;
+    private final double coastMarker;
     private final etcodehome.freeterraforged.world.worldgen.cell.CellPopulator oceans;
     private final etcodehome.freeterraforged.world.worldgen.noise.module.Noise beachNoise;
     private final Map<Long, HighlandPlanIndex> cache = new LinkedHashMap<>(16, .75F, true);
@@ -45,6 +46,7 @@ public final class RollingHighlandsContinent implements Continent {
         this.drainage = new HighlandDrainage(coast, fields, settings.uplandSpacing(), context.preset.world().controlPoints);
         this.coastEdge = context.preset.world().controlPoints.coast;
         this.classSeed = context.seed.root() * 0x9E3779B97F4A7C15L + 0x52484632L;
+        this.coastMarker = context.preset.world().controlPoints.coastMarker();
         // Oceans, shelves and coast use the legacy FTF ocean populators so ocean biomes, depths and the
         // coast-to-shelf transition match the other continent types.
         var world = context.preset.world();
@@ -84,6 +86,7 @@ public final class RollingHighlandsContinent implements Continent {
         cell.riverMask = 1;
         cell.riverZone = RiverZone.None;
         cell.hasFlow = false;
+        cell.erosionMask = false;
         cell.waterTable = 0;
         cell.continentX = location.centerX(); cell.continentZ = location.centerZ();
         cell.continentId = (float) noise(971, location.ownerX(), location.ownerZ(), 1.37);
@@ -103,7 +106,7 @@ public final class RollingHighlandsContinent implements Continent {
         // river is nearest.
         double land = blend * relief.height(settings.mountainHeight(), settings.foothillRelief());
         var index = plan(location.ownerX(), location.ownerZ());
-        double height = carveValleys(cell, index.near(x, z), land);
+        double height = carveValleys(cell, x, z, location.edge(), index.near(x, z), land);
         var lake = index.lake(x, z);
         if (lake != null && lake.depth() > -HighlandBasins.MAX_SHORE) height = shapeLake(cell, x, z, index, lake, height);
         // Reserve ceiling headroom before any water/bed is handed to final generation.
@@ -159,12 +162,16 @@ public final class RollingHighlandsContinent implements Continent {
      * </ul>
      * Every term is continuous in position and neutral when a reach enters or leaves query range.
      */
-    private double carveValleys(Cell cell, HighlandPlanIndex.Hits hits, double land) {
-        double c1 = land, c2 = Double.POSITIVE_INFINITY, o1 = 1, o2 = 1, maxInfluence = 0, support = Double.NEGATIVE_INFINITY;
+    private double carveValleys(Cell cell, double x, double z, double edge, HighlandPlanIndex.Hits hits, double land) {
+        double maxInfluence = 0, support = Double.NEGATIVE_INFINITY;
         double flowX = 0, flowZ = 0, speed = 0, flowWeight = 0;
-        int owner = -1, wetOwner = -1;
-        HighlandValley.Section ownerSection = null, wetSection = null;
+        int wetOwner = -1;
+        HighlandValley.Section wetSection = null;
+        // Kept out of the climate coast band, where shared climate code would reclassify WETLAND as coast/ocean.
+        double wetlandMask = smooth(.45, .65, noise(classSeed + 7, x, z, 220)) * smooth(coastMarker, coastMarker + .1, edge);
+        double hummock = 1.6 * (2 * noise(classSeed + 8, x, z, 24) - 1) + .6 * (2 * noise(classSeed + 9, x, z, 9) - 1);
         double area2 = (double) settings.uplandSpacing() * settings.uplandSpacing();
+        Scratch scratch = SCRATCH.get().ensure(hits.count);
         for (int k = 0; k < hits.count; k++) {
             double water = hits.water[k], distance = hits.distance[k], confinement = hits.confinement[k];
             double q = Math.max(.01, hits.area[k] / area2);
@@ -178,7 +185,18 @@ public final class RollingHighlandsContinent implements Continent {
             var section = HighlandValley.sample(distance, land, water, channelDepth, radius, BANK_RUN, dryWidth, outer);
             maxInfluence = Math.max(maxInfluence, section.influence());
             support = Math.max(support, water + 1 - Math.max(0, distance - (radius + BANK_RUN)));
-            double carve = section.height(), outerness = 1 - section.influence();
+            double carve = section.height();
+            scratch.section[k] = section;
+            scratch.carve[k] = carve;
+            // Floodplain wetlands: broad, flat, low valley floors of larger rivers hold pools and hummocks at the
+            // river's water level. The weight is a product of continuous factors, so the composition stays smooth.
+            double wetland = 0;
+            if (wetlandMask > 0 && !section.wet()) {
+                double floorStart = radius + BANK_RUN, floorEnd = floorStart + dryWidth * .5;
+                wetland = wetlandMask * smooth(.04, .15, q) * (1 - smooth(.006, .02, hits.slope[k])) * (1 - smooth(40, 90, water))
+                    * smooth(floorStart, floorStart + 12, distance) * (1 - smooth(floorEnd - 32, floorEnd, distance)) * head;
+            }
+            scratch.wetland[k] = wetland;
             if (section.wet()) {
                 if (wetSection == null || carve < wetSection.height()) { wetOwner = k; wetSection = section; }
                 // Current: downstream along the channel, turning gently toward the centre near the banks, fastest
@@ -190,7 +208,24 @@ public final class RollingHighlandsContinent implements Continent {
                 flowX += w * dx / norm; flowZ += w * dz / norm; flowWeight += w;
                 speed += w * clamp(FLOW_BASE + FLOW_SLOPE * hits.slope[k], FLOW_MIN, 1) * (1 - .5 * across * across);
             }
-            if (carve < c1) { c2 = c1; o2 = o1; c1 = carve; o1 = outerness; owner = k; ownerSection = section; }
+        }
+        // Wetland pools need containment: fade them where another valley lies within a few blocks of (or below)
+        // this river's level, otherwise the pool would sit above a neighbouring valley slope.
+        double c1 = land, c2 = Double.POSITIVE_INFINITY, o1 = 1, o2 = 1, maxWetland = 0;
+        int owner = -1, wetlandOwner = -1;
+        HighlandValley.Section ownerSection = null;
+        for (int k = 0; k < hits.count; k++) {
+            double carve = scratch.carve[k], wetland = scratch.wetland[k], water = hits.water[k];
+            if (wetland > 0) {
+                // Lowest ground carved by any clearly lower river (same-river neighbours share the level).
+                double others = Double.POSITIVE_INFINITY;
+                for (int j = 0; j < hits.count; j++) if (j != k && hits.water[j] < water - 2) others = Math.min(others, scratch.carve[j]);
+                wetland *= smooth(water + 1, water + 6, others);
+                if (wetland > 0) carve = lerp(carve, Math.min(carve, water + hummock), wetland);
+                if (wetland > maxWetland) { maxWetland = wetland; wetlandOwner = k; }
+            }
+            double outerness = 1 - scratch.section[k].influence();
+            if (carve < c1) { c2 = c1; o2 = o1; c1 = carve; o1 = outerness; owner = k; ownerSection = scratch.section[k]; }
             else if (carve < c2) { c2 = carve; o2 = outerness; }
         }
         cell.riverMask = (float) (1 - maxInfluence);
@@ -206,6 +241,22 @@ public final class RollingHighlandsContinent implements Continent {
         if (owner >= 0 && ownerSection.influence() > 0) {
             cell.riverWaterLevel = normalized(hits.water[owner]);
             cell.riverZone = RiverZone.values()[ownerSection.zone()];
+        }
+        if (wetlandOwner >= 0) {
+            // Legacy wetland contract: WETLAND terrain, protected from erosion filters, standing water wherever the
+            // ground lies below the river level (pools are enclosed by the floor and hummocks). Classification uses
+            // the strongest wetland weight, a continuous field, rather than which valley happens to be lowest.
+            double level = hits.water[wetlandOwner];
+            boolean pool = maxWetland > .02 && height < level - .05;
+            if (maxWetland > .5 || pool) {
+                cell.terrain = TerrainType.WETLAND;
+                cell.erosionMask = true;
+            }
+            if (pool) {
+                cell.riverWaterLevel = normalized(level);
+                cell.hasRiverWater = true;
+                cell.riverZone = RiverZone.Riverbed;
+            }
         }
         return height;
     }
@@ -224,7 +275,7 @@ public final class RollingHighlandsContinent implements Continent {
         cell.weirdness = (float) -peaksAndValleysMagnitude(prominence);
         cell.erosion = (float) clamp(lerp(.057, -.53, prominence) + .1 * (2 * noise(classSeed + 1, x, z, 200) - 1), -1, .44);
         cell.terrainErosion = cell.erosion;
-        if (!cell.hasRiverWater) {
+        if (!cell.hasRiverWater && cell.terrain != TerrainType.WETLAND) {
             cell.terrain = prominence > .62 && height > 120 ? TerrainType.MOUNTAIN_CHAIN
                 : relief.basin() > .25 && prominence < .3 ? TerrainType.FLATS : TerrainType.HILLS;
         }
@@ -239,6 +290,19 @@ public final class RollingHighlandsContinent implements Continent {
         if (prominence < .83) return lerp(.4, .5667, (prominence - .78) / .05);
         return lerp(.5667, .7, clamp((prominence - .83) / .17, 0, 1));
     }
+    private static final class Scratch {
+        HighlandValley.Section[] section = new HighlandValley.Section[64];
+        double[] carve = new double[64], wetland = new double[64];
+        Scratch ensure(int size) {
+            if (carve.length < size) {
+                int n = Math.max(size, carve.length * 2);
+                section = new HighlandValley.Section[n]; carve = new double[n]; wetland = new double[n];
+            }
+            return this;
+        }
+    }
+    private static final ThreadLocal<Scratch> SCRATCH = ThreadLocal.withInitial(Scratch::new);
+
     private static void setFlow(Cell cell, double speed, double dx, double dz) {
         cell.flowAngle = etcodehome.freeterraforged.world.worldgen.ChunkFlowField.pack((float) speed, Math.atan2(dz, dx));
         cell.hasFlow = cell.flowAngle != 0;

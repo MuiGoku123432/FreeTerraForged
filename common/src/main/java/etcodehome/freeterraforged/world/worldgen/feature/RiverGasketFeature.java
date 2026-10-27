@@ -104,8 +104,13 @@ public class RiverGasketFeature extends Feature<NoneFeatureConfiguration> {
                     generatorContext.lookup.applyCell(cell, worldX, worldZ, false, false);
                 }
 
-                if (cell.riverZone != RiverCarverSettings.RiverZone.None
-                        && cell.riverZone != RiverCarverSettings.RiverZone.ValleyFadeout) {
+                // Rolling Highlands valley floors are wide, dry and always above their water; only water and bank
+                // columns can need sealing there.
+                boolean candidate = cell.rollingHighlands
+                        ? cell.hasRiverWater || cell.riverZone == RiverCarverSettings.RiverZone.Banks
+                        : cell.riverZone != RiverCarverSettings.RiverZone.None
+                        && cell.riverZone != RiverCarverSettings.RiverZone.ValleyFadeout;
+                if (candidate) {
                     riverIndices[riverCount++] = index;
                 }
             }

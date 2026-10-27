@@ -18,7 +18,8 @@ public final class HighlandWorldValidation {
         if (context == null || !(context.heightmap.continent() instanceof RollingHighlandsContinent)) {
             throw new IllegalStateException("RH validation requested for a different terrain mode");
         }
-        int wet = 0, failed = 0;
+        int wet = 0, failed = 0, flowing = 0, flowMissing = 0, spills = 0;
+        Cell neighbour = new Cell();
         StringBuilder examples = new StringBuilder();
         var pos = new BlockPos.MutableBlockPos();
         Cell cell = new Cell();
@@ -37,14 +38,34 @@ public final class HighlandWorldValidation {
                     boolean sealed = !level.getBlockState(pos).isAir() && level.getBlockState(pos).getFluidState().isEmpty();
                     pos.setY(water + 1);
                     boolean extra = level.getBlockState(pos).getFluidState().is(FluidTags.WATER);
-                    if (!present || !sealed || extra) {
+                    // Flow-field parity: every channel column with a current must carry it in the chunk's flow field.
+                    boolean flowOk = true;
+                    if (cell.hasFlow) {
+                        flowing++;
+                        var flowField = level.getChunk(x >> 4, z >> 4) instanceof etcodehome.freeterraforged.world.worldgen.IFlowFieldHolder holder
+                            ? holder.freeterraforged$getFlowField() : null;
+                        flowOk = flowField != null && flowField.hasFlow(x & 15, z & 15);
+                        if (!flowOk) flowMissing++;
+                    }
+                    // Containment: a dry neighbour must be solid at the water surface, or water would spill.
+                    boolean contained = true;
+                    for (int[] d : new int[][]{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) {
+                        context.lookup.applyCell(neighbour.reset(), x + d[0], z + d[1], true, false);
+                        if (neighbour.hasRiverWater) continue;
+                        pos.set(x + d[0], water, z + d[1]);
+                        var side = level.getBlockState(pos);
+                        if (side.isAir()) { contained = false; spills++; break; }
+                    }
+                    if (!present || !sealed || extra || !flowOk || !contained) {
                         if (failed++ < 12) examples.append(" [").append(x).append(',').append(z).append(" water=").append(water)
-                            .append(" bed=").append(bed).append(" present=").append(present).append(" sealed=").append(sealed).append(" extra=").append(extra).append(']');
+                            .append(" bed=").append(bed).append(" present=").append(present).append(" sealed=").append(sealed).append(" extra=").append(extra)
+                            .append(" flow=").append(flowOk).append(" contained=").append(contained).append(']');
                     }
                 }
             }
         }
-        String report = "Rolling Highlands FULL-chunk water checks: chunks=" + positions.size() + " wetColumns=" + wet + " failures=" + failed + examples;
+        String report = "Rolling Highlands FULL-chunk water checks: chunks=" + positions.size() + " wetColumns=" + wet
+            + " flowColumns=" + flowing + " flowMissing=" + flowMissing + " spills=" + spills + " failures=" + failed + examples;
         if (wet == 0 || failed > 0) throw new IllegalStateException(report);
         return report;
     }

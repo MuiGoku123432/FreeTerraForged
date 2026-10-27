@@ -169,6 +169,11 @@ and the phase gates below. Phases are committed separately.
   overlapping channels at confluences blend by weight; lakes are calm (0.18) with drift toward the recorded outlet
   within 128 blocks. Gates: 100% of channel cells carry flow, 0% sampled currents upstream. Waterfall columns keep
   the existing surface-mixin behaviour (RH profiles rarely step >= 2 blocks between adjacent cells).
+- P6 done: floodplain wetlands on broad, flat, low floors of larger rivers (noise-masked, kept out of the climate
+  coast band) lower the floor to hummocks around the river level; pools fade where any clearly lower valley could
+  drain them; WETLAND terrain + erosionMask from the strongest wetland weight. The river gasket only visits RH
+  water and bank columns. HighlandWorldValidation now also checks flow-field bytes and lateral containment in FULL
+  chunks (run in P9). Wetland share in the sample windows 0-0.55%; perched water 0 on all seeds.
 
 ## 6. Execution order
 
