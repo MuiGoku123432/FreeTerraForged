@@ -234,6 +234,11 @@ class MixinSurfaceSystem {
 								if (biomeManager.getBiome(pos).value().coldEnoughToSnow(pos)) {
 									// Place Ice instead of liquid water to keep frozen rivers continuous
 									chunk.setBlockState(pos, Blocks.ICE.defaultBlockState(), false);
+								} else if (cell.rollingHighlands) {
+									// Rolling Highlands profiles descend in single-block steps along smooth channels. A flowing
+									// top block is only stable when an upstream source feeds it, which ragged step lines at bends
+									// and confluences do not guarantee, so the step keeps a source and forms a small riffle.
+									chunk.setBlockState(pos, water, false);
 								} else {
 									chunk.setBlockState(pos, flowingWater, false);
 								}

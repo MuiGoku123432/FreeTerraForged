@@ -182,6 +182,9 @@ and the phase gates below. Phases are committed separately.
 - P8 done: model version 2 (`RollingHighlandsSettings.MODEL_VERSION`); model-1 (RH1) presets fail with "create a
   new world" guidance; editor edits always write model 2; build version 1.0.0014-rh2. Preview uses the same
   apply path, so rivers, lakes, wetlands and zones render from the RH cell fields with existing render modes.
+- P9 done (automated + server): see VALIDATION.md. FULL-chunk checks pass on Fabric (confluence/wetland and lake
+  outlet) and NeoForge (confluence/wetland). Fixed during validation: RH single-block steps now keep a source top
+  block. Remaining manual items: SR + FTF in-game smoke test and ground-level aesthetic review.
 
 ## 6. Execution order
 

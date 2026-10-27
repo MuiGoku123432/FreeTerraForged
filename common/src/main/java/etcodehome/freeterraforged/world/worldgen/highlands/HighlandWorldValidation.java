@@ -33,11 +33,19 @@ public final class HighlandWorldValidation {
                     wet++;
                     pos.set(x, water, z);
                     var top = level.getBlockState(pos);
-                    boolean present = top.getFluidState().is(FluidTags.WATER) || top.is(Blocks.ICE) || top.is(Blocks.FROSTED_ICE);
+                    // Water or ice at the planned surface. Features may legitimately place solid blocks there (e.g.
+                    // boulders in shallow wetland pools); what must never happen is an air gap.
+                    boolean present = top.getFluidState().is(FluidTags.WATER) || top.is(Blocks.ICE) || top.is(Blocks.FROSTED_ICE)
+                        || !top.isAir() && top.getFluidState().isEmpty() && top.isSolid();
                     pos.setY(bed);
                     boolean sealed = !level.getBlockState(pos).isAir() && level.getBlockState(pos).getFluidState().isEmpty();
+                    // Above the planned surface only a one-block flowing riffle from a higher neighbouring step is
+                    // acceptable; source water or anything higher means the column overflowed.
                     pos.setY(water + 1);
-                    boolean extra = level.getBlockState(pos).getFluidState().is(FluidTags.WATER);
+                    var above = level.getBlockState(pos).getFluidState();
+                    pos.setY(water + 2);
+                    boolean extra = above.is(FluidTags.WATER) && above.isSource()
+                        || level.getBlockState(pos).getFluidState().is(FluidTags.WATER);
                     // Flow-field parity: every channel column with a current must carry it in the chunk's flow field.
                     boolean flowOk = true;
                     if (cell.hasFlow) {
@@ -59,7 +67,9 @@ public final class HighlandWorldValidation {
                     if (!present || !sealed || extra || !flowOk || !contained) {
                         if (failed++ < 12) examples.append(" [").append(x).append(',').append(z).append(" water=").append(water)
                             .append(" bed=").append(bed).append(" present=").append(present).append(" sealed=").append(sealed).append(" extra=").append(extra)
-                            .append(" flow=").append(flowOk).append(" contained=").append(contained).append(']');
+                            .append(" flow=").append(flowOk).append(" contained=").append(contained)
+                            .append(" top=").append(top.getBlock().builtInRegistryHolder().key().location().getPath())
+                            .append(" terrain=").append(cell.terrain.getName()).append(']');
                     }
                 }
             }

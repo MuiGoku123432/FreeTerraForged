@@ -1,54 +1,54 @@
-# RH1 validation record
+# RH2 validation record
 
-Date: 2026-10-27. Java 21, Minecraft 1.21.1, development server launches on loopback only. Experimental build `1.0.0014-rh1`.
+Date: 2026-10-27. Java 21, Minecraft 1.21.1, build `1.0.0014-rh2`, generation model 2. Servers bind to loopback.
 
-## Automated tests
+## Automated
 
-`./gradlew :common:test :fabric:build :neoforge:build --offline`
+`./gradlew :common:test :fabric:build :neoforge:build --offline` passes. Highlights:
 
-22 JUnit test cases pass. The individual cases include larger internal sweeps:
+- `HighlandQualityTest` (new): five seeds (0, 1, 42, 8675309, −314159), fixed 3072-block window per seed chosen by
+  rule (a coarse land sample of the origin continent halfway between coast and core), 4-block maps written to
+  `common/build/rolling-highlands/quality-<seed>.png`, plus 12 one-block transects per window. Gates and results:
 
-- 1,000 small tree-profile problems compared with a brute-force oracle; malformed graphs and nonfinite inputs rejected.
-- 364 owner plans: 52 seeds (`0..49`, `8675309`, `-314159`) across seven continent-scale/upland-spacing pairs: `(1000,4096)`, `(1000,8192)`, `(3000,4096)`, `(4000,4096)`, `(4000,8192)`, `(5000,4096)`, `(5000,8192)`. Profiles solve and spatial-index budgets hold. This is sampled coverage, not a proof for every seed/control combination.
-- Five seeds across three neighboring continent owners: real ocean roots, acyclic downstream topology, monotone profiles and bounded node counts.
-- Five fixed 16,384-block terrain windows; every refined channel sample agrees with its generated water height. Diagnostic maps are generated under `common/build/rolling-highlands/seed-*.png`.
-- 2,000 far/negative coordinate samples check coast ownership bounds; noise precision has a separate adjacent-coordinate check.
-- Parallel/reversed request order, separate seeds and rebuilt owners preserve deterministic sampled results. Padded filtered chunks agree at their shared boundary.
-- Mountain/foothill/valley-width variations, including minimum amplitude, preserve sampled channel water profiles. Valley cross-sections are continuous and monotone through their boundaries.
-- Preset persistence, independent copies, invalid model/range/nonfinite/fractional rejection, water metadata copying/reset, and unchanged legacy enum ordinals.
-- Frozen current-unstable UPLIFT/MULTI_IMPROVED terrain fingerprints for three seeds each remain identical. This does not establish equivalence to the unidentified V3 preset.
+| Gate | RH1 baseline | RH2 (all five seeds) |
+|---|---|---|
+| Dry 1-block jumps > 3 blocks | up to 36 per window, worst 61 | 0 (worst step 2.3) |
+| 4-block seams (> 12 per 4 blocks) | up to 2,674 | 0 |
+| Adjacent wet water steps ≥ 2 | — | 0 |
+| Wet cells with lower dry neighbour (perched) | up to 13 | 0 |
+| Shore cliffs > 12 within 4 blocks | 1 (76 blocks) | 0 |
+| Channel cells with current / currents upstream | stub | 100% / 0% |
+| Positive weirdness / peak slice on valley floors | 100% / 13% | 0% / 0% |
+| Weirdness slices low/mid/high/peak (legacy 60/33/6/1) | — | 57–61 / 32–36 / 6 / 1 |
+| Erosion levels 1–4 (legacy 12/16/52/20), levels 5–6 | — | 11–12 / 18–21 / 49–55 / 16–19, 0 |
+| Beaches (legacy ≈ 3%) | ~10% (+ 20% under 5 blocks) | 1.3–1.9% |
+| Channel length exactly on grid directions | ~62% of reaches | 6.5–8.3% |
+| Valley zone share of dry land | 94–95% | 7–68% |
 
-Both distributable jars contain the RH implementation and English editor translations and exclude test fixtures. `git diff --check` passes. Existing compiler deprecation warnings remain.
+- Plan builds: 364-plan bounds sweep (52 seeds × 7 scale/spacing pairs) and owner plans build without fallback;
+  river-less fallback plan validated.
+- Determinism (parallel/reversed order, rebuild, owner isolation), filtered chunk boundary agreement, settings
+  persistence (model 2; model 1 rejected with guidance) and frozen legacy UPLIFT/MULTI_IMPROVED fingerprints pass.
 
 ## Actual Minecraft blocks
 
-Seed 0, default RH profile, exact center `(-1920, 11136)`, radius 1:
+Seed 0, default RH2 preset via datapack (see RH1 reproduction steps; preset exported to
+`common/build/rolling-highlands/preset.json`), radius 1 (9 FULL chunks), after features and a 40-tick wait.
+Checks: water/ice (or a feature's solid block, never air) at the planned surface, solid bed, no source water
+above the surface, flow-field byte present for every current, dry neighbours solid at the water surface.
 
-| Loader | FULL chunks | Wet columns checked | Failures |
-|---|---:|---:|---:|
-| Fabric | 9 | 903 | 0 |
-| NeoForge | 9 | 903 | 0 |
+| Loader | Site | Wet columns | Current columns | Flow missing | Spills | Failures |
+|---|---|---:|---:|---:|---:|---:|
+| Fabric | confluence + wetland (5343, 5789) | 1,103 | 1,022 | 0 | 0 | 0 |
+| Fabric | lake outlet (6559, 6918) | 531 | 531 | 0 | 0 | 0 |
+| NeoForge | confluence + wetland (5343, 5789) | 1,103 | 1,022 | 0 | 0 | 0 |
 
-Validation runs after surface generation/features and a 40-server-tick wait. It checks water or ice at the planned surface, a solid nonfluid bed, and no water above the planned surface. It does not prove long-duration fluid stability or check every dry bank column. Both servers shut down cleanly.
+Throughput on these diagnostic runs: 5.2 / 5.1 chunks/s (Fabric), 4.7 chunks/s (NeoForge). Unfiltered column
+sampling costs about 1.8 µs for RH vs 9.7 µs for UPLIFT on the same machine.
 
-The small junction runs reported 5.33 chunks/s (Fabric) and 5.92 chunks/s (NeoForge). These are diagnostic runs on this machine, not release performance thresholds or a comparison with V3. The profiler excludes the validation wait. Generated reports live under each loader's `build/benchmark-run/perf-reports/`.
+Found during validation and fixed: single-block surface steps used a flowing top block that drained when no
+upstream source fed it (RH now keeps a source riffle). Boulder features in shallow wetland pools are accepted.
 
-A second Fabric smoke at the lake-area junction `(6528,7040)` passed: nine FULL chunks, 1,310 wet columns, zero failures, clean shutdown. The final combined test/build/smoke command completed successfully; all 22 JUnit cases passed after the final terrain-influence seam fix.
+## Not covered
 
-## Reproduction
-
-The tests export the default RH preset to `common/build/rolling-highlands/preset.json`. Make an override datapack with `pack.mcmeta` containing `{"pack":{"pack_format":48,"description":"Rolling Highlands experimental validation"}}` and that preset at `data/freeterraforged/freeterraforged/worldgen/preset/preset.json`. Pass its directory as `PACK` below; the benchmark task copies it into its disposable generated world.
-
-```sh
-./gradlew :fabric:runBenchmarkServer --offline \
-  -PftfBenchmarkSeed=0 -PftfBenchmarkRadius=1 \
-  -PftfBenchmarkX=-1920 -PftfBenchmarkZ=11136 \
-  -PftfBenchmarkExact=true -PftfValidateHighlands=true \
-  -PftfBenchmarkPresetPack="$PACK"
-```
-
-Replace `fabric` with `neoforge` for the second loader. Run the server checks sequentially because they share loopback port 25585. These tasks recreate their own `build/benchmark-run/world`; they are not commands for a player's world.
-
-## Scope of the evidence
-
-T0–T5 and the automated/build portion of T6 are implemented for the experimental delivery. Interactive client editor testing, ordinary player exploration, aesthetic acceptance, full performance envelopes, extended fluid simulation, and the exact V3 comparison remain open. T7 tuning and T8 release hardening are not claimed complete. See IMPLEMENTATION.md for the narrowed spacing range and the local bank/coastal transition refinements made during validation.
+Ground-level aesthetic review, SR + FTF in-game smoke test (manual), long fluid simulations, V3 comparison.
