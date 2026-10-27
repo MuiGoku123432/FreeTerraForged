@@ -1,0 +1,15 @@
+{
+  "harnessVersion": 2,
+  "seed": 42,
+  "passed": true,
+  "heightChecks": 144,
+  "blockChecks": 983040,
+  "failures": [],
+  "fillComparisons": [
+    "NONE: differences\u003d0, ground\u003d159",
+    "BURY: differences\u003d0, ground\u003d159",
+    "BEARD_THIN: differences\u003d0, ground\u003d159",
+    "BEARD_BOX: differences\u003d0, ground\u003d159",
+    "ENCAPSULATE: differences\u003d0, ground\u003d159"
+  ]
+}

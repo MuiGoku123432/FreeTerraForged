@@ -245,16 +245,16 @@ public record CellSampler(Supplier<WorldLookup> deferredLookup, Field field) imp
 			Cell cell;
 			int relX = bx - this.minBlockX;
 			int relZ = bz - this.minBlockZ;
-			if (this.chunkCells != null && relX >= -1 && relX <= 16 && relZ >= -1 && relZ <= 16
-					&& (this.chunkCells.length >= etcodehome.freeterraforged.world.worldgen.cell.filter.ChunkFilterGrid.HOLDER_ARRAY_LENGTH
-						|| (relX >= 0 && relX < 16 && relZ >= 0 && relZ < 16))) {
+			// A region's padded copy is not authoritative for the adjacent region. Noise
+			// interpolation and single-column queries must agree at these boundaries.
+			if (this.chunkCells != null && relX >= 0 && relX < 16 && relZ >= 0 && relZ < 16) {
 				cell = etcodehome.freeterraforged.world.worldgen.cell.filter.ChunkFilterGrid.getPaddedCell(this.chunkCells, relX, relZ);
 				if (this.perfStats != null) {
 					this.perfStats.cellSamplerChunkHits++;
 					this.perfStats.fieldReadCounts[CellSampler.this.field.ordinal()]++;
 				}
 			} else {
-				cell = CELL.get().getAndUpdate(worldLookup, bx, bz, false);
+				cell = worldLookup.getContext().filteredChunkCache.getCell(bx, bz);
 				if (this.perfStats != null) {
 					this.perfStats.fieldReadCounts[CellSampler.this.field.ordinal()]++;
 				}

@@ -1,0 +1,509 @@
+{
+  "items": [
+    {
+      "requirement_id": "SP-01",
+      "category": "boundary",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-01: test minY, maxY-1, empty column and accessor/config intersections; first-free may equal maxY.",
+      "reason": null,
+      "probe": "What happens exactly at each min/max/threshold \u2014 and one step either side?"
+    },
+    {
+      "requirement_id": "SP-01",
+      "category": "precision",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-01: integer result equals reference predicate scan, including negative/fractional raw heights; no truncation or blanket +1 shortcut.",
+      "reason": null,
+      "probe": "Where can precision loss, overflow, or rounding/tie-breaking occur \u2014 and what is the exact contract (e.g. half-up vs half-to-even, ceil/floor/truncate)?"
+    },
+    {
+      "requirement_id": "SP-02",
+      "category": "idempotency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-02: repeated cold/warm/evicted queries yield identical heights and stages.",
+      "reason": null,
+      "probe": "What happens if this runs twice on the same input?"
+    },
+    {
+      "requirement_id": "SP-02",
+      "category": "concurrency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-02/09: interleave worlds/filter population and queries; no cycles, raw-cell contamination or partial publication.",
+      "reason": null,
+      "probe": "If interrupted or run in parallel, what is guaranteed?"
+    },
+    {
+      "requirement_id": "SP-03",
+      "category": "boundary",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-03: exercise exact cell-aligned ceiling, one block above/below, min/max and high neighbor contributions.",
+      "reason": null,
+      "probe": "What happens exactly at each min/max/threshold \u2014 and one step either side?"
+    },
+    {
+      "requirement_id": "SP-03",
+      "category": "precision",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-03: conservative rounded bounds equal full-height output; checked coordinate arithmetic never wraps.",
+      "reason": null,
+      "probe": "Where can precision loss, overflow, or rounding/tie-breaking occur \u2014 and what is the exact contract (e.g. half-up vs half-to-even, ceil/floor/truncate)?"
+    },
+    {
+      "requirement_id": "SP-03",
+      "category": "idempotency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-03/09: repeating generation/reference comparisons does not change sampled density or decisions.",
+      "reason": null,
+      "probe": "What happens if this runs twice on the same input?"
+    },
+    {
+      "requirement_id": "SP-03",
+      "category": "concurrency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-03/09: reordered workers produce identical complete NOISE chunks; fallback has no shared mutable state.",
+      "reason": null,
+      "probe": "If interrupted or run in parallel, what is guaranteed?"
+    },
+    {
+      "requirement_id": "SP-04",
+      "category": "adjacency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-04: exact-ID beats tag; same-priority conflicting tag rules are invalid, even when masks touch.",
+      "reason": null,
+      "probe": "When two things are exactly equal or just touch, do they merge, collide, or separate?"
+    },
+    {
+      "requirement_id": "SP-04",
+      "category": "empty",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-04: absent optional mod/empty selector is inactive; an enabled empty support mask is invalid; unknown explicit profile version fails validation.",
+      "reason": null,
+      "probe": "What is the result for empty, single-element, or null input?"
+    },
+    {
+      "requirement_id": "SP-04",
+      "category": "encoding",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-04: identifiers use Minecraft ResourceLocation parsing and explicit canonical namespace:path equality, not display names, case folding or substring matching. Invalid resource syntax is rejected.",
+      "reason": null,
+      "probe": "Whose definition of length/equality applies \u2014 bytes, code points, grapheme clusters, or normalized form?"
+    },
+    {
+      "requirement_id": "SP-04",
+      "category": "ordering",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-04: resource-pack precedence then explicit selector priority; equal-priority conflict errors do not depend on registry iteration order.",
+      "reason": null,
+      "probe": "When elements compare equal, is output order specified and stable?"
+    },
+    {
+      "requirement_id": "SP-04",
+      "category": "idempotency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-04/09: reloading unchanged effective data yields the same profile resolution/fingerprint.",
+      "reason": null,
+      "probe": "What happens if this runs twice on the same input?"
+    },
+    {
+      "requirement_id": "SP-04",
+      "category": "concurrency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-04/09: in-flight starts retain immutable epoch; successful reload publishes a complete new epoch atomically.",
+      "reason": null,
+      "probe": "If interrupted or run in parallel, what is guaranteed?"
+    },
+    {
+      "requirement_id": "SP-05",
+      "category": "boundary",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-05: support gap/embed exactly at limit passes, one block beyond fails; legal zero-shift original is retained.",
+      "reason": null,
+      "probe": "What happens exactly at each min/max/threshold \u2014 and one step either side?"
+    },
+    {
+      "requirement_id": "SP-05",
+      "category": "adjacency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-05/08: deduplicate touching support cells; intersecting incompatible support/entry masks are validation errors, not double transforms.",
+      "reason": null,
+      "probe": "When two things are exactly equal or just touch, do they merge, collide, or separate?"
+    },
+    {
+      "requirement_id": "SP-05",
+      "category": "empty",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-04/05: empty/zero-piece starts retain upstream failure; no fabricated fallback structure. Singleton support mask is valid if declared.",
+      "reason": null,
+      "probe": "What is the result for empty, single-element, or null input?"
+    },
+    {
+      "requirement_id": "SP-05",
+      "category": "ordering",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-05/09: original first, fixed alternative order, closest feasible integer Y with lower-Y tie break; stable mask order.",
+      "reason": null,
+      "probe": "When elements compare equal, is output order specified and stable?"
+    },
+    {
+      "requirement_id": "SP-05",
+      "category": "precision",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-05: all fit-interval bounds are inclusive integer bounds; ceil lower/floor upper for conservative fractional envelopes, checked transforms at negative coordinates.",
+      "reason": null,
+      "probe": "Where can precision loss, overflow, or rounding/tie-breaking occur \u2014 and what is the exact contract (e.g. half-up vs half-to-even, ceil/floor/truncate)?"
+    },
+    {
+      "requirement_id": "SP-06",
+      "category": "boundary",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-06/08: root blend/embedding stops exactly at declared mask/depth; unsupported canopy edges do not count as root failures.",
+      "reason": null,
+      "probe": "What happens exactly at each min/max/threshold \u2014 and one step either side?"
+    },
+    {
+      "requirement_id": "SP-06",
+      "category": "adjacency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-06: touching root and intentional-void masks need explicit compatible ownership; conflicts reject profile validation.",
+      "reason": null,
+      "probe": "When two things are exactly equal or just touch, do they merge, collide, or separate?"
+    },
+    {
+      "requirement_id": "SP-06",
+      "category": "empty",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-06: missing/ambiguous root or void metadata keeps profile observation-only; sparse omitted template coordinates are never filled with air.",
+      "reason": null,
+      "probe": "What is the result for empty, single-element, or null input?"
+    },
+    {
+      "requirement_id": "SP-06",
+      "category": "ordering",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-06/09: effective processor order is preserved except explicit profile-owned transformations; rotate masks with the selected template, not before resolving variants.",
+      "reason": null,
+      "probe": "When elements compare equal, is output order specified and stable?"
+    },
+    {
+      "requirement_id": "SP-06",
+      "category": "precision",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-06: integer transformed masks match actual template origin/ground delta at all rotations, including negative world positions.",
+      "reason": null,
+      "probe": "Where can precision loss, overflow, or rounding/tie-breaking occur \u2014 and what is the exact contract (e.g. half-up vs half-to-even, ceil/floor/truncate)?"
+    },
+    {
+      "requirement_id": "SP-07",
+      "category": "boundary",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-07: lift 0/max/max+1, ceiling/padding touch, impossible interval; exact minimum clearance passes.",
+      "reason": null,
+      "probe": "What happens exactly at each min/max/threshold \u2014 and one step either side?"
+    },
+    {
+      "requirement_id": "SP-07",
+      "category": "adjacency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-07: touching footprint columns share sampled terrain; vertically separate occupied components retain their individual lowest/topmost bounds.",
+      "reason": null,
+      "probe": "When two things are exactly equal or just touch, do they merge, collide, or separate?"
+    },
+    {
+      "requirement_id": "SP-07",
+      "category": "empty",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-07: no occupied blocks/empty generation stub cannot be accepted as an airborne success; retain upstream empty outcome.",
+      "reason": null,
+      "probe": "What is the result for empty, single-element, or null input?"
+    },
+    {
+      "requirement_id": "SP-07",
+      "category": "ordering",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-07/09: original altitude first, minimum upward lift next; component order cannot alter max clearance or final transform.",
+      "reason": null,
+      "probe": "When elements compare equal, is output order specified and stable?"
+    },
+    {
+      "requirement_id": "SP-07",
+      "category": "precision",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-07: compute checked integer lift from first-free surfaces; do not double-add sampled absolute altitude; upward round conservative estimates.",
+      "reason": null,
+      "probe": "Where can precision loss, overflow, or rounding/tie-breaking occur \u2014 and what is the exact contract (e.g. half-up vs half-to-even, ceil/floor/truncate)?"
+    },
+    {
+      "requirement_id": "SP-08",
+      "category": "boundary",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-08: support depth/volume exactly at cap passes, one extra block fails; zero budget means no added support.",
+      "reason": null,
+      "probe": "What happens exactly at each min/max/threshold \u2014 and one step either side?"
+    },
+    {
+      "requirement_id": "SP-08",
+      "category": "adjacency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-08: overlapping influence regions use deterministic ownership and aggregate budgets, not duplicate block writes or stacked height changes.",
+      "reason": null,
+      "probe": "When two things are exactly equal or just touch, do they merge, collide, or separate?"
+    },
+    {
+      "requirement_id": "SP-08",
+      "category": "empty",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-08: no foundation profile/budget means no extra terraforming; no material rule means optional foundation profile invalid.",
+      "reason": null,
+      "probe": "What is the result for empty, single-element, or null input?"
+    },
+    {
+      "requirement_id": "SP-08",
+      "category": "ordering",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-08/09: equivalent structure inputs produce identical combined influence independent of chunk scheduling; conflicting edits resolved deterministically or rejected.",
+      "reason": null,
+      "probe": "When elements compare equal, is output order specified and stable?"
+    },
+    {
+      "requirement_id": "SP-08",
+      "category": "precision",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-08: count unique changed blocks, use checked volume/depth arithmetic, and never wrap a large mask into a smaller budget.",
+      "reason": null,
+      "probe": "Where can precision loss, overflow, or rounding/tie-breaking occur \u2014 and what is the exact contract (e.g. half-up vs half-to-even, ceil/floor/truncate)?"
+    },
+    {
+      "requirement_id": "SP-08",
+      "category": "idempotency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-08/09: repeated population/reload does not stack extra foundation blocks or further lower terrain.",
+      "reason": null,
+      "probe": "What happens if this runs twice on the same input?"
+    },
+    {
+      "requirement_id": "SP-08",
+      "category": "concurrency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-08: per-current-chunk writes only; immutable cross-chunk decision data prevents races and partial shared-template edits.",
+      "reason": null,
+      "probe": "If interrupted or run in parallel, what is guaranteed?"
+    },
+    {
+      "requirement_id": "SP-09",
+      "category": "adjacency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-09: same structure start identity across adjoining chunks resolves to one persisted decision, not one per chunk.",
+      "reason": null,
+      "probe": "When two things are exactly equal or just touch, do they merge, collide, or separate?"
+    },
+    {
+      "requirement_id": "SP-09",
+      "category": "empty",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-09: no accepted start means no saved transform; old starts without policy metadata retain their upstream saved state and do not acquire an inferred policy.",
+      "reason": null,
+      "probe": "What is the result for empty, single-element, or null input?"
+    },
+    {
+      "requirement_id": "SP-09",
+      "category": "ordering",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-09: reverse/random order and interleaved worlds yield the same pieces, junctions, references and entities.",
+      "reason": null,
+      "probe": "When elements compare equal, is output order specified and stable?"
+    },
+    {
+      "requirement_id": "SP-09",
+      "category": "idempotency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-09: repeated load/retry never rerolls accepted placement or duplicates entities.",
+      "reason": null,
+      "probe": "What happens if this runs twice on the same input?"
+    },
+    {
+      "requirement_id": "SP-09",
+      "category": "concurrency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-09: one epoch per start; failure/cancellation never publishes partial decisions or leaves owner caches bound to another world.",
+      "reason": null,
+      "probe": "If interrupted or run in parallel, what is guaranteed?"
+    },
+    {
+      "requirement_id": "SP-10",
+      "category": "adjacency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-10: multiple mixins/profiles targeting the same start execute each owned concern once; upstream rejection wins.",
+      "reason": null,
+      "probe": "When two things are exactly equal or just touch, do they merge, collide, or separate?"
+    },
+    {
+      "requirement_id": "SP-10",
+      "category": "empty",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-10: target mods absent is a clean pass-through; upstream empty stub is not resurrected; empty direct-holder sets retain existing guard behavior.",
+      "reason": null,
+      "probe": "What is the result for empty, single-element, or null input?"
+    },
+    {
+      "requirement_id": "SP-10",
+      "category": "ordering",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-10: validate actual transformed mixin order and processor sequence; no profile bypasses upstream eligibility via an early return.",
+      "reason": null,
+      "probe": "When elements compare equal, is output order specified and stable?"
+    },
+    {
+      "requirement_id": "SP-10",
+      "category": "idempotency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-10/09: saved pieces preserve machine block entities/loot/entity counts after repeat loads.",
+      "reason": null,
+      "probe": "What happens if this runs twice on the same input?"
+    },
+    {
+      "requirement_id": "SP-10",
+      "category": "concurrency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-10/09: mod hook context remains owner/thread scoped across multiple worlds and concurrent generation.",
+      "reason": null,
+      "probe": "If interrupted or run in parallel, what is guaranteed?"
+    },
+    {
+      "requirement_id": "SP-11",
+      "category": "boundary",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-12/13: sample minima and budget thresholds are explicit; exact target passes, insufficient samples are inconclusive.",
+      "reason": null,
+      "probe": "What happens exactly at each min/max/threshold \u2014 and one step either side?"
+    },
+    {
+      "requirement_id": "SP-11",
+      "category": "adjacency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-11: terrain comparisons use unioned influence bounds and stage labels; adjoining chunks cannot hide unexplained edits at shared borders.",
+      "reason": null,
+      "probe": "When two things are exactly equal or just touch, do they merge, collide, or separate?"
+    },
+    {
+      "requirement_id": "SP-11",
+      "category": "empty",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-12: zero baseline defects preserves zero; zero baseline valid starts is reported separately, never used as an improvement ratio. Missing fixtures are inconclusive.",
+      "reason": null,
+      "probe": "What is the result for empty, single-element, or null input?"
+    },
+    {
+      "requirement_id": "SP-11",
+      "category": "ordering",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-11/12: freeze survey/seed order before comparisons and alternate paired run order; do not cherry-pick successful examples.",
+      "reason": null,
+      "probe": "When elements compare equal, is output order specified and stable?"
+    },
+    {
+      "requirement_id": "SP-11",
+      "category": "precision",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-12: report integer numerator/denominator, per-ID counts and confidence intervals; avoid rounded percentages masking a failed threshold.",
+      "reason": null,
+      "probe": "Where can precision loss, overflow, or rounding/tie-breaking occur \u2014 and what is the exact contract (e.g. half-up vs half-to-even, ceil/floor/truncate)?"
+    },
+    {
+      "requirement_id": "SP-12",
+      "category": "boundary",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-13/14: cap candidates/columns/template entries/memory; exactly-at-limit completes, next work item takes deterministic budget-exceeded path.",
+      "reason": null,
+      "probe": "What happens exactly at each min/max/threshold \u2014 and one step either side?"
+    },
+    {
+      "requirement_id": "SP-12",
+      "category": "precision",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-13/14: counters use sufficient width/checked accumulation; throughput is total completed chunks divided by measured elapsed time, with stated units.",
+      "reason": null,
+      "probe": "Where can precision loss, overflow, or rounding/tie-breaking occur \u2014 and what is the exact contract (e.g. half-up vs half-to-even, ceil/floor/truncate)?"
+    },
+    {
+      "requirement_id": "SP-12",
+      "category": "idempotency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-14: logging toggles and repeated report reads do not sample RNG or change generation; counters distinguish retries from unique starts.",
+      "reason": null,
+      "probe": "What happens if this runs twice on the same input?"
+    },
+    {
+      "requirement_id": "SP-12",
+      "category": "concurrency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "AC-13/14: bounded in-flight metadata work, owner-scoped aggregation, atomic report snapshots and no timeout-dependent acceptance.",
+      "reason": null,
+      "probe": "If interrupted or run in parallel, what is guaranteed?"
+    }
+  ],
+  "coverage": {
+    "applicable": 55,
+    "resolved": 55,
+    "unresolved": 0,
+    "byVerification": {
+      "explicit": 55,
+      "backstop": 0
+    }
+  },
+  "method": "Categories emitted by canonical GSD edge-probe.cjs; explicit author resolutions are normative future verification obligations, not executed tests."
+}

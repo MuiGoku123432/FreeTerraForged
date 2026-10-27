@@ -17,7 +17,6 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.levelgen.RandomState;
-import etcodehome.freeterraforged.world.worldgen.cell.heightmap.WorldLookup;
 
 record CellTest(float cutoff, Set<Terrain> terrainTypeBlacklist) implements StructureRule {
 	public static final MapCodec<CellTest> CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
@@ -35,9 +34,7 @@ record CellTest(float cutoff, Set<Terrain> terrainTypeBlacklist) implements Stru
 			@Nullable
             GeneratorContext generatorContext = ftfRandomState.generatorContext();
 			if(generatorContext != null) {
-				WorldLookup worldLookup = generatorContext.lookup;
-				Cell cell = new Cell();
-				worldLookup.applyCell(cell.reset(), pos.getX(), pos.getZ(), false);
+				Cell cell = generatorContext.filteredChunkCache.getCell(pos.getX(), pos.getZ());
 				if(cell.riverMask < this.cutoff) {//FIXME this breaks ancient city generation || this.terrainTypeBlacklist.contains(cell.terrain)) {
 					return false;
 				}

@@ -21,6 +21,7 @@ import net.minecraft.world.level.chunk.ChunkGenerator;
 import net.minecraft.world.level.levelgen.NoiseBasedChunkGenerator;
 import net.minecraft.world.level.levelgen.NoiseChunk;
 import net.minecraft.world.level.levelgen.RandomState;
+import net.minecraft.world.level.levelgen.structure.TerrainAdjustment;
 import net.minecraft.world.level.levelgen.blending.Blender;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
@@ -34,6 +35,7 @@ import etcodehome.freeterraforged.world.worldgen.IChunkCellsHolder;
 import etcodehome.freeterraforged.world.worldgen.ChunkFlowField;
 import etcodehome.freeterraforged.world.worldgen.perf.WorldgenPerfTracker;
 import etcodehome.freeterraforged.world.worldgen.runtime.TerraForgedChunkGenerator;
+import etcodehome.freeterraforged.world.worldgen.runtime.FullHeightNoiseReference;
 
 @Mixin(NoiseBasedChunkGenerator.class)
 abstract class MixinNoiseBasedChunkGenerator extends ChunkGenerator {
@@ -79,7 +81,16 @@ abstract class MixinNoiseBasedChunkGenerator extends ChunkGenerator {
 		long t0 = perfActive ? System.nanoTime() : 0L;
 		try {
 			int effectiveCellCountY = cellCountY;
-			if ((Object) randomState instanceof FTFRandomState ftfRandomState) {
+			// A structure can create solid terrain far above this chunk's own height.
+			// Match Beardifier's structure selection and use the full configured range
+			// whenever it can contribute. A terrain-only +16 margin cannot bound it.
+			boolean structureInfluence = (Object) this instanceof TerraForgedChunkGenerator
+				&& !structureManager.startsForStructure(chunk.getPos(),
+				structure -> structure.terrainAdaptation() != TerrainAdjustment.NONE).isEmpty();
+			if ((Object) this instanceof TerraForgedChunkGenerator
+					&& !(structureManager instanceof FullHeightNoiseReference)
+					&& !structureInfluence
+					&& (Object) randomState instanceof FTFRandomState ftfRandomState) {
 				GeneratorContext genCtx = ftfRandomState.generatorContext();
 				if (genCtx != null && chunk instanceof IChunkCellsHolder cellsHolder) {
 					Cell[] cells = cellsHolder.freeterraforged$getChunkCells();

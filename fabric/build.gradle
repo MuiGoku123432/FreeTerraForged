@@ -38,6 +38,7 @@ loom {
             vmArg "-Dfreeterraforged.benchmark.x=${project.findProperty('ftfBenchmarkX') ?: '100000'}"
             vmArg "-Dfreeterraforged.benchmark.z=${project.findProperty('ftfBenchmarkZ') ?: '100000'}"
             vmArg "-Dfreeterraforged.benchmark.exit=true"
+            vmArg "-Dfreeterraforged.structureProbe=${project.findProperty('ftfStructureProbe') ?: 'false'}"
         }
     }
 }
@@ -103,6 +104,7 @@ tasks.matching { ["runClient", "runServer", "runBenchmarkServer", "runClientRend
 tasks.named("runBenchmarkServer").configure {
     doFirst {
         def benchDir = file("build/benchmark-run")
+        delete(new File(benchDir, "perf-reports/structure-probe.json"))
         delete(new File(benchDir, "world"))
         benchDir.mkdirs()
         new File(benchDir, "eula.txt").text = "eula=true\n"
@@ -110,12 +112,24 @@ tasks.named("runBenchmarkServer").configure {
 level-type=freeterraforged\\:freeterraforged
 level-seed=${project.findProperty('ftfBenchmarkSeed') ?: '-7442486958049957310'}
 online-mode=false
+server-ip=127.0.0.1
+server-port=0
 spawn-protection=0
 view-distance=10
 simulation-distance=10
 sync-chunk-writes=false
 max-tick-time=-1
 """.stripIndent()
+    }
+    doLast {
+        if ((project.findProperty('ftfStructureProbe') ?: 'false').toString().toBoolean()) {
+            def reportFile = file("build/benchmark-run/perf-reports/structure-probe.json")
+            if (!reportFile.isFile()) throw new GradleException("Structure probe did not produce a report")
+            def report = new groovy.json.JsonSlurper().parse(reportFile)
+            if (report.passed != true || report.harnessVersion != 3 || report.heightChecks < 240 || report.blockChecks < 2949120) {
+                throw new GradleException("Structure probe failed or did not complete: ${report.failures}")
+            }
+        }
     }
 }
 

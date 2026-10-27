@@ -125,7 +125,9 @@ class MixinNoiseChunk implements IChunkCellsHolder {
 						this.freeterraforged$chunkCells = generatorContext.filteredChunkCache.getFilteredChunk(this.chunkX, this.chunkZ);
 					}
 				} else {
-					this.freeterraforged$chunkCells = generatorContext.filteredChunkCache.getIfPresent(this.chunkX, this.chunkZ);
+					// Column queries must not use raw terrain merely because no chunk has been
+					// generated yet. This computes terrain cells, never loads world chunks.
+					this.freeterraforged$chunkCells = generatorContext.filteredChunkCache.getFilteredChunk(this.chunkX, this.chunkZ);
 				}
 			}
 		}

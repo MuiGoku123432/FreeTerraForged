@@ -15,7 +15,6 @@ import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import etcodehome.freeterraforged.world.worldgen.GeneratorContext;
 import etcodehome.freeterraforged.world.worldgen.cell.Cell;
-import etcodehome.freeterraforged.world.worldgen.densityfunction.CellSampler;
 import etcodehome.freeterraforged.world.worldgen.perf.WorldgenPerfTracker;
 import net.minecraft.core.Holder;
 import net.minecraft.core.Registry;
@@ -355,27 +354,12 @@ public final class TerraForgedChunkGenerator extends NoiseBasedChunkGenerator
 		return super.createBiomes(randomState, blender, structureManager, chunk);
 	}
 
-	private GeneratorContext getGeneratorContext(RandomState random) {
-		if (this.randomState != null) {
-			return this.randomState.generatorContext();
-		}
-		return null;
-	}
-
 	@Override
 	public int getBaseHeight(int x, int z, Heightmap.Types type, LevelHeightAccessor level, RandomState random) {
-		GeneratorContext ctx = getGeneratorContext(random);
-
-		// Safety fallback if generator context isn't bound yet
-		if (ctx == null) {
-			return super.getBaseHeight(x, z, type, level, random);
-		}
-
-		// Fast cache-aware sampling via CellSampler (hits 2D thread cache, FilteredChunkCache, or RawChunkCache)
-		Cell cell = CellSampler.getCachedOrLookup(ctx.lookup, x, z, false);
-
-		// Convert normalized height (0.0F - 1.0F) to world Y block coordinate
-		return ctx.levels.scale(cell.height);
+		// The density column preserves the requested predicate, fluids, caves and height bounds.
+		// MixinNoiseChunk supplies the same canonical filtered cells used by chunk filling.
+		// A scaled 2D height cannot distinguish the ocean surface from the seabed.
+		return super.getBaseHeight(x, z, type, level, random);
 	}
 
 	public Holder<Biome> resolveBiome(int quartX, int quartY, int quartZ, Climate.Sampler sampler) {

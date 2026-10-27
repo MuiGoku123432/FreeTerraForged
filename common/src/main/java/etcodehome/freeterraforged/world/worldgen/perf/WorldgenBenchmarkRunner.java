@@ -207,6 +207,7 @@ public final class WorldgenBenchmarkRunner {
      * Called every server tick from {@code MixinMinecraftServer}.
      */
     public static void onServerTick(MinecraftServer server) {
+        if (StructurePlacementProbe.onServerTick(server)) return;
         if (!autoBenchmarkTriggered && Boolean.getBoolean("freeterraforged.benchmark.auto")) {
             if (server.getTickCount() >= 20) {
                 autoBenchmarkTriggered = true;

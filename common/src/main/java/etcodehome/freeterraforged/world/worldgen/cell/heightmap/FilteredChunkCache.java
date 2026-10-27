@@ -62,8 +62,9 @@ public class FilteredChunkCache {
             CompletableFuture<Void> future = new CompletableFuture<>();
             CompletableFuture<Void> inFlight = this.inFlightRegions.putIfAbsent(regionKey, future);
             if (inFlight == null) {
+                Cell[] requested;
                 try {
-                    this.generateRegion(regionChunkX, regionChunkZ);
+                    requested = this.generateRegion(regionChunkX, regionChunkZ, chunkX, chunkZ);
                     future.complete(null);
                 } catch (Throwable t) {
                     future.completeExceptionally(t);
@@ -74,17 +75,17 @@ public class FilteredChunkCache {
                 if (WorldgenPerfTracker.ACTIVE) {
                     WorldgenPerfTracker.stats().filteredChunkCacheMisses++;
                 }
-                return this.cache.get(chunkKey);
+                // Other workers can evict this entry immediately after publication. Keep
+                // the requested array alive rather than returning a racy map lookup.
+                return requested;
             } else {
-                try {
-                    inFlight.join();
-                } catch (Throwable ignored) {
-                }
+                // Propagate a failed computation; retrying it forever hides the cause.
+                inFlight.join();
             }
         }
     }
 
-    private void generateRegion(int regionChunkX, int regionChunkZ) {
+    private Cell[] generateRegion(int regionChunkX, int regionChunkZ, int requestedX, int requestedZ) {
         RegionFilterGrid grid = RegionFilterGrid.THREAD_LOCAL.get();
         boolean perfActive = WorldgenPerfTracker.ACTIVE;
         long t0 = perfActive ? System.nanoTime() : 0L;
@@ -111,13 +112,16 @@ public class FilteredChunkCache {
             this.context.filters.apply(grid);
         }
 
+        Cell[] requested = null;
         for (int lz = 0; lz < REGION_CHUNKS; lz++) {
             for (int lx = 0; lx < REGION_CHUNKS; lx++) {
                 int cx = regionChunkX + lx;
                 int cz = regionChunkZ + lz;
                 long key = PosUtil.pack(cx, cz);
                 Cell[] chunkCells = grid.extractChunkCells(lx, lz);
-                this.cache.put(key, chunkCells);
+                if (cx == requestedX && cz == requestedZ) requested = chunkCells;
+                Cell[] previous = this.cache.put(key, chunkCells);
+                if (previous != null) continue;
                 this.evictionQueue.offer(key);
                 if (this.size.incrementAndGet() > MAX_ENTRIES) {
                     Long oldest = this.evictionQueue.poll();
@@ -133,10 +137,17 @@ public class FilteredChunkCache {
             ts.gridGenerateCount++;
             ts.gridGenerateNanos += (System.nanoTime() - t0);
         }
+        return java.util.Objects.requireNonNull(requested, "Requested chunk must belong to generated region");
     }
 
     public Cell[] getIfPresent(int chunkX, int chunkZ) {
         return this.cache.get(PosUtil.pack(chunkX, chunkZ));
+    }
+
+    /** Canonical post-filter cell owned by this world coordinate; never falls back to raw terrain. */
+    public Cell getCell(int blockX, int blockZ) {
+        Cell[] cells = this.getFilteredChunk(blockX >> 4, blockZ >> 4);
+        return ChunkFilterGrid.getPaddedCell(cells, blockX & 15, blockZ & 15);
     }
 
     public Cell getExistingFilteredCell(int blockX, int blockZ) {

@@ -1,0 +1,25 @@
+{
+  "harnessVersion": 3,
+  "seed": 8675309,
+  "passed": true,
+  "heightChecks": 240,
+  "blockChecks": 2949120,
+  "failures": [],
+  "fillComparisons": [
+    "[-4, -4] NONE: differences\u003d0, ground\u003d211",
+    "[-4, -4] BURY: differences\u003d0, ground\u003d211",
+    "[-4, -4] BEARD_THIN: differences\u003d0, ground\u003d211",
+    "[-4, -4] BEARD_BOX: differences\u003d0, ground\u003d211",
+    "[-4, -4] ENCAPSULATE: differences\u003d0, ground\u003d211",
+    "[3, 3] NONE: differences\u003d0, ground\u003d251",
+    "[3, 3] BURY: differences\u003d0, ground\u003d251",
+    "[3, 3] BEARD_THIN: differences\u003d0, ground\u003d251",
+    "[3, 3] BEARD_BOX: differences\u003d0, ground\u003d251",
+    "[3, 3] ENCAPSULATE: differences\u003d0, ground\u003d251",
+    "[6250, 6250] NONE: differences\u003d0, ground\u003d167",
+    "[6250, 6250] BURY: differences\u003d0, ground\u003d167",
+    "[6250, 6250] BEARD_THIN: differences\u003d0, ground\u003d167",
+    "[6250, 6250] BEARD_BOX: differences\u003d0, ground\u003d167",
+    "[6250, 6250] ENCAPSULATE: differences\u003d0, ground\u003d167"
+  ]
+}
