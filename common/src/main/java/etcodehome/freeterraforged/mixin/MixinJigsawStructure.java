@@ -39,7 +39,6 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.LiquidSetting
 
 import etcodehome.freeterraforged.world.worldgen.GeneratorContext;
 import etcodehome.freeterraforged.world.worldgen.FTFRandomState;
-import etcodehome.freeterraforged.world.worldgen.densityfunction.CellSampler;
 import etcodehome.freeterraforged.world.worldgen.perf.WorldgenPerfTracker;
 import etcodehome.freeterraforged.world.worldgen.cell.Cell;
 import etcodehome.freeterraforged.world.worldgen.runtime.TerraForgedChunkGenerator;
@@ -213,7 +212,7 @@ public class MixinJigsawStructure {
 						if (!ftf$isInsideBurySupport(box, x, z)) {
 							continue;
 						}
-						Cell cell = CellSampler.getCachedOrLookup(generatorContext.lookup, x, z, false);
+						Cell cell = generatorContext.filteredChunkCache.getCell(x, z);
 						maxSuspension = Math.max(
 							maxSuspension,
 							groundPlane - generatorContext.levels.scale(cell.height)
@@ -396,13 +395,13 @@ public class MixinJigsawStructure {
 				int maxZ = box.maxZ();
 				for (int x = minX; x <= maxX; x += 4) {
 					for (int z = minZ; z <= maxZ; z += 4) {
-						Cell cell = CellSampler.getCachedOrLookup(context.lookup, x, z, false);
+						Cell cell = context.filteredChunkCache.getCell(x, z);
 						if (cell.terrain.isRiver()) {
 							return true;
 						}
 					}
 					if ((maxZ - minZ) % 4 != 0) {
-						Cell cell = CellSampler.getCachedOrLookup(context.lookup, x, maxZ, false);
+						Cell cell = context.filteredChunkCache.getCell(x, maxZ);
 						if (cell.terrain.isRiver()) {
 							return true;
 						}
@@ -410,13 +409,13 @@ public class MixinJigsawStructure {
 				}
 				if ((maxX - minX) % 4 != 0) {
 					for (int z = minZ; z <= maxZ; z += 4) {
-						Cell cell = CellSampler.getCachedOrLookup(context.lookup, maxX, z, false);
+						Cell cell = context.filteredChunkCache.getCell(maxX, z);
 						if (cell.terrain.isRiver()) {
 							return true;
 						}
 					}
 					if ((maxZ - minZ) % 4 != 0) {
-						Cell cell = CellSampler.getCachedOrLookup(context.lookup, maxX, maxZ, false);
+						Cell cell = context.filteredChunkCache.getCell(maxX, maxZ);
 						if (cell.terrain.isRiver()) {
 							return true;
 						}
@@ -449,7 +448,7 @@ public class MixinJigsawStructure {
 			ts.currentCaller = WorldgenPerfTracker.ApplyCellCaller.STRUCTURES;
 		}
 		try {
-			Cell cell = CellSampler.getCachedOrLookup(generatorContext.lookup, x, z, false);
+			Cell cell = generatorContext.filteredChunkCache.getCell(x, z);
 			return cell.terrain.isRiver();
 		} finally {
 			if (ts != null) {

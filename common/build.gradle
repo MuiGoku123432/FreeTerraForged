@@ -7,6 +7,8 @@ loom {
 }
 
 dependencies {
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
     modImplementation "net.fabricmc:fabric-loader:${rootProject.fabric_loader_version}"
     modImplementation "com.github.glitchfiend:TerraBlender-neoforge:${rootProject.minecraft_version}-${rootProject.terrablender_version}"
 	compileOnly "com.electronwill.night-config:toml:3.6.7"
@@ -14,6 +16,12 @@ dependencies {
 	modCompileOnly "maven.modrinth:lithostitched:1.8.0+beta6-neoforge-21.1"
 	compileOnly "dev.architectury:architectury-injectables:1.0.13"
 	testImplementation "org.junit.jupiter:junit-jupiter:5.11.4"
+}
+
+test {
+    useJUnitPlatform()
+    maxHeapSize = '2G'
+    testLogging { events 'passed', 'skipped', 'failed' }
 }
 
 repositories {
