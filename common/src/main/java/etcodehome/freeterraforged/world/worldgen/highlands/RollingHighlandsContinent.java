@@ -49,6 +49,10 @@ public final class RollingHighlandsContinent implements Continent {
         cache.put(key, built);
         return built;
     }
+    /** Test/diagnostic access to the owner plan containing a block position. */
+    HighlandPlanIndex planAt(double x, double z) { var s = coast.sample(x, z); return plan(s.ownerX(), s.ownerZ()); }
+    HighlandCoast coast() { return coast; }
+
     @Override public void apply(Cell cell, float x, float z) { apply(cell, (double) x, z); }
 
     public void apply(Cell cell, double x, double z) {

@@ -36,6 +36,7 @@ public final class HighlandPlanIndex {
         building.forEach((k, v) -> finished.put(k, v.stream().mapToInt(Integer::intValue).toArray()));
         this.buckets = Map.copyOf(finished);
     }
+    HighlandDrainage.Plan plan() { return plan; }
     public HighlandBasins.Sample lake(double x, double z) { return plan.basins().sample(x, z); }
     public Hit nearest(double x, double z) {
         int[] candidates = buckets.get(key(bucket(x), bucket(z)));
