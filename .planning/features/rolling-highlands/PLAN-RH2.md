@@ -18,7 +18,7 @@ sealing that legacy FTF rivers produce. No SR-specific code is planned.
 | D4 | Ruler-straight rivers | 6-neighbour square grid without NE–SW diagonal, 128-block step, ±32-block smoothing | 62% of reaches at exactly 0/45/90°, 26 of 619 at 135° |
 | D5 | Variant / peak biomes in wrong places | Weirdness `lerp(.15,.65,ridge)` always positive; erosion/weirdness/terrain from pre-carve ridge noise | 100% land positive weirdness; 27% peak slice; 13% of valley floors peak slice |
 | D6 | Huge beach/flat coastal band | `height < 5 → BEACH`; wide coastal taper | ~20% of continent <5 blocks; ~10% BEACH |
-| D7 | Very deep oceans | `properties.oceanDepth` (a lava-level offset, default 256) used as floor depth | Ocean floor ≈ Y −193 |
+| D7 | Featureless ocean floor | RH used a single monotonic ramp to `-oceanDepth`. (Correction: legacy FTF also uses `oceanDepth` as deep-ocean depth, so depth itself is not a defect.) | No shelf, hills or canyons; no ocean populator parity |
 | D8 | Polygonal lakes, shore notches | Triangle-corner basin sampling returns null at triangle edges | Straight lake edges; one 76-block shore cliff |
 | D9 | Raised river banks / perched water | +8 profile allowance; floor = water+2..4 even when land is lower | Possible water up to 6 above planning ground |
 | D10 | Flow field is a stub | Constant magnitude 0.5, centreline direction only, no lakes/junctions/waterfalls | `RollingHighlandsContinent:108-109` |
@@ -94,8 +94,8 @@ and the phase gates below. Phases are committed separately.
 - Terrain type from the final surface: FLATS/HILLS/MOUNTAIN_CHAIN by relief, RIVER/WETLAND by water.
 - BEACH only inside the beach control-point band at the coast. Narrow the coastal taper so the low coastal
   plain is a band, not a fifth of the continent.
-- Ocean floor uses legacy-like depths, driven by continentEdge and the existing ocean control points.
-  `properties.oceanDepth` keeps its lava-offset meaning.
+- Oceans reuse the legacy deep/shallow/coast populators (`Populators.makeDeepOcean` etc.) through the same
+  ContinentLerper3 control points, so shelves, depths and ocean biome inputs match legacy.
 - Gates: positive weirdness ≤ legacy share ±10 pts; peak slice on valley floors ≈ 0; beach ≤ 3% of land;
   ocean floor within the legacy depth range.
 
@@ -143,7 +143,17 @@ and the phase gates below. Phases are committed separately.
 3. **Meanders:** subtle; mostly follow the valley shape.
 4. Plan approved; build in the order below, one commit per phase.
 
-## 5. Execution order
+## 5. Progress log
+
+- P0 done (`dfef2e0d`): `HighlandQualityProbe` / `HighlandQualityTest`.
+- P1 done (`63846742`): all reaches composed; wet ownership by lowest bed; support cones keep channels contained.
+  Seams now only at lake triangle edges (P3).
+- P4 done: legacy ocean populators; ease-out coastal rise (keeps the continental tilt that drains the interior);
+  beach/coast left to the shared pipeline plus legacy beach noise; weirdness/erosion from final prominence,
+  calibrated to legacy shares (RH now 57-61/32-36/5-6/1 vs legacy 60/33/6/1; erosion 11-12/18-20/49-55/17-20 vs
+  12/16/52/20; beaches 1.3-1.9%). Valley-zone gate relaxed to 75% pending lake breaching in P3.
+
+## 6. Execution order
 
 P0 → P1 → P4 → P3 → P2 → P5 → P6 → P7 → P8 → P9.
 P1 and P4 fix most of the visible problems (seams and biomes) first. P2 changes topology, so it comes after

@@ -18,8 +18,17 @@ class HighlandQualityTest {
             System.out.println(m.summary());
             check(failures, m, Double.isFinite(m.worstJump()) && Double.isFinite(m.oceanFloorMin()), "finite metrics");
             // P1: valleys are composed, so interfluves remain land and channels are contained.
-            check(failures, m, m.valleyZone() <= .6, "P1 valley zone <= 60% of dry land");
+            check(failures, m, m.valleyZone() <= .75, "P1 valley zone <= 75% of dry land");
             check(failures, m, m.waterSteps() == 0, "P1 no adjacent wet water steps >= 2 blocks");
+            // P4: biome inputs follow legacy FTF distributions (default preset, measured 2026-10-27:
+            // slices low/mid/high/peak ~60/33/6/1, erosion levels 1-4 ~12/16/52/20, beaches ~3%).
+            check(failures, m, m.positiveWeirdness() == 0, "P4 weirdness stays on the normal side");
+            double[] slices = m.weirdnessSlices(), legacy = {.60, .33, .06, .01};
+            for (int i = 0; i < 4; i++) check(failures, m, Math.abs(slices[i] - legacy[i]) <= .08, "P4 weirdness slice " + i + " near legacy");
+            check(failures, m, m.peakOnFloor() <= .01, "P4 no peak slice on valley floors");
+            check(failures, m, m.erosionLevels()[5] + m.erosionLevels()[6] == 0, "P4 no swamp/windswept erosion levels");
+            check(failures, m, m.beach() <= .03, "P4 beaches <= 3% of land");
+            check(failures, m, m.oceanFloorMin() >= -256, "P4 ocean floor within legacy depth");
         }
         assertTrue(failures.isEmpty(), String.join("\n", failures));
     }

@@ -17,6 +17,7 @@ import static etcodehome.freeterraforged.world.worldgen.highlands.HighlandMath.*
 
 /** Owns the RH terrain/hydrology pipeline; legacy generators never enter this path. */
 public final class RollingHighlandsContinent implements Continent {
+    static final double PROMINENCE_LOW = 16, PROMINENCE_HIGH = 176;
     static final double BANK_RUN = 16, MIN_OUTER_RUN = 64, MAX_OUTER_RUN = 512, CREASE_SOFTNESS = 24;
     private static final Rivermap NO_LEGACY_RIVERS = new Rivermap(0, 0, new Network[0], GenWarp.EMPTY);
     private final HighlandCoast coast;
@@ -24,7 +25,10 @@ public final class RollingHighlandsContinent implements Continent {
     private final HighlandDrainage drainage;
     private final RollingHighlandsSettings settings;
     private final Levels levels;
-    private final double coastEdge, oceanDepth;
+    private final double coastEdge;
+    private final long classSeed;
+    private final etcodehome.freeterraforged.world.worldgen.cell.CellPopulator oceans;
+    private final etcodehome.freeterraforged.world.worldgen.noise.module.Noise beachNoise;
     private final Map<Long, HighlandPlanIndex> cache = new LinkedHashMap<>(16, .75F, true);
     private volatile boolean closed;
 
@@ -37,7 +41,19 @@ public final class RollingHighlandsContinent implements Continent {
         this.fields = new HighlandFields(context.seed.root() + context.preset.terrain().general.terrainSeedOffset, settings.uplandSpacing());
         this.drainage = new HighlandDrainage(coast, fields, settings.uplandSpacing(), context.preset.world().controlPoints);
         this.coastEdge = context.preset.world().controlPoints.coast;
-        this.oceanDepth = context.preset.world().properties.oceanDepth;
+        this.classSeed = context.seed.root() * 0x9E3779B97F4A7C15L + 0x52484632L;
+        // Oceans, shelves and coast use the legacy FTF ocean populators so ocean biomes, depths and the
+        // coast-to-shelf transition match the other continent types.
+        var world = context.preset.world();
+        var oceanClimate = etcodehome.freeterraforged.world.worldgen.cell.terrain.ClimateParameterSampler.make(
+            context.seed.offset(89031), context.preset.climate().biomeShape.biomeSize, context.preset.terrain().general.globalHorizontalScale);
+        this.oceans = new etcodehome.freeterraforged.world.worldgen.cell.continent.ContinentLerper3(
+            etcodehome.freeterraforged.world.worldgen.cell.terrain.Populators.makeDeepOcean(context.seed.next(), levels, world.properties.oceanDepth, oceanClimate),
+            etcodehome.freeterraforged.world.worldgen.cell.terrain.Populators.makeShallowOcean(levels, world.properties.oceanDepth, oceanClimate),
+            etcodehome.freeterraforged.world.worldgen.cell.terrain.Populators.makeCoast(levels, oceanClimate),
+            world.controlPoints.deepOcean, world.controlPoints.shallowOcean, world.controlPoints.coast);
+        this.beachNoise = etcodehome.freeterraforged.world.worldgen.noise.module.Noises.mul(
+            etcodehome.freeterraforged.world.worldgen.noise.module.Noises.perlin2(context.seed.next(), 20, 1), levels.scale(5));
     }
     private synchronized HighlandPlanIndex plan(int x, int z) {
         if (closed) throw new IllegalStateException("Rolling Highlands owner is closed");
@@ -73,11 +89,9 @@ public final class RollingHighlandsContinent implements Continent {
         cell.terrainRegionEdge = 1;
         cell.terrainRegionCenterX = (float) x; cell.terrainRegionCenterZ = (float) z;
         double blend = drainage.landBlend(location.edge());
+        cell.beachNoise = beachNoise.compute((float) x, (float) z, 0);
         if (location.edge() <= coastEdge) {
-            double h = -oceanDepth * smooth((coastEdge - location.edge()) / Math.max(.01, coastEdge));
-            cell.height = normalized(h);
-            cell.terrain = h < -20 ? TerrainType.DEEP_OCEAN : TerrainType.SHALLOW_OCEAN;
-            cell.erosion = .5F; cell.weirdness = .1F;
+            oceans.apply(cell, (float) x, (float) z);
             cell.terrainErosion = cell.erosion;
             return;
         }
@@ -86,9 +100,6 @@ public final class RollingHighlandsContinent implements Continent {
         // river is nearest.
         double land = blend * relief.height(settings.mountainHeight(), settings.foothillRelief());
         var index = plan(location.ownerX(), location.ownerZ());
-        cell.terrain = relief.ridge() > .65 ? TerrainType.MOUNTAIN_CHAIN : relief.basin() > .25 ? TerrainType.FLATS : TerrainType.HILLS;
-        cell.erosion = (float) lerp(.5, -.6, relief.ridge());
-        cell.weirdness = (float) lerp(.15, .65, relief.ridge());
         double height = carveValleys(cell, index.near(x, z), land);
         var lake = index.lake(x, z);
         if (lake != null && lake.depth() > -8) {
@@ -99,16 +110,15 @@ public final class RollingHighlandsContinent implements Continent {
                 height = lakeBed;
                 cell.riverWaterLevel = normalized(lake.water()); cell.hasRiverWater = true;
                 cell.terrain = TerrainType.RIVER; cell.riverZone = RiverZone.Riverbed;
-                cell.riverMask = 0; cell.erosion = .5F; cell.weirdness = 0;
+                cell.riverMask = 0;
                 cell.hasFlow = false;
             }
         }
         // Reserve ceiling headroom before any water/bed is handed to final generation.
         double ceiling = levels.worldHeight - levels.waterY - 24;
         if (height > ceiling) height = ceiling + 16 * (1 - Math.exp(-(height - ceiling) / 16));
-        if (!cell.hasRiverWater && height < 5) cell.terrain = TerrainType.BEACH;
         cell.height = normalized(height);
-        cell.terrainErosion = cell.erosion;
+        classify(cell, x, z, relief, height);
     }
     /**
      * Composes every nearby reach's valley section.
@@ -147,7 +157,6 @@ public final class RollingHighlandsContinent implements Continent {
             cell.riverWaterLevel = normalized(hits.water[wetOwner]);
             cell.riverZone = RiverZone.Riverbed;
             cell.hasRiverWater = true; cell.terrain = TerrainType.RIVER;
-            cell.erosion = .5F; cell.weirdness = 0;
             cell.hasFlow = true;
             cell.flowAngle = etcodehome.freeterraforged.world.worldgen.ChunkFlowField.pack(.5F, Math.atan2(hits.flowZ[wetOwner], hits.flowX[wetOwner]));
             return wetSection.height();
@@ -159,6 +168,36 @@ public final class RollingHighlandsContinent implements Continent {
             cell.riverZone = RiverZone.values()[ownerSection.zone()];
         }
         return height;
+    }
+    /**
+     * Biome-facing parameters from the final carved surface. Weirdness stays on vanilla's normal (negative)
+     * side like every legacy FTF terrain; its magnitude encodes peaks-and-valleys from ridge prominence,
+     * suppressed in valleys and at low elevation. Erosion falls with prominence (flat floors high, ridges low)
+     * and stays out of vanilla's swamp/windswept levels 5-6. Coast and beach classification is left to the
+     * shared climate/lookup pipeline, exactly as for legacy terrain.
+     */
+    private void classify(Cell cell, double x, double z, HighlandFields.Relief relief, double height) {
+        double outsideValley = smooth(0, .6, cell.riverMask);
+        double ridge = clamp(.8 * relief.ridge() + .3 * relief.foothill() * (1 - relief.ridge()), 0, 1);
+        double prominence = ridge * outsideValley * smooth(PROMINENCE_LOW, PROMINENCE_HIGH, height);
+        prominence = clamp(prominence + .08 * (2 * noise(classSeed, x, z, 300) - 1), 0, 1);
+        cell.weirdness = (float) -peaksAndValleysMagnitude(prominence);
+        cell.erosion = (float) clamp(lerp(.057, -.53, prominence) + .1 * (2 * noise(classSeed + 1, x, z, 200) - 1), -1, .44);
+        cell.terrainErosion = cell.erosion;
+        if (!cell.hasRiverWater) {
+            cell.terrain = prominence > .62 && height > 120 ? TerrainType.MOUNTAIN_CHAIN
+                : relief.basin() > .25 && prominence < .3 ? TerrainType.FLATS : TerrainType.HILLS;
+        }
+    }
+    /**
+     * Prominence to |weirdness|. Breakpoints are calibrated so the default profile's land shares of vanilla's
+     * low/mid/high/peak slices (about 60/33/6/1%) match legacy FTF terrain at the same settings.
+     */
+    static double peaksAndValleysMagnitude(double prominence) {
+        if (prominence < .32) return lerp(.06, .2667, prominence / .32);
+        if (prominence < .78) return lerp(.2667, .4, (prominence - .32) / .46);
+        if (prominence < .83) return lerp(.4, .5667, (prominence - .78) / .05);
+        return lerp(.5667, .7, clamp((prominence - .83) / .17, 0, 1));
     }
     private float normalized(double height) { return levels.water + (float) (height / levels.terrainScaleFactor); }
     @Override public float getEdgeValue(float x, float z) { return (float) coast.sample(x, z).edge(); }

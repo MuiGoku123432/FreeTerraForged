@@ -24,15 +24,22 @@ final class HighlandQualityProbe {
                    long seamPixels, double valleyZone, double wetFraction, long waterSteps, long perched,
                    long shoreCliffs, double flowCoverage, double flowUpstream,
                    double positiveWeirdness, double peakSlice, double peakOnFloor,
-                   double beach, double lowLand, double oceanFloorMin, double maxAngleBinRatio) {
+                   double beach, double lowLand, double oceanFloorMin, double maxAngleBinRatio,
+                   double[] weirdnessSlices, double[] erosionLevels) {
         String summary() {
             return String.format(java.util.Locale.ROOT,
                 "RHQ seed=%d center=%d,%d dryJumps>3=%d worstJump=%.1f@%d,%d seams=%d valleyZone=%.1f%% wet=%.1f%% "
                     + "waterSteps=%d perched=%d shoreCliffs=%d flowCoverage=%.1f%% flowUpstream=%.1f%% weirdness+=%.1f%% "
-                    + "peakSlice=%.1f%% peakOnFloor=%.1f%% beach=%.1f%% low<5=%.1f%% oceanFloorMin=%.1f angleBinRatio=%.2f",
+                    + "peakSlice=%.1f%% peakOnFloor=%.1f%% beach=%.1f%% low<5=%.1f%% oceanFloorMin=%.1f angleBinRatio=%.2f slices(low/mid/high/peak)=%s erosionLevels=%s",
                 seed, centerX, centerZ, dryJumps, worstJump, worstX, worstZ, seamPixels, 100 * valleyZone, 100 * wetFraction,
                 waterSteps, perched, shoreCliffs, 100 * flowCoverage, 100 * flowUpstream, 100 * positiveWeirdness,
-                100 * peakSlice, 100 * peakOnFloor, 100 * beach, 100 * lowLand, oceanFloorMin, maxAngleBinRatio);
+                100 * peakSlice, 100 * peakOnFloor, 100 * beach, 100 * lowLand, oceanFloorMin, maxAngleBinRatio,
+                percent(weirdnessSlices), percent(erosionLevels));
+        }
+        private static String percent(double[] values) {
+            StringBuilder out = new StringBuilder();
+            for (double v : values) out.append(out.length() == 0 ? "" : "/").append(String.format(java.util.Locale.ROOT, "%.0f", 100 * v));
+            return out.toString();
         }
     }
 
@@ -57,6 +64,9 @@ final class HighlandQualityProbe {
 
             // Owner-wide coarse statistics and the fixed window anchor.
             long land = 0, positive = 0, peak = 0, floor = 0, peakFloor = 0, beach = 0, low = 0;
+            double[] slices = new double[4], erosion = new double[7];
+            float[] erosionBounds = {-.78F, -.375F, -.2225F, .05F, .45F, .55F};
+            float beachLevel = context.levels.water(5);
             double bestEdge = -1, oceanMin = 0; int cx = 0, cz = 0;
             var anchors = new java.util.ArrayList<double[]>();
             for (double x = bounds.minX(); x < bounds.maxX(); x += 32) for (double z = bounds.minZ(); z < bounds.maxZ(); z += 32) {
@@ -75,7 +85,12 @@ final class HighlandQualityProbe {
                 if (onFloor) floor++;
                 if (c.weirdness > .05F) positive++;
                 if (Math.abs(c.weirdness) >= .5667F) { peak++; if (onFloor) peakFloor++; }
-                if (c.terrain == TerrainType.BEACH) beach++;
+                float magnitude = Math.abs(c.weirdness);
+                slices[magnitude >= .5667F ? 3 : magnitude >= .4F ? 2 : magnitude >= .2667F ? 1 : 0]++;
+                int level = 0; while (level < 6 && c.erosion >= erosionBounds[level]) level++;
+                erosion[level]++;
+                // Mirrors WorldLookup: coast cells at or below the beach level become beaches.
+                if (c.terrain == TerrainType.BEACH || c.terrain == TerrainType.COAST && c.height <= beachLevel) beach++;
                 if (h < 5) low++;
             }
 
@@ -180,9 +195,14 @@ final class HighlandQualityProbe {
             return new Metrics(seed, cx, cz, jumps, worst, wx, wz, seams, ratio(valley, dry), ratio(wetCount, wetCount + dry),
                 steps, perched, shore, ratio(flowing, wetCount), ratio(upstream, checked),
                 ratio(positive, land), ratio(peak, land), ratio(peakFloor, floor), ratio(beach, land), ratio(low, land),
-                oceanMin, total > 0 ? maxBin / (total / bins.length) : 0);
+                oceanMin, total > 0 ? maxBin / (total / bins.length) : 0, scale(slices, land), scale(erosion, land));
         }
     }
 
+    private static double[] scale(double[] counts, long total) {
+        double[] out = counts.clone();
+        for (int i = 0; i < out.length; i++) out[i] = total == 0 ? 0 : out[i] / total;
+        return out;
+    }
     private static double ratio(long a, long b) { return b == 0 ? 0 : (double) a / b; }
 }

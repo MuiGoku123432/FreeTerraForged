@@ -7,6 +7,7 @@ import static etcodehome.freeterraforged.world.worldgen.highlands.HighlandMath.*
 /** Bounded, pure terrain-aware drainage construction. Never calls final terrain or chunk caches. */
 public final class HighlandDrainage {
     public static final int MAX_NODES = 65_536;
+    static final double COASTAL_RISE = .8;
     private final HighlandCoast coast;
     private final HighlandFields fields;
     private final double spacing, coastEdge, inlandEdge;
@@ -15,10 +16,14 @@ public final class HighlandDrainage {
 
     public HighlandDrainage(HighlandCoast coast, HighlandFields fields, double spacing, WorldSettings.ControlPoints controls) {
         this.coast = coast; this.fields = fields; this.spacing = spacing;
-        this.coastEdge = controls.coast; this.inlandEdge = Math.max(controls.inland, controls.coast + .8 * Math.max(1, 16000.0 / coast.tectonicScale));
+        this.coastEdge = controls.coast; this.inlandEdge = controls.coast + Math.max(controls.inland - controls.coast, COASTAL_RISE * Math.max(1, 16000.0 / coast.tectonicScale));
         if (!(inlandEdge > coastEdge)) throw new IllegalArgumentException("Rolling Highlands needs inland > coast");
     }
-    public double landBlend(double edge) { return smooth(coastEdge, inlandEdge, edge); }
+    /** Ease-out rise from the coastline: land leaves sea level immediately and flattens toward full relief. */
+    public double landBlend(double edge) {
+        double t = clamp((edge - coastEdge) / (inlandEdge - coastEdge), 0, 1);
+        return t * (2 - t);
+    }
     public double planningHeight(double x, double z, double edge) {
         return fields.sample(x, z).planningHeight() * landBlend(edge);
     }
