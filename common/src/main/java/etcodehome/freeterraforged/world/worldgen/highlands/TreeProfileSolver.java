@@ -13,7 +13,8 @@ public final class TreeProfileSolver {
             if (parent[i] < -1 || parent[i] >= i || !Double.isFinite(lo[i]) || !Double.isFinite(hi[i])
                 || !Double.isFinite(target[i]) || !Double.isFinite(minDrop[i]) || !Double.isFinite(maxDrop[i])
                 || minDrop[i] < 0 || minDrop[i] > maxDrop[i]) throw new IllegalArgumentException("Invalid profile node " + i);
-            if (lo[i] > hi[i]) throw new Infeasible(i, lo[i], hi[i]);
+            if (lo[i] > hi[i] + tolerance(hi[i])) throw new Infeasible(i, lo[i], hi[i]);
+            if (lo[i] > hi[i]) hi[i] = lo[i];
             int p = parent[i];
             if (p >= 0) {
                 lo[p] = Math.max(lo[p], lo[i] - maxDrop[i]);
@@ -24,11 +25,14 @@ public final class TreeProfileSolver {
             int p = parent[i];
             double a = p < 0 ? lo[i] : Math.max(lo[i], water[p] + minDrop[i]);
             double b = p < 0 ? hi[i] : Math.min(hi[i], water[p] + maxDrop[i]);
-            if (a > b) throw new Infeasible(i, a, b);
+            if (a > b + tolerance(b)) throw new Infeasible(i, a, b);
+            if (a > b) b = a;
             water[i] = HighlandMath.clamp(target[i], a, b);
         }
         return water;
     }
+    /** Absorbs floating-point round-off from summed drop bounds; far below a block. */
+    private static double tolerance(double value) { return 1e-9 * Math.max(1, Math.abs(value)); }
     public static final class Infeasible extends IllegalArgumentException {
         public final int node;
         public Infeasible(int node, double lo, double hi) {

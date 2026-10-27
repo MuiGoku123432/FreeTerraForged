@@ -24,16 +24,16 @@ final class HighlandQualityProbe {
                    long seamPixels, double valleyZone, double wetFraction, long waterSteps, long perched,
                    long shoreCliffs, double flowCoverage, double flowUpstream,
                    double positiveWeirdness, double peakSlice, double peakOnFloor,
-                   double beach, double lowLand, double oceanFloorMin, double maxAngleBinRatio,
+                   double beach, double lowLand, double oceanFloorMin, double gridAligned,
                    double[] weirdnessSlices, double[] erosionLevels) {
         String summary() {
             return String.format(java.util.Locale.ROOT,
                 "RHQ seed=%d center=%d,%d dryJumps>3=%d worstJump=%.1f@%d,%d seams=%d valleyZone=%.1f%% wet=%.1f%% "
                     + "waterSteps=%d perched=%d shoreCliffs=%d flowCoverage=%.1f%% flowUpstream=%.1f%% weirdness+=%.1f%% "
-                    + "peakSlice=%.1f%% peakOnFloor=%.1f%% beach=%.1f%% low<5=%.1f%% oceanFloorMin=%.1f angleBinRatio=%.2f slices(low/mid/high/peak)=%s erosionLevels=%s",
+                    + "peakSlice=%.1f%% peakOnFloor=%.1f%% beach=%.1f%% low<5=%.1f%% oceanFloorMin=%.1f gridAligned=%.1f%% slices(low/mid/high/peak)=%s erosionLevels=%s",
                 seed, centerX, centerZ, dryJumps, worstJump, worstX, worstZ, seamPixels, 100 * valleyZone, 100 * wetFraction,
                 waterSteps, perched, shoreCliffs, 100 * flowCoverage, 100 * flowUpstream, 100 * positiveWeirdness,
-                100 * peakSlice, 100 * peakOnFloor, 100 * beach, 100 * lowLand, oceanFloorMin, maxAngleBinRatio,
+                100 * peakSlice, 100 * peakOnFloor, 100 * beach, 100 * lowLand, oceanFloorMin, 100 * gridAligned,
                 percent(weirdnessSlices), percent(erosionLevels));
         }
         private static String percent(double[] values) {
@@ -174,18 +174,19 @@ final class HighlandQualityProbe {
                 if (ahead > behind) upstream++;
             }
 
-            // Reach direction distribution, length-weighted, 15 degree bins mod 180.
+            // Share of refined channel length running exactly along grid directions (0/45/90/135 deg +-1 deg).
+            // Natural channels give about 4%; grid-routed straight reaches push this far higher.
             var plan = continent.planAt(cx, cz).plan();
-            double[] bins = new double[12]; double total = 0;
+            double aligned = 0, total = 0;
             for (var node : plan.nodes()) {
                 if (node.parent() < 0) continue;
                 var parent = plan.nodes().get(node.parent());
                 double dx = node.x() - parent.x(), dz = node.z() - parent.z(), length = Math.hypot(dx, dz);
                 if (length < 1e-6) continue;
-                double degrees = (Math.toDegrees(Math.atan2(dz, dx)) % 180 + 180) % 180;
-                bins[(int) Math.min(11, Math.floor(degrees / 15))] += length; total += length;
+                double degrees = (Math.toDegrees(Math.atan2(dz, dx)) % 45 + 45) % 45;
+                if (degrees <= 1 || degrees >= 44) aligned += length;
+                total += length;
             }
-            double maxBin = 0; for (double bin : bins) maxBin = Math.max(maxBin, bin);
 
             if (image != null) {
                 Path out = Path.of("build/rolling-highlands/quality-" + seed + ".png");
@@ -195,7 +196,7 @@ final class HighlandQualityProbe {
             return new Metrics(seed, cx, cz, jumps, worst, wx, wz, seams, ratio(valley, dry), ratio(wetCount, wetCount + dry),
                 steps, perched, shore, ratio(flowing, wetCount), ratio(upstream, checked),
                 ratio(positive, land), ratio(peak, land), ratio(peakFloor, floor), ratio(beach, land), ratio(low, land),
-                oceanMin, total > 0 ? maxBin / (total / bins.length) : 0, scale(slices, land), scale(erosion, land));
+                oceanMin, total > 0 ? aligned / total : 0, scale(slices, land), scale(erosion, land));
         }
     }
 

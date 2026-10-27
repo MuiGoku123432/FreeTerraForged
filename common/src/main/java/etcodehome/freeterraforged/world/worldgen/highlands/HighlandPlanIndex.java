@@ -13,16 +13,21 @@ public final class HighlandPlanIndex {
     public static final int INFLUENCE = 960;
     private static final int BUCKET = 512;
     private static final int MAX_HITS = 512;
+    /** Attribute blend width per block of distance from the channel (see near()). */
+    private static final double BLEND_RATE = .25;
     private final HighlandDrainage.Plan plan;
     private final Map<Long, int[]> buckets;
     private final double[] confinement;
+    /** Per-reach bounding boxes of the refined polyline (minX, minZ, maxX, maxZ). */
+    private final double[] boxes;
 
     /** Reusable per-thread query result. Values at index i describe one reach. */
     public static final class Hits {
         public int count;
         public final int[] reach = new int[MAX_HITS];
         public final double[] distance = new double[MAX_HITS], water = new double[MAX_HITS], area = new double[MAX_HITS],
-            confinement = new double[MAX_HITS], flowX = new double[MAX_HITS], flowZ = new double[MAX_HITS];
+            confinement = new double[MAX_HITS], flowX = new double[MAX_HITS], flowZ = new double[MAX_HITS],
+            head = new double[MAX_HITS];
     }
     private static final ThreadLocal<Hits> HITS = ThreadLocal.withInitial(Hits::new);
 
@@ -39,18 +44,25 @@ public final class HighlandPlanIndex {
         }
         Map<Long, List<Integer>> building = new HashMap<>();
         long entries = 0;
+        this.boxes = new double[plan.reaches().size() * 4];
         for (int i = 0; i < plan.reaches().size(); i++) {
             var reach = plan.reaches().get(i);
             var a = nodes.get(reach.downstream());
-            var b = nodes.get(reach.last());
-            int minX = bucket(Math.min(a.x(), b.x()) - INFLUENCE), maxX = bucket(Math.max(a.x(), b.x()) + INFLUENCE);
-            int minZ = bucket(Math.min(a.z(), b.z()) - INFLUENCE), maxZ = bucket(Math.max(a.z(), b.z()) + INFLUENCE);
+            double bx0 = a.x(), bz0 = a.z(), bx1 = a.x(), bz1 = a.z();
+            for (int v = reach.first(); v <= reach.last(); v++) {
+                var node = nodes.get(v);
+                bx0 = Math.min(bx0, node.x()); bz0 = Math.min(bz0, node.z());
+                bx1 = Math.max(bx1, node.x()); bz1 = Math.max(bz1, node.z());
+            }
+            boxes[i * 4] = bx0; boxes[i * 4 + 1] = bz0; boxes[i * 4 + 2] = bx1; boxes[i * 4 + 3] = bz1;
+            int minX = bucket(bx0 - INFLUENCE), maxX = bucket(bx1 + INFLUENCE);
+            int minZ = bucket(bz0 - INFLUENCE), maxZ = bucket(bz1 + INFLUENCE);
             for (int z = minZ; z <= maxZ; z++) for (int x = minX; x <= maxX; x++) {
                 if (++entries > 1_000_000) throw new IllegalStateException("RH segment index budget exceeded");
                 building.computeIfAbsent(key(x, z), k -> new ArrayList<>()).add(i);
             }
         }
-        long estimatedBytes = entries * 4 + building.size() * 96L + nodes.size() * 92L
+        long estimatedBytes = entries * 4 + building.size() * 96L + nodes.size() * 100L + boxes.length * 8L
             + plan.gridNodes() * 12L + plan.reaches().size() * 32L;
         if (estimatedBytes > 8L * 1024 * 1024) throw new IllegalStateException("RH retained plan exceeds 8 MiB budget");
         Map<Long, int[]> finished = new HashMap<>();
@@ -70,33 +82,67 @@ public final class HighlandPlanIndex {
         var nodes = plan.nodes();
         double limit = (double) INFLUENCE * INFLUENCE;
         for (int index : candidates) {
+            double ex = Math.max(0, Math.max(boxes[index * 4] - x, x - boxes[index * 4 + 2]));
+            double ez = Math.max(0, Math.max(boxes[index * 4 + 1] - z, z - boxes[index * 4 + 3]));
+            if (ex * ex + ez * ez >= limit) continue;
             var reach = plan.reaches().get(index);
-            var a = nodes.get(reach.downstream());
-            var b = nodes.get(reach.last());
-            double dx = b.x() - a.x(), dz = b.z() - a.z(), length2 = dx * dx + dz * dz;
-            double t = length2 > 1e-12 ? clamp(((x - a.x()) * dx + (z - a.z()) * dz) / length2, 0, 1) : 0;
-            double ox = x - a.x() - dx * t, oz = z - a.z() - dz * t;
-            double d2 = ox * ox + oz * oz;
-            if (d2 >= limit) continue;
-            if (out.count == MAX_HITS) throw new IllegalStateException("RH reach query budget exceeded at " + x + "," + z);
+            // Distance to every piece of the refined polyline downstream, first, ..., last.
             int pieces = reach.last() - reach.first() + 1;
-            double along = t * pieces;
-            int piece = Math.min(pieces - 1, (int) along);
-            int left = piece == 0 ? reach.downstream() : reach.first() + piece - 1, right = reach.first() + piece;
-            double f = along - piece;
-            var l = nodes.get(left);
-            var r = nodes.get(right);
-            double length = Math.sqrt(length2);
+            double[] dist = scratch(pieces, 0), along = scratch(pieces, 1);
+            double best = Double.POSITIVE_INFINITY;
+            int left = reach.downstream();
+            for (int piece = 0; piece < pieces; piece++) {
+                int right = reach.first() + piece;
+                var a = nodes.get(left);
+                var b = nodes.get(right);
+                double dx = b.x() - a.x(), dz = b.z() - a.z(), length2 = dx * dx + dz * dz;
+                double t = length2 > 1e-12 ? clamp(((x - a.x()) * dx + (z - a.z()) * dz) / length2, 0, 1) : 0;
+                double ox = x - a.x() - dx * t, oz = z - a.z() - dz * t;
+                dist[piece] = Math.sqrt(ox * ox + oz * oz); along[piece] = t;
+                best = Math.min(best, dist[piece]);
+                left = right;
+            }
+            if (best >= INFLUENCE) continue;
+            if (out.count == MAX_HITS) throw new IllegalStateException("RH reach query budget exceeded at " + x + "," + z);
+            // A curved reach can have separate nearly equidistant parts (inside a bend). Attributes are a smooth
+            // weighted blend over pieces by their excess distance; the blend width grows with distance, so on and
+            // near the channel the result is the exact interpolated profile, and far away it varies continuously.
+            double sigma = Math.max(1, BLEND_RATE * best);
+            double weights = 0, water = 0, area = 0, conf = 0, head = 0, fx = 0, fz = 0;
+            for (int piece = 0; piece < pieces; piece++) {
+                double excess = dist[piece] - best;
+                if (excess >= 3 * sigma) continue;
+                int l = piece == 0 ? reach.downstream() : reach.first() + piece - 1, r = reach.first() + piece;
+                var a = nodes.get(l);
+                var b = nodes.get(r);
+                double t = along[piece], w = Math.exp(-(excess / sigma) * (excess / sigma));
+                double dx = b.x() - a.x(), dz = b.z() - a.z(), length = Math.hypot(dx, dz);
+                weights += w;
+                water += w * lerp(a.water(), b.water(), t);
+                area += w * lerp(a.area(), b.area(), t);
+                conf += w * lerp(confinement[l], confinement[r], t);
+                head += w * lerp(a.head(), b.head(), t);
+                if (length > 1e-9) { fx -= w * dx / length; fz -= w * dz / length; }
+            }
+            double dmin = best;
             int k = out.count++;
+            double flow = Math.hypot(fx, fz);
             out.reach[k] = index;
-            out.distance[k] = Math.sqrt(d2);
-            out.water[k] = lerp(l.water(), r.water(), f);
-            out.area[k] = lerp(l.area(), r.area(), f);
-            out.confinement[k] = lerp(confinement[left], confinement[right], f);
-            out.flowX[k] = length > 1e-9 ? -dx / length : 0;
-            out.flowZ[k] = length > 1e-9 ? -dz / length : 0;
+            out.distance[k] = dmin;
+            out.water[k] = water / weights;
+            out.area[k] = area / weights;
+            out.confinement[k] = conf / weights;
+            out.head[k] = head / weights;
+            out.flowX[k] = flow > 1e-9 ? fx / flow : 0;
+            out.flowZ[k] = flow > 1e-9 ? fz / flow : 0;
         }
         return out;
+    }
+    private static final ThreadLocal<double[][]> SCRATCH = ThreadLocal.withInitial(() -> new double[][]{new double[64], new double[64]});
+    private static double[] scratch(int size, int slot) {
+        double[][] buffers = SCRATCH.get();
+        if (buffers[slot].length < size) buffers[slot] = new double[Math.max(size, buffers[slot].length * 2)];
+        return buffers[slot];
     }
     private static int bucket(double x) { return (int) Math.floor(x / BUCKET); }
     private static long key(int x, int z) { return ((long) x << 32) ^ (z & 0xffffffffL); }

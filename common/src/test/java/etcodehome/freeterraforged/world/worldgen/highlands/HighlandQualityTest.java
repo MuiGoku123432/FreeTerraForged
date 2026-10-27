@@ -24,6 +24,8 @@ class HighlandQualityTest {
             check(failures, m, m.dryJumps() == 0, "P3 no dry 1-block jumps > 3 blocks");
             check(failures, m, m.seamPixels() <= 20, "P3 <= 20 seam pixels (> 12 blocks per 4) in the window");
             check(failures, m, m.shoreCliffs() == 0, "P3 no shore cliffs > 12 blocks within 4 blocks of water");
+            // P2: channels follow the terrain rather than the routing grid.
+            check(failures, m, m.gridAligned() <= .15, "P2 <= 15% of channel length exactly grid-aligned");
             // P4: biome inputs follow legacy FTF distributions (default preset, measured 2026-10-27:
             // slices low/mid/high/peak ~60/33/6/1, erosion levels 1-4 ~12/16/52/20, beaches ~3%).
             check(failures, m, m.positiveWeirdness() == 0, "P4 weirdness stays on the normal side");

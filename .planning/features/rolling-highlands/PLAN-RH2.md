@@ -157,6 +157,13 @@ and the phase gates below. Phases are committed separately.
   surrounding height; sampling never throws. Profile feasibility repair: rapids where a fixed level cannot descend
   within the slope limit, backwater where a reach sits behind a fixed level. Gates: 0 dry jumps > 3, 0 shore
   cliffs, <= 20 seam pixels on all five seeds; 364-plan bounds sweep passes.
+- P2 done: D8 priority flood with non-crossing diagonals and distance tie-breaks on flats; channel nodes snap
+  toward local planning lows plus bounded deterministic jitter (stay in their cell); reaches are tangent-continuous
+  Hermite curves with a subtle discharge-independent meander bulge on flat reaches; head reaches taper from a
+  narrow shallow stream over 160 blocks. The index works on refined polylines and blends attributes of nearly
+  equidistant parts of a bend so they stay continuous. Lakes: shore region grows only over rising dry ground,
+  bounded by a 384-block chamfer reach with smooth proximity falloff (no grid-shaped shore edges). Profile solver
+  absorbs 1e-9 round-off. Grid-aligned channel length 6.5-8.3% (RH1: ~62% of reaches on grid directions).
 
 ## 6. Execution order
 
