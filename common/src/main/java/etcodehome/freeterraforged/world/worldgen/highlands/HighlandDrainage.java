@@ -8,6 +8,8 @@ import static etcodehome.freeterraforged.world.worldgen.highlands.HighlandMath.*
 public final class HighlandDrainage {
     public static final int MAX_NODES = 65_536;
     static final double COASTAL_RISE = .8;
+    /** Deepest saddle cut used to breach a non-lake fill; deeper fills keep the water up to fill minus this. */
+    static final double BREACH_CUT = 36;
     private final HighlandCoast coast;
     private final HighlandFields fields;
     private final double spacing, coastEdge, inlandEdge;
@@ -129,7 +131,7 @@ public final class HighlandDrainage {
             }
             pathX = nextX; pathZ = nextZ;
         }
-        HighlandBasins basins = new HighlandBasins(originX, originZ, width, depth, step, ground, filled, land, channel);
+        HighlandBasins basins = new HighlandBasins(fields.seed() + 52361, originX, originZ, width, depth, step, ground, filled, land, channel);
         List<Node> samples = new ArrayList<>();
         List<Reach> reaches = new ArrayList<>();
         List<Double> upper = new ArrayList<>(), lower = new ArrayList<>(), drops = new ArrayList<>(), targets = new ArrayList<>();
@@ -158,12 +160,16 @@ public final class HighlandDrainage {
                 var location = coast.sample(sx, sz);
                 double h = planningHeight(sx, sz, location.edge());
                 double lo = Math.max(0, h - 44);
-                double hi = Math.max(0, Math.max(h, lerp(filled[p], filled[i], t)) - 2);
-                double desired = hi;
+                // Shallow priority fills are breached: the preferred surface follows the ground, and the lower
+                // bound allows a bounded cut through the outlet saddle. Only real lakes hold a raised level.
+                double fill = lerp(filled[p], filled[i], t);
+                double desired = Math.max(0, h - 2);
+                var lake = basins.sample(sx, sz);
+                // Around lakes the water may stand at the lake's fill level; elsewhere fills are breached.
+                double hi = Math.max(desired, fill - 2 - (lake != null ? 0 : BREACH_CUT));
                 // A bounded local bank regrade accommodates sub-grid outlet shoulders and flat junction cores.
                 // The preferred profile stays at ground minus two; this is not a raised regional surface.
                 hi += 8;
-                var lake = basins.sample(sx, sz);
                 if (lake != null && lake.depth() > 0) lo = hi = lake.water();
                 if (location.edge() <= coastEdge) lo = hi = 0;
                 int next = samples.size();
@@ -182,6 +188,23 @@ public final class HighlandDrainage {
         for (int j = 0; j < refined; j++) {
             parents[j] = samples.get(j).parent(); low[j] = lower.get(j); high[j] = upper.get(j);
             target[j] = targets.get(j); maxDrop[j] = drops.get(j);
+        }
+        // Feasibility repair, deterministic and bounded:
+        // 1. Rapids: where an upstream bound (e.g. a lake outlet) cannot descend within the slope limit to its
+        //    downstream reach, that one edge may drop faster. P5 renders these as rapids/waterfalls.
+        for (int j = refined - 1; j >= 0; j--) {
+            int p = parents[j];
+            if (p < 0) continue;
+            if (low[j] - maxDrop[j] > high[p]) maxDrop[j] = low[j] - high[p];
+            low[p] = Math.max(low[p], low[j] - maxDrop[j]);
+        }
+        // 2. Backwater: a reach upstream of a fixed level never sits below it; floods sub-grid hollows only.
+        double[] reachable = new double[refined];
+        for (int j = 0; j < refined; j++) {
+            int p = parents[j];
+            reachable[j] = p < 0 ? low[j] : Math.max(low[j], reachable[p] + minDrop[j]);
+            if (high[j] < reachable[j]) high[j] = reachable[j];
+            target[j] = clamp(target[j], low[j], high[j]);
         }
         double[] water;
         try { water = TreeProfileSolver.solve(parents, low, high, target, minDrop, maxDrop); }

@@ -14,6 +14,7 @@ public final class HighlandFields {
         this.seed = seed;
         this.spacing = spacing;
     }
+    long seed() { return seed; }
     public record Relief(double upland, double ridge, double foothill, double basin) {
         public double height(double mountains, double foothills) { return planningHeight() + mountains * ridge + foothills * foothill; }
         public double planningHeight() { return upland + 40 * ridge + 24 * foothill; }

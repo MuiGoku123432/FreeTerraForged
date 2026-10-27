@@ -102,9 +102,12 @@ public final class RollingHighlandsContinent implements Continent {
         var index = plan(location.ownerX(), location.ownerZ());
         double height = carveValleys(cell, index.near(x, z), land);
         var lake = index.lake(x, z);
-        if (lake != null && lake.depth() > -8) {
-            double lakeBed = lake.water() - clamp(lake.depth(), -8, 16);
-            double lakeBlend = smooth(-8, 0, lake.depth());
+        // Shore width grows with the height of the surrounding ground so steep lake sides stay walkable;
+        // the range stays inside the basin field's OUTSIDE margin, so the blend is zero where sampling stops.
+        double shoreRange = clamp((height - (lake == null ? 0 : lake.water())) * .75, 8, HighlandBasins.MAX_SHORE);
+        if (lake != null && lake.depth() > -shoreRange) {
+            double lakeBed = lake.water() - clamp(lake.depth(), -shoreRange, 16);
+            double lakeBlend = smooth(-shoreRange, 0, lake.depth());
             if (!cell.hasRiverWater) height = lerp(height, lakeBed, lakeBlend);
             if (lake.depth() > 0) {
                 height = lakeBed;

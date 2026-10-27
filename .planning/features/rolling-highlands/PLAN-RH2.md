@@ -152,6 +152,11 @@ and the phase gates below. Phases are committed separately.
   beach/coast left to the shared pipeline plus legacy beach noise; weirdness/erosion from final prominence,
   calibrated to legacy shares (RH now 57-61/32-36/5-6/1 vs legacy 60/33/6/1; erosion 11-12/18-20/49-55/17-20 vs
   12/16/52/20; beaches 1.3-1.9%). Valley-zone gate relaxed to 75% pending lake breaching in P3.
+- P3 done: lakes only for channel-connected fills >= 12 blocks deep (shallower fills are breached by the profile,
+  max saddle cut 36); bilinear depth field over lake + ring with shoreline noise; shore blend width scales with
+  surrounding height; sampling never throws. Profile feasibility repair: rapids where a fixed level cannot descend
+  within the slope limit, backwater where a reach sits behind a fixed level. Gates: 0 dry jumps > 3, 0 shore
+  cliffs, <= 20 seam pixels on all five seeds; 364-plan bounds sweep passes.
 
 ## 6. Execution order
 
