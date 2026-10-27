@@ -6,15 +6,23 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 
 /** Immutable saved generation identity; UI edits replace this record instead of mutating live worlds. */
 public record RollingHighlandsSettings(int modelVersion, int uplandSpacing, int mountainHeight, int foothillRelief, int valleyWidth) {
-    public static final RollingHighlandsSettings DEFAULT = new RollingHighlandsSettings(1, 4096, 160, 48, 256);
+    /** Generation model. 2 = RH2 (composed valleys, curved drainage, lakes, wetlands, currents). */
+    public static final int MODEL_VERSION = 2;
+    public static final RollingHighlandsSettings DEFAULT = new RollingHighlandsSettings(MODEL_VERSION, 4096, 160, 48, 256);
     public static final Codec<RollingHighlandsSettings> CODEC = RecordCodecBuilder.<RollingHighlandsSettings>create(i -> i.group(
         integer(1, Integer.MAX_VALUE).fieldOf("modelVersion").forGetter(RollingHighlandsSettings::modelVersion),
         integer(4096, 8192).fieldOf("uplandSpacing").forGetter(RollingHighlandsSettings::uplandSpacing),
         integer(32, 256).fieldOf("mountainHeight").forGetter(RollingHighlandsSettings::mountainHeight),
         integer(0, 96).fieldOf("foothillRelief").forGetter(RollingHighlandsSettings::foothillRelief),
         integer(64, 512).fieldOf("valleyWidth").forGetter(RollingHighlandsSettings::valleyWidth)
-    ).apply(i, RollingHighlandsSettings::new)).validate(s -> s.modelVersion == 1
-        ? DataResult.success(s) : DataResult.error(() -> "Unsupported Rolling Highlands model version " + s.modelVersion));
+    ).apply(i, RollingHighlandsSettings::new)).validate(s -> s.modelVersion == MODEL_VERSION
+        ? DataResult.success(s) : DataResult.error(() -> unsupported(s.modelVersion)));
+
+    private static String unsupported(int version) {
+        return version == 1
+            ? "Rolling Highlands model 1 was the experimental RH1 build and is no longer generated; create a new world (model " + MODEL_VERSION + ")"
+            : "Unsupported Rolling Highlands model version " + version + " (this build generates model " + MODEL_VERSION + ")";
+    }
 
     private static Codec<Integer> integer(int min, int max) {
         return Codec.DOUBLE.comapFlatMap(value -> Double.isFinite(value) && value == Math.rint(value) && value >= min && value <= max
@@ -22,7 +30,8 @@ public record RollingHighlandsSettings(int modelVersion, int uplandSpacing, int 
     }
 
     public void validate(WorldSettings world) {
-        if (modelVersion != 1 || uplandSpacing < 4096 || uplandSpacing > 8192 || mountainHeight < 32 || mountainHeight > 256
+        if (modelVersion != MODEL_VERSION) throw new IllegalArgumentException(unsupported(modelVersion));
+        if (uplandSpacing < 4096 || uplandSpacing > 8192 || mountainHeight < 32 || mountainHeight > 256
             || foothillRelief < 0 || foothillRelief > 96 || valleyWidth < 64 || valleyWidth > 512) {
             throw new IllegalArgumentException("Unsupported Rolling Highlands profile; check model version and control ranges");
         }

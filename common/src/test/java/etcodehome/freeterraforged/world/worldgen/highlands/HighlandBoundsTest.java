@@ -24,7 +24,7 @@ class HighlandBoundsTest {
     void supportedDomainBounds(int continentScale, int spacing) {
         for (long seed : java.util.stream.LongStream.concat(java.util.stream.LongStream.range(0, 50), java.util.stream.LongStream.of(8675309, -314159)).toArray()) {
             var p = Presets.makeFTFDefault(); p.world().continent.continentScale = continentScale;
-            new RollingHighlandsSettings(1, spacing, 160, 48, 256).validate(p.world());
+            new RollingHighlandsSettings(2, spacing, 160, 48, 256).validate(p.world());
             try (var context = WorldgenFixture.context(p, seed); var coast = new HighlandCoast(context)) {
                 var planner = new HighlandDrainage(coast, new HighlandFields(seed, spacing), spacing, p.world().controlPoints);
                 var plan = planner.build(0, 0);

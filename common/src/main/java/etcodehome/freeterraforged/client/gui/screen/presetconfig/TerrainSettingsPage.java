@@ -412,7 +412,7 @@ public class TerrainSettingsPage extends PresetEditorPage {
         this.left.addWidget(PresetWidgets.createIntSlider(initial, min, max, label, (slider, value) -> {
             var old = terrain.highlands();
             int blocks = (int) slider.scaleValue(value);
-            terrain.rollingHighlands = new RollingHighlandsSettings(old.modelVersion(),
+            terrain.rollingHighlands = new RollingHighlandsSettings(RollingHighlandsSettings.MODEL_VERSION,
                 field == 0 ? blocks : old.uplandSpacing(), field == 1 ? blocks : old.mountainHeight(),
                 field == 2 ? blocks : old.foothillRelief(), field == 3 ? blocks : old.valleyWidth());
             this.regenerate();

@@ -16,7 +16,7 @@ class HighlandSettingsTest {
         var decoded = Preset.DIRECT_CODEC.parse(JsonOps.INSTANCE, encoded).getOrThrow();
         assertEquals(RollingHighlandsSettings.DEFAULT, decoded.terrain().rollingHighlands);
         Preset copy = decoded.copy();
-        copy.terrain().rollingHighlands = new RollingHighlandsSettings(1, 4096, 200, 48, 256);
+        copy.terrain().rollingHighlands = new RollingHighlandsSettings(2, 4096, 200, 48, 256);
         assertEquals(160, decoded.terrain().highlands().mountainHeight());
         java.nio.file.Files.createDirectories(java.nio.file.Path.of("build/rolling-highlands"));
         java.nio.file.Files.writeString(java.nio.file.Path.of("build/rolling-highlands/preset.json"),
@@ -27,14 +27,18 @@ class HighlandSettingsTest {
         json.remove("valleyWidth"); assertTrue(RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).error().isPresent());
         json.addProperty("valleyWidth", 256); json.addProperty("modelVersion", 99);
         assertTrue(RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).error().isPresent());
-        json.addProperty("modelVersion", 1); json.addProperty("mountainHeight", Double.NaN);
+        // RH1 (model 1) presets are rejected with an actionable message rather than regenerated differently.
+        json.addProperty("modelVersion", 1);
+        var rh1 = RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).error();
+        assertTrue(rh1.isPresent() && rh1.get().message().contains("create a new world"));
+        json.addProperty("modelVersion", 2); json.addProperty("mountainHeight", Double.NaN);
         assertTrue(RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).error().isPresent());
         json.addProperty("mountainHeight", 160); json.addProperty("foothillRelief", Double.NaN);
         assertTrue(RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).error().isPresent());
         json.addProperty("foothillRelief", .5);
         assertTrue(RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).error().isPresent());
         var world = WorldSettings.makeDefault(); world.continent.continentScale = 5000;
-        assertThrows(IllegalArgumentException.class, () -> new RollingHighlandsSettings(1, 2048, 160, 48, 256).validate(world));
+        assertThrows(IllegalArgumentException.class, () -> new RollingHighlandsSettings(2, 2048, 160, 48, 256).validate(world));
     }
     @Test void legacyEnumOrdinalsRemainStable() {
         assertEquals(0, ContinentType.MULTI.ordinal());

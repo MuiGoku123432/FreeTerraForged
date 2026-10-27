@@ -54,8 +54,8 @@ class HighlandDeterminismTest {
     }
     @Test void independentAmplitudesAndWidthKeepTheChannelProfile() {
         var settings = new RollingHighlandsSettings[]{RollingHighlandsSettings.DEFAULT,
-            new RollingHighlandsSettings(1,4096,240,48,256), new RollingHighlandsSettings(1,4096,160,80,256),
-            new RollingHighlandsSettings(1,4096,160,48,512), new RollingHighlandsSettings(1,4096,32,0,64)};
+            new RollingHighlandsSettings(2,4096,240,48,256), new RollingHighlandsSettings(2,4096,160,80,256),
+            new RollingHighlandsSettings(2,4096,160,48,512), new RollingHighlandsSettings(2,4096,32,0,64)};
         double siteX, siteZ;
         try (var context = WorldgenFixture.context(preset(RollingHighlandsSettings.DEFAULT), 0);
              var coast = new HighlandCoast(context)) {

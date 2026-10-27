@@ -179,6 +179,9 @@ and the phase gates below. Phases are committed separately.
   river-less plan for that continent and logs once instead of failing chunk generation; reach queries never throw.
   Feasibility repair (P3) plus 1e-9 solver tolerance: 364-plan sweep and 2 x 52 seed sweeps build without fallback.
   Unfiltered sampling cost: ~1.8 us/sample for RH vs ~9.7 us for UPLIFT on this machine (with climate).
+- P8 done: model version 2 (`RollingHighlandsSettings.MODEL_VERSION`); model-1 (RH1) presets fail with "create a
+  new world" guidance; editor edits always write model 2; build version 1.0.0014-rh2. Preview uses the same
+  apply path, so rivers, lakes, wetlands and zones render from the RH cell fields with existing render modes.
 
 ## 6. Execution order
 
