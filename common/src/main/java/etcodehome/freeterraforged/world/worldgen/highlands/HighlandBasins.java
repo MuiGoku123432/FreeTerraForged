@@ -23,11 +23,11 @@ public final class HighlandBasins {
     private static final int[] RX = {-1, 0, 1, -1, 1, -1, 0, 1}, RZ = {-1, -1, -1, 0, 0, 1, 1, 1};
     private final int originX, originZ, width, depth, step;
     private final long seed;
-    private final double[] levels, depthField, reach;
+    private final double[] levels, depthField, reach, outletX, outletZ;
     private final int[] basin;
 
     /** {@code proximity} is 1 near flooded nodes and falls smoothly to 0 at SHORE_REACH from them. */
-    public record Sample(double water, double depth, double proximity) {}
+    public record Sample(int lake, double water, double depth, double proximity) {}
 
     HighlandBasins(long seed, int originX, int originZ, int width, int depth, int step, double[] ground,
                    double[] filled, boolean[] land, boolean[] channel) {
@@ -64,6 +64,8 @@ public final class HighlandBasins {
             }
         }
         this.levels = surfaces.stream().mapToDouble(Double::doubleValue).toArray();
+        this.outletX = new double[levels.length]; this.outletZ = new double[levels.length];
+        Arrays.fill(outletX, Double.NaN); Arrays.fill(outletZ, Double.NaN);
         // Shore region: grow outward from each lake over dry rising ground (never into lower ground such as the
         // outlet valley) while within REGION_DEPTH of its level, so the shore blend sees real node depths and
         // reaches zero before the region ends.
@@ -97,6 +99,14 @@ public final class HighlandBasins {
 
     public int count() { return levels.length; }
 
+    /** Records where the channel leaves a lake; set once while the owning plan is built, before publication. */
+    void setOutlet(int lake, double x, double z) {
+        if (Double.isNaN(outletX[lake])) { outletX[lake] = x; outletZ[lake] = z; }
+    }
+    /** Outlet position of a lake, or NaN when no channel leaves it inside this plan. */
+    public double outletX(int lake) { return outletX[lake]; }
+    public double outletZ(int lake) { return outletZ[lake]; }
+
     /** Lake surface and signed depth below it, or null away from every lake's shore region. Never throws. */
     public Sample sample(double x, double z) {
         double gx = (x - originX) / step, gz = (z - originZ) / step;
@@ -119,6 +129,6 @@ public final class HighlandBasins {
         // Irregular shoreline: perturbs only the shallow margin, never the deep interior.
         double shoreline = 1 - smooth(0, 10, Math.abs(d));
         d += shoreline * (2 * (2 * noise(seed, x, z, 160) - 1) + (2 * noise(seed + 1, x, z, 56) - 1));
-        return new Sample(levels[id], d, 1 - smooth(SHORE_REACH / 3, SHORE_REACH, distance));
+        return new Sample(id, levels[id], d, 1 - smooth(SHORE_REACH / 3, SHORE_REACH, distance));
     }
 }

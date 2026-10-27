@@ -19,6 +19,8 @@ import static etcodehome.freeterraforged.world.worldgen.highlands.HighlandMath.*
 public final class RollingHighlandsContinent implements Continent {
     static final double PROMINENCE_LOW = 16, PROMINENCE_HIGH = 176;
     static final double CHANNEL_DEPTH = 4, SHORE_RATE = .4;
+    /** Current speed model (normalized 0..1 as stored in ChunkFlowField). */
+    static final double FLOW_BASE = .45, FLOW_SLOPE = 6, FLOW_MIN = .3, LAKE_DRIFT = .18, OUTLET_DRIFT = 128;
     static final double BANK_RUN = 16, MIN_OUTER_RUN = 64, MAX_OUTER_RUN = 512, CREASE_SOFTNESS = 24;
     private static final Rivermap NO_LEGACY_RIVERS = new Rivermap(0, 0, new Network[0], GenWarp.EMPTY);
     private final HighlandCoast coast;
@@ -103,7 +105,7 @@ public final class RollingHighlandsContinent implements Continent {
         var index = plan(location.ownerX(), location.ownerZ());
         double height = carveValleys(cell, index.near(x, z), land);
         var lake = index.lake(x, z);
-        if (lake != null && lake.depth() > -HighlandBasins.MAX_SHORE) height = shapeLake(cell, x, z, lake, height);
+        if (lake != null && lake.depth() > -HighlandBasins.MAX_SHORE) height = shapeLake(cell, x, z, index, lake, height);
         // Reserve ceiling headroom before any water/bed is handed to final generation.
         double ceiling = levels.worldHeight - levels.waterY - 24;
         if (height > ceiling) height = ceiling + 16 * (1 - Math.exp(-(height - ceiling) / 16));
@@ -116,13 +118,25 @@ public final class RollingHighlandsContinent implements Continent {
      * descend, so high surroundings get wider shores. The range stays inside the basin's shore region (REGION_DEPTH), so
      * the effect is zero where lake sampling stops.
      */
-    private double shapeLake(Cell cell, double x, double z, HighlandBasins.Sample lake, double height) {
+    private double shapeLake(Cell cell, double x, double z, HighlandPlanIndex plan, HighlandBasins.Sample lake, double height) {
         double water = lake.water(), depth = lake.depth();
         if (depth > 0) {
+            boolean channel = cell.hasFlow;
             cell.riverWaterLevel = normalized(water); cell.hasRiverWater = true;
             cell.terrain = TerrainType.RIVER; cell.riverZone = RiverZone.Riverbed;
             cell.riverMask = 0;
-            cell.hasFlow = false;
+            // Open water is calm: a channel crossing the lake keeps a damped current, and the water drifts
+            // toward the outlet within OUTLET_DRIFT blocks of it.
+            double ox = plan.basinsOutletX(lake.lake()), oz = plan.basinsOutletZ(lake.lake());
+            double toOutlet = Double.isNaN(ox) ? Double.POSITIVE_INFINITY : Math.hypot(ox - x, oz - z);
+            if (toOutlet < OUTLET_DRIFT) {
+                setFlow(cell, LAKE_DRIFT * (1 - toOutlet / OUTLET_DRIFT) + .01, ox - x, oz - z);
+            } else if (channel) {
+                double angle = ((cell.flowAngle & 0x1F) / 32.0) * Math.PI * 2;
+                setFlow(cell, LAKE_DRIFT, Math.cos(angle), Math.sin(angle));
+            } else {
+                cell.hasFlow = false; cell.flowAngle = 0;
+            }
             return water - Math.min(depth, 16);
         }
         if (cell.hasRiverWater) return height;
@@ -147,6 +161,7 @@ public final class RollingHighlandsContinent implements Continent {
      */
     private double carveValleys(Cell cell, HighlandPlanIndex.Hits hits, double land) {
         double c1 = land, c2 = Double.POSITIVE_INFINITY, o1 = 1, o2 = 1, maxInfluence = 0, support = Double.NEGATIVE_INFINITY;
+        double flowX = 0, flowZ = 0, speed = 0, flowWeight = 0;
         int owner = -1, wetOwner = -1;
         HighlandValley.Section ownerSection = null, wetSection = null;
         double area2 = (double) settings.uplandSpacing() * settings.uplandSpacing();
@@ -164,7 +179,17 @@ public final class RollingHighlandsContinent implements Continent {
             maxInfluence = Math.max(maxInfluence, section.influence());
             support = Math.max(support, water + 1 - Math.max(0, distance - (radius + BANK_RUN)));
             double carve = section.height(), outerness = 1 - section.influence();
-            if (section.wet() && (wetSection == null || carve < wetSection.height())) { wetOwner = k; wetSection = section; }
+            if (section.wet()) {
+                if (wetSection == null || carve < wetSection.height()) { wetOwner = k; wetSection = section; }
+                // Current: downstream along the channel, turning gently toward the centre near the banks, fastest
+                // mid-channel and on steep reaches. Overlapping channels (confluences) blend by weight.
+                double across = clamp(distance / radius, 0, 1), w = 1 - across + 1e-3;
+                double inward = distance > 1e-6 ? .35 * across / distance : 0;
+                double dx = hits.flowX[k] - hits.offsetX[k] * inward, dz = hits.flowZ[k] - hits.offsetZ[k] * inward;
+                double norm = Math.max(1e-9, Math.hypot(dx, dz));
+                flowX += w * dx / norm; flowZ += w * dz / norm; flowWeight += w;
+                speed += w * clamp(FLOW_BASE + FLOW_SLOPE * hits.slope[k], FLOW_MIN, 1) * (1 - .5 * across * across);
+            }
             if (carve < c1) { c2 = c1; o2 = o1; c1 = carve; o1 = outerness; owner = k; ownerSection = section; }
             else if (carve < c2) { c2 = carve; o2 = outerness; }
         }
@@ -173,8 +198,7 @@ public final class RollingHighlandsContinent implements Continent {
             cell.riverWaterLevel = normalized(hits.water[wetOwner]);
             cell.riverZone = RiverZone.Riverbed;
             cell.hasRiverWater = true; cell.terrain = TerrainType.RIVER;
-            cell.hasFlow = true;
-            cell.flowAngle = etcodehome.freeterraforged.world.worldgen.ChunkFlowField.pack(.5F, Math.atan2(hits.flowZ[wetOwner], hits.flowX[wetOwner]));
+            setFlow(cell, speed / flowWeight, flowX, flowZ);
             return wetSection.height();
         }
         double softness = CREASE_SOFTNESS * Math.min(o1, o2) * smooth(0, 8, land - c2);
@@ -214,6 +238,10 @@ public final class RollingHighlandsContinent implements Continent {
         if (prominence < .78) return lerp(.2667, .4, (prominence - .32) / .46);
         if (prominence < .83) return lerp(.4, .5667, (prominence - .78) / .05);
         return lerp(.5667, .7, clamp((prominence - .83) / .17, 0, 1));
+    }
+    private static void setFlow(Cell cell, double speed, double dx, double dz) {
+        cell.flowAngle = etcodehome.freeterraforged.world.worldgen.ChunkFlowField.pack((float) speed, Math.atan2(dz, dx));
+        cell.hasFlow = cell.flowAngle != 0;
     }
     private float normalized(double height) { return levels.water + (float) (height / levels.terrainScaleFactor); }
     @Override public float getEdgeValue(float x, float z) { return (float) coast.sample(x, z).edge(); }

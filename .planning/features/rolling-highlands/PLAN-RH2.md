@@ -164,6 +164,11 @@ and the phase gates below. Phases are committed separately.
   equidistant parts of a bend so they stay continuous. Lakes: shore region grows only over rising dry ground,
   bounded by a 384-block chamfer reach with smooth proximity falloff (no grid-shaped shore edges). Profile solver
   absorbs 1e-9 round-off. Grid-aligned channel length 6.5-8.3% (RH1: ~62% of reaches on grid directions).
+- P5 done: currents follow the legacy UpliftRiverCarver model (downstream tangent, inward turn up to 0.35 at the
+  banks, 1 - 0.5n^2 cross-channel falloff) with speed from the solved water slope (0.45 + 6*slope, 0.3..1);
+  overlapping channels at confluences blend by weight; lakes are calm (0.18) with drift toward the recorded outlet
+  within 128 blocks. Gates: 100% of channel cells carry flow, 0% sampled currents upstream. Waterfall columns keep
+  the existing surface-mixin behaviour (RH profiles rarely step >= 2 blocks between adjacent cells).
 
 ## 6. Execution order
 

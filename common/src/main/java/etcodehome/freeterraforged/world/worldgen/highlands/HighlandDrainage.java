@@ -164,6 +164,7 @@ public final class HighlandDrainage {
         List<Node> samples = new ArrayList<>();
         List<Reach> reaches = new ArrayList<>();
         List<Double> upper = new ArrayList<>(), lower = new ArrayList<>(), drops = new ArrayList<>(), targets = new ArrayList<>();
+        List<Integer> lakeOf = new ArrayList<>();
         int[] endpoint = new int[n]; Arrays.fill(endpoint, -1);
         double[] curveX = new double[17], curveZ = new double[17];
         for (int k = 0; k < count; k++) {
@@ -174,7 +175,7 @@ public final class HighlandDrainage {
             if (p < 0) {
                 endpoint[i] = samples.size();
                 samples.add(new Node(x, z, 0, 0, area[i], -1, 1));
-                lower.add(0.0); upper.add(0.0); drops.add(0.0); targets.add(0.0);
+                lower.add(0.0); upper.add(0.0); drops.add(0.0); targets.add(0.0); lakeOf.add(-1);
                 continue;
             }
             double px = pathX[p], pz = pathZ[p];
@@ -222,7 +223,9 @@ public final class HighlandDrainage {
                 // A bounded local bank regrade accommodates sub-grid outlet shoulders and flat junction cores.
                 // The preferred profile stays at ground minus two; this is not a raised regional surface.
                 hi += 8;
-                if (lake != null && lake.depth() > 0) lo = hi = lake.water();
+                boolean flooded = lake != null && lake.depth() > 0;
+                if (flooded) lo = hi = lake.water();
+                lakeOf.add(flooded ? lake.lake() : -1);
                 if (location.edge() <= coastEdge) lo = hi = 0;
                 int next = samples.size();
                 double head = headReach ? smooth(0, HEAD_TAPER, (1 - t) * length) : 1;
@@ -265,6 +268,11 @@ public final class HighlandDrainage {
             var point = samples.get(failure.node);
             throw new IllegalStateException("RH profile failed in owner " + ownerX + "," + ownerZ
                 + " at " + point.x() + "," + point.z() + " (ground=" + point.ground() + ")", failure);
+        }
+        // Lake outlets: the first channel sample downstream of a flooded sample of that lake.
+        for (int j = 0; j < refined; j++) {
+            int lake = lakeOf.get(j), p = parents[j];
+            if (lake >= 0 && p >= 0 && lakeOf.get(p) != lake) basins.setOutlet(lake, samples.get(p).x(), samples.get(p).z());
         }
         List<Node> nodes = new ArrayList<>(refined);
         for (int j = 0; j < refined; j++) {

@@ -29,7 +29,7 @@ final class HighlandQualityProbe {
         String summary() {
             return String.format(java.util.Locale.ROOT,
                 "RHQ seed=%d center=%d,%d dryJumps>3=%d worstJump=%.1f@%d,%d seams=%d valleyZone=%.1f%% wet=%.1f%% "
-                    + "waterSteps=%d perched=%d shoreCliffs=%d flowCoverage=%.1f%% flowUpstream=%.1f%% weirdness+=%.1f%% "
+                    + "waterSteps=%d perched=%d shoreCliffs=%d channelFlow=%.1f%% flowUpstream=%.1f%% weirdness+=%.1f%% "
                     + "peakSlice=%.1f%% peakOnFloor=%.1f%% beach=%.1f%% low<5=%.1f%% oceanFloorMin=%.1f gridAligned=%.1f%% slices(low/mid/high/peak)=%s erosionLevels=%s",
                 seed, centerX, centerZ, dryJumps, worstJump, worstX, worstZ, seamPixels, 100 * valleyZone, 100 * wetFraction,
                 waterSteps, perched, shoreCliffs, 100 * flowCoverage, 100 * flowUpstream, 100 * positiveWeirdness,
@@ -105,12 +105,16 @@ final class HighlandQualityProbe {
             int ox = cx - WINDOW / 2, oz = cz - WINDOW / 2;
             double[][] h = new double[SIZE][SIZE], w = new double[SIZE][SIZE];
             boolean[][] wet = new boolean[SIZE][SIZE];
-            long dry = 0, valley = 0, wetCount = 0, flowing = 0;
+            long dry = 0, valley = 0, wetCount = 0, flowing = 0, channelCells = 0;
             BufferedImage image = writeMap ? new BufferedImage(SIZE, SIZE, BufferedImage.TYPE_INT_RGB) : null;
             for (int z = 0; z < SIZE; z++) for (int x = 0; x < SIZE; x++) {
                 context.heightmap.apply(c.reset(), ox + x * RES, oz + z * RES, false);
                 h[x][z] = blocks(context, c.height); w[x][z] = blocks(context, c.riverWaterLevel); wet[x][z] = c.hasRiverWater;
-                if (c.hasRiverWater) { wetCount++; if (c.hasFlow) flowing++; }
+                if (c.hasRiverWater) {
+                    wetCount++;
+                    var lake = continent.planAt(ox + x * RES, oz + z * RES).lake(ox + x * RES, oz + z * RES);
+                    if (lake == null || lake.depth() <= 0) { channelCells++; if (c.hasFlow) flowing++; }
+                }
                 else if (c.continentEdge > coastEdge) { dry++; if (c.riverZone != RiverZone.None) valley++; }
                 if (image != null) {
                     int v = (int) HighlandMath.clamp(40 + h[x][z] * .5, 0, 255);
@@ -194,7 +198,7 @@ final class HighlandQualityProbe {
                 ImageIO.write(image, "png", out.toFile());
             }
             return new Metrics(seed, cx, cz, jumps, worst, wx, wz, seams, ratio(valley, dry), ratio(wetCount, wetCount + dry),
-                steps, perched, shore, ratio(flowing, wetCount), ratio(upstream, checked),
+                steps, perched, shore, channelCells == 0 ? 1 : ratio(flowing, channelCells), ratio(upstream, checked),
                 ratio(positive, land), ratio(peak, land), ratio(peakFloor, floor), ratio(beach, land), ratio(low, land),
                 oceanMin, total > 0 ? aligned / total : 0, scale(slices, land), scale(erosion, land));
         }

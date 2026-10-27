@@ -24,6 +24,9 @@ class HighlandQualityTest {
             check(failures, m, m.dryJumps() == 0, "P3 no dry 1-block jumps > 3 blocks");
             check(failures, m, m.seamPixels() <= 20, "P3 <= 20 seam pixels (> 12 blocks per 4) in the window");
             check(failures, m, m.shoreCliffs() == 0, "P3 no shore cliffs > 12 blocks within 4 blocks of water");
+            // P5: every channel cell carries a current, and currents run downstream.
+            check(failures, m, m.flowCoverage() >= .999, "P5 all channel cells have flow");
+            check(failures, m, m.flowUpstream() <= .01, "P5 <= 1% of sampled currents point upstream");
             // P2: channels follow the terrain rather than the routing grid.
             check(failures, m, m.gridAligned() <= .15, "P2 <= 15% of channel length exactly grid-aligned");
             // P4: biome inputs follow legacy FTF distributions (default preset, measured 2026-10-27:

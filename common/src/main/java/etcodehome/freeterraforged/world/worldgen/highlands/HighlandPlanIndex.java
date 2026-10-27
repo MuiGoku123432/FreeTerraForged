@@ -27,7 +27,7 @@ public final class HighlandPlanIndex {
         public final int[] reach = new int[MAX_HITS];
         public final double[] distance = new double[MAX_HITS], water = new double[MAX_HITS], area = new double[MAX_HITS],
             confinement = new double[MAX_HITS], flowX = new double[MAX_HITS], flowZ = new double[MAX_HITS],
-            head = new double[MAX_HITS];
+            head = new double[MAX_HITS], slope = new double[MAX_HITS], offsetX = new double[MAX_HITS], offsetZ = new double[MAX_HITS];
     }
     private static final ThreadLocal<Hits> HITS = ThreadLocal.withInitial(Hits::new);
 
@@ -71,6 +71,8 @@ public final class HighlandPlanIndex {
     }
 
     HighlandDrainage.Plan plan() { return plan; }
+    double basinsOutletX(int lake) { return plan.basins().outletX(lake); }
+    double basinsOutletZ(int lake) { return plan.basins().outletZ(lake); }
     public HighlandBasins.Sample lake(double x, double z) { return plan.basins().sample(x, z); }
 
     /** All reaches whose centreline lies within INFLUENCE of (x, z), in ascending reach order. */
@@ -89,7 +91,7 @@ public final class HighlandPlanIndex {
             // Distance to every piece of the refined polyline downstream, first, ..., last.
             int pieces = reach.last() - reach.first() + 1;
             double[] dist = scratch(pieces, 0), along = scratch(pieces, 1);
-            double best = Double.POSITIVE_INFINITY;
+            double best = Double.POSITIVE_INFINITY, nearestX = 0, nearestZ = 0;
             int left = reach.downstream();
             for (int piece = 0; piece < pieces; piece++) {
                 int right = reach.first() + piece;
@@ -99,7 +101,7 @@ public final class HighlandPlanIndex {
                 double t = length2 > 1e-12 ? clamp(((x - a.x()) * dx + (z - a.z()) * dz) / length2, 0, 1) : 0;
                 double ox = x - a.x() - dx * t, oz = z - a.z() - dz * t;
                 dist[piece] = Math.sqrt(ox * ox + oz * oz); along[piece] = t;
-                best = Math.min(best, dist[piece]);
+                if (dist[piece] < best) { best = dist[piece]; nearestX = ox; nearestZ = oz; }
                 left = right;
             }
             if (best >= INFLUENCE) continue;
@@ -108,7 +110,7 @@ public final class HighlandPlanIndex {
             // weighted blend over pieces by their excess distance; the blend width grows with distance, so on and
             // near the channel the result is the exact interpolated profile, and far away it varies continuously.
             double sigma = Math.max(1, BLEND_RATE * best);
-            double weights = 0, water = 0, area = 0, conf = 0, head = 0, fx = 0, fz = 0;
+            double weights = 0, water = 0, area = 0, conf = 0, head = 0, fx = 0, fz = 0, slope = 0;
             for (int piece = 0; piece < pieces; piece++) {
                 double excess = dist[piece] - best;
                 if (excess >= 3 * sigma) continue;
@@ -122,7 +124,7 @@ public final class HighlandPlanIndex {
                 area += w * lerp(a.area(), b.area(), t);
                 conf += w * lerp(confinement[l], confinement[r], t);
                 head += w * lerp(a.head(), b.head(), t);
-                if (length > 1e-9) { fx -= w * dx / length; fz -= w * dz / length; }
+                if (length > 1e-9) { fx -= w * dx / length; fz -= w * dz / length; slope += w * Math.max(0, b.water() - a.water()) / length; }
             }
             double dmin = best;
             int k = out.count++;
@@ -133,6 +135,8 @@ public final class HighlandPlanIndex {
             out.area[k] = area / weights;
             out.confinement[k] = conf / weights;
             out.head[k] = head / weights;
+            out.slope[k] = slope / weights;
+            out.offsetX[k] = nearestX; out.offsetZ[k] = nearestZ;
             out.flowX[k] = flow > 1e-9 ? fx / flow : 0;
             out.flowZ[k] = flow > 1e-9 ? fz / flow : 0;
         }
