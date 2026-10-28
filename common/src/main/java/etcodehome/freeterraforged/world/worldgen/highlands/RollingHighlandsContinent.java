@@ -31,6 +31,8 @@ public final class RollingHighlandsContinent implements Continent {
     private final double coastEdge;
     private final long classSeed;
     private final double coastMarker;
+    /** FTF wetland chance (default 0.5) mapped onto the wetland noise threshold. */
+    private final double wetlandLow;
     /** FTF main-river settings (bed depth, bank heights, bank width) shape every RH channel and valley. */
     private final etcodehome.freeterraforged.data.worldgen.preset.settings.RiverSettings.River river;
     private final etcodehome.freeterraforged.world.worldgen.cell.CellPopulator oceans;
@@ -48,11 +50,13 @@ public final class RollingHighlandsContinent implements Continent {
         this.levels = context.levels;
         this.coast = new HighlandCoast(context);
         this.land = HighlandLand.create(context);
-        this.drainage = new HighlandDrainage(coast, land, settings.uplandSpacing(), context.preset.world().controlPoints, context.preset.rivers().lakes.chance, context.preset.rivers().lakes.depth);
+        this.drainage = new HighlandDrainage(coast, land, settings.uplandSpacing(), context.preset.world().controlPoints, context.preset.rivers().lakes.chance, context.preset.rivers().lakes.depth,
+            settings.valleyDepth(), context.preset.rivers().riverCount);
         this.coastEdge = context.preset.world().controlPoints.coast;
         this.classSeed = context.seed.root() * 0x9E3779B97F4A7C15L + 0x52484632L;
         this.coastMarker = context.preset.world().controlPoints.coastMarker();
         this.river = context.preset.rivers().mainRivers;
+        this.wetlandLow = .95 - clamp(context.preset.rivers().wetlands.chance, 0, 1);
         // Oceans, shelves and coast use the legacy FTF ocean populators so ocean biomes, depths and the
         // coast-to-shelf transition match the other continent types.
         var world = context.preset.world();
@@ -234,7 +238,7 @@ public final class RollingHighlandsContinent implements Continent {
         int wetOwner = -1;
         HighlandValley.Section wetSection = null;
         // Kept out of the climate coast band, where shared climate code would reclassify WETLAND as coast/ocean.
-        double wetlandMask = smooth(.45, .65, noise(classSeed + 7, x, z, 220)) * smooth(coastMarker + .1, coastMarker + .25, edge);
+        double wetlandMask = smooth(wetlandLow, wetlandLow + .2, noise(classSeed + 7, x, z, 220)) * smooth(coastMarker + .1, coastMarker + .25, edge);
         double hummock = 1.6 * (2 * noise(classSeed + 8, x, z, 24) - 1) + .6 * (2 * noise(classSeed + 9, x, z, 9) - 1);
         double area2 = (double) settings.uplandSpacing() * settings.uplandSpacing();
         Scratch scratch = SCRATCH.get().ensure(hits.count);

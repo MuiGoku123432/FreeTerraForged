@@ -24,7 +24,7 @@ public final class HighlandDrainage {
     static final double MAX_WATER_SLOPE = .2;
     private final HighlandCoast coast;
     private final HighlandLand surface;
-    private final double spacing, coastEdge, inlandEdge, lakeChance, lakeDepth;
+    private final double spacing, coastEdge, inlandEdge, lakeChance, lakeDepth, ks, channelScale;
     /** D8 neighbours; diagonals cost sqrt(2) in the flat-resolution distance and may not cross each other. */
     private static final int[] DX = {0, -1, 1, 0, -1, 1, -1, 1};
     private static final int[] DZ = {-1, 0, 0, 1, -1, 1, 1, -1};
@@ -38,13 +38,16 @@ public final class HighlandDrainage {
     static final double JITTER = .15;
 
     public HighlandDrainage(HighlandCoast coast, HighlandLand surface, double spacing, WorldSettings.ControlPoints controls) {
-        this(coast, surface, spacing, controls, .5, 10);
+        this(coast, surface, spacing, controls, .5, 10, 100, 10);
     }
     /** @param lakeChance FTF river settings' lake chance: probability that an eligible depression is kept as a lake. */
     public HighlandDrainage(HighlandCoast coast, HighlandLand surface, double spacing, WorldSettings.ControlPoints controls,
-                            double lakeChance, double lakeDepth) {
+                            double lakeChance, double lakeDepth, double valleyDepthPercent, int riverCount) {
         this.coast = coast; this.surface = surface; this.spacing = spacing; this.lakeChance = clamp(lakeChance, 0, 1);
         this.lakeDepth = clamp(lakeDepth, 1, 32);
+        // Valley depth scales the stream-power steepness; FTF's river count sets drainage density (10 = default).
+        this.ks = KS * 100 / clamp(valleyDepthPercent, 25, 200);
+        this.channelScale = clamp(10.0 / Math.max(1, riverCount), .4, 4);
         this.coastEdge = controls.coast; this.inlandEdge = controls.coast + Math.max(controls.inland - controls.coast, COASTAL_RISE * Math.max(1, 16000.0 / coast.tectonicScale));
         if (!(inlandEdge > coastEdge)) throw new IllegalArgumentException("Rolling Highlands needs inland > coast");
     }
@@ -233,7 +236,7 @@ public final class HighlandDrainage {
         // Stream capture: a channel that runs alongside a larger channel (orthogonal neighbours, not already joined)
         // joins it there instead of flowing in parallel to a later confluence. Only downhill-consistent captures that
         // cannot form a cycle are taken; the drainage tree is then re-ordered and areas recomputed.
-        double captureArea = Math.max(3.0 * step * step, .03 * spacing * spacing);
+        double captureArea = Math.max(3.0 * step * step, .03 * spacing * spacing * channelScale);
         boolean captured = false;
         for (int k = 0; k < count; k++) {
             int i = order[k];
@@ -288,7 +291,7 @@ public final class HighlandDrainage {
             for (int k = 0; k < count; k++) {
                 int i = order[k], p = parent[i];
                 if (!land[i]) { incised[i] = 0; water[i] = 0; continue; }
-                double slope = clamp(KS * Math.pow(area[i] / 1e6, -THETA), SLOPE_MIN, SLOPE_MAX);
+                double slope = clamp(ks * Math.pow(area[i] / 1e6, -THETA), SLOPE_MIN, SLOPE_MAX);
                 incised[i] = Math.min(Math.min(ground[i], cap[i]), p < 0 ? ground[i] : incised[p] + run[i] * slope);
                 water[i] = p < 0 ? incised[i] : Math.max(incised[i], water[p]);
             }
@@ -325,7 +328,7 @@ public final class HighlandDrainage {
             }
             if (!breached || round == 3) break;
         }
-        double threshold = Math.max(3.0 * step * step, .03 * spacing * spacing);
+        double threshold = Math.max(3.0 * step * step, .03 * spacing * spacing * channelScale);
         damLakes(ownerX, ownerZ, width, depth, step, n, count, order, parent, land, area, run, ground, incised, water, threshold);
         boolean[] channel = new boolean[n];
         for (int i = 0; i < n; i++) channel[i] = land[i] && area[i] >= threshold;

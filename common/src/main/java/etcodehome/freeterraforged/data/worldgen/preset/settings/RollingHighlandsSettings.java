@@ -4,23 +4,33 @@ import com.mojang.serialization.Codec;
 import com.mojang.serialization.DataResult;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 
-/** Immutable saved generation identity; UI edits replace this record instead of mutating live worlds. */
-public record RollingHighlandsSettings(int modelVersion, int uplandSpacing, int mountainHeight, int foothillRelief, int valleyWidth) {
-    /** Generation model. 2 = RH2 (composed valleys, curved drainage, lakes, wetlands, currents). */
-    public static final int MODEL_VERSION = 2;
-    public static final RollingHighlandsSettings DEFAULT = new RollingHighlandsSettings(MODEL_VERSION, 4096, 160, 48, 256);
+/**
+ * Immutable saved generation identity; UI edits replace this record instead of mutating live worlds. Terrain shape
+ * itself comes from the normal FTF Terrain settings; these controls cover what Rolling Highlands adds on top:
+ * the broad upland uplift, stream-power valley depth and valley floor width.
+ *
+ * @param uplandSpacing distance between broad uplands and basins (blocks)
+ * @param uplandHeight  extra height of the uplands above the basins (blocks)
+ * @param valleyDepth   stream-power incision strength (percent; 100 = calibrated default)
+ * @param valleyWidth   reference flat valley-floor width (blocks)
+ */
+public record RollingHighlandsSettings(int modelVersion, int uplandSpacing, int uplandHeight, int valleyDepth, int valleyWidth) {
+    /** Generation model. 3 = RH3 (legacy FTF land, stream-power drainage, FTF river profile, dam lakes). */
+    public static final int MODEL_VERSION = 3;
+    public static final RollingHighlandsSettings DEFAULT = new RollingHighlandsSettings(MODEL_VERSION, 4096, 80, 100, 256);
     public static final Codec<RollingHighlandsSettings> CODEC = RecordCodecBuilder.<RollingHighlandsSettings>create(i -> i.group(
         integer(1, Integer.MAX_VALUE).fieldOf("modelVersion").forGetter(RollingHighlandsSettings::modelVersion),
         integer(4096, 8192).fieldOf("uplandSpacing").forGetter(RollingHighlandsSettings::uplandSpacing),
-        integer(32, 256).fieldOf("mountainHeight").forGetter(RollingHighlandsSettings::mountainHeight),
-        integer(0, 96).fieldOf("foothillRelief").forGetter(RollingHighlandsSettings::foothillRelief),
+        // Optional so that older model presets reach the version check and get its actionable message.
+        integer(0, 160).optionalFieldOf("uplandHeight", 80).forGetter(RollingHighlandsSettings::uplandHeight),
+        integer(25, 200).optionalFieldOf("valleyDepth", 100).forGetter(RollingHighlandsSettings::valleyDepth),
         integer(64, 512).fieldOf("valleyWidth").forGetter(RollingHighlandsSettings::valleyWidth)
     ).apply(i, RollingHighlandsSettings::new)).validate(s -> s.modelVersion == MODEL_VERSION
         ? DataResult.success(s) : DataResult.error(() -> unsupported(s.modelVersion)));
 
     private static String unsupported(int version) {
-        return version == 1
-            ? "Rolling Highlands model 1 was the experimental RH1 build and is no longer generated; create a new world (model " + MODEL_VERSION + ")"
+        return version < MODEL_VERSION
+            ? "Rolling Highlands model " + version + " was an earlier experimental build and is no longer generated; create a new world (model " + MODEL_VERSION + ")"
             : "Unsupported Rolling Highlands model version " + version + " (this build generates model " + MODEL_VERSION + ")";
     }
 
@@ -31,8 +41,8 @@ public record RollingHighlandsSettings(int modelVersion, int uplandSpacing, int 
 
     public void validate(WorldSettings world) {
         if (modelVersion != MODEL_VERSION) throw new IllegalArgumentException(unsupported(modelVersion));
-        if (uplandSpacing < 4096 || uplandSpacing > 8192 || mountainHeight < 32 || mountainHeight > 256
-            || foothillRelief < 0 || foothillRelief > 96 || valleyWidth < 64 || valleyWidth > 512) {
+        if (uplandSpacing < 4096 || uplandSpacing > 8192 || uplandHeight < 0 || uplandHeight > 160
+            || valleyDepth < 25 || valleyDepth > 200 || valleyWidth < 64 || valleyWidth > 512) {
             throw new IllegalArgumentException("Unsupported Rolling Highlands profile; check model version and control ranges");
         }
         if (world.continent.continentScale < 1000 || world.continent.continentScale > 5000) {

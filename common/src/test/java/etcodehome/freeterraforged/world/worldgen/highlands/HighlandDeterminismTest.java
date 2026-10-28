@@ -52,14 +52,13 @@ class HighlandDeterminismTest {
             }
         }
     }
-    @Test void independentAmplitudesAndWidthKeepTheChannelProfile() {
+    /** Valley width only reshapes floors: the drainage plan and water profile are unchanged. */
+    @Test void valleyWidthKeepsTheChannelProfile() {
         var settings = new RollingHighlandsSettings[]{RollingHighlandsSettings.DEFAULT,
-            new RollingHighlandsSettings(2,4096,240,48,256), new RollingHighlandsSettings(2,4096,160,80,256),
-            new RollingHighlandsSettings(2,4096,160,48,512), new RollingHighlandsSettings(2,4096,32,0,64)};
+            new RollingHighlandsSettings(3, 4096, 80, 100, 64), new RollingHighlandsSettings(3, 4096, 80, 100, 512)};
         double siteX, siteZ;
-        try (var context = WorldgenFixture.context(preset(RollingHighlandsSettings.DEFAULT), 0);
-             var coast = new HighlandCoast(context)) {
-            var plan = new HighlandDrainage(coast, HighlandLand.create(context),4096,context.preset.world().controlPoints).build(0,0);
+        try (var context = WorldgenFixture.context(preset(RollingHighlandsSettings.DEFAULT), 0)) {
+            var plan = ((RollingHighlandsContinent) context.heightmap.continent()).planOf(0, 0).plan();
             var site = plan.nodes().stream().filter(n -> n.water() > 20 && n.parent() >= 0).findFirst().orElseThrow();
             siteX = site.x(); siteZ = site.z();
         }

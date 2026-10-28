@@ -19,11 +19,12 @@ public final class HighlandLand {
     private final float frequency;
     private final Levels levels;
     private final long seed;
-    private final double spacing;
+    private final double spacing, uplandRange;
     private final ThreadLocal<Cell> scratch = ThreadLocal.withInitial(Cell::new);
 
-    private HighlandLand(Heightmap.Land composed, Levels levels, long seed, double spacing) {
+    private HighlandLand(Heightmap.Land composed, Levels levels, long seed, double spacing, double uplandRange) {
         this.spacing = spacing;
+        this.uplandRange = uplandRange;
         this.region = composed.region();
         this.land = composed.land();
         this.frequency = composed.terrainFrequency();
@@ -34,7 +35,8 @@ public final class HighlandLand {
     public static HighlandLand create(GeneratorContext context) {
         long root = context.seed.root();
         return new HighlandLand(Heightmap.makeLand(context, new Seed(root)), context.levels,
-            root + context.preset.terrain().general.terrainSeedOffset, context.preset.terrain().highlands().uplandSpacing());
+            root + context.preset.terrain().general.terrainSeedOffset, context.preset.terrain().highlands().uplandSpacing(),
+            context.preset.terrain().highlands().uplandHeight());
     }
 
     long seed() { return seed; }
@@ -59,9 +61,9 @@ public final class HighlandLand {
         double pz = z + .12 * spacing * (2 * HighlandMath.noise(seed + 1877, x, z, 1.5 * spacing) - 1);
         double u = (2 * HighlandMath.noise(seed + 2741, px, pz, spacing) + HighlandMath.noise(seed + 3251, px, pz, .55 * spacing)) / 3;
         double basin = HighlandMath.smooth(.62, .8, 1 - u) * (.35 + .65 * HighlandMath.smooth(.35, .65, HighlandMath.noise(seed + 4271, px, pz, 2 * spacing)));
-        return (UPLAND_BASE + UPLAND_RANGE * HighlandMath.smooth(.2, .8, u)) * (1 - .75 * basin);
+        return (UPLAND_BASE * Math.min(1, uplandRange / 80) + uplandRange * HighlandMath.smooth(.2, .8, u)) * (1 - .75 * basin);
     }
-    static final double UPLAND_BASE = 16, UPLAND_RANGE = 80;
+    static final double UPLAND_BASE = 16;
 
     /** Land height only, using a per-thread scratch cell. */
     public double height(double x, double z) {

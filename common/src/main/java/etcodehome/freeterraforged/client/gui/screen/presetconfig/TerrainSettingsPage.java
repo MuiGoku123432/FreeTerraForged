@@ -90,11 +90,11 @@ public class TerrainSettingsPage extends PresetEditorPage {
             this.left.addWidget(PresetWidgets.createLabel("gui.ftf.highlands.title"));
             this.left.addWidget(PresetWidgets.createLabel("gui.ftf.highlands.scales"));
             addHighlandSlider(terrain, 0, terrain.highlands().uplandSpacing(), 4096, 8192, "gui.ftf.highlands.spacing");
-            addHighlandSlider(terrain, 1, terrain.highlands().mountainHeight(), 32, 256, "gui.ftf.highlands.mountains");
-            addHighlandSlider(terrain, 2, terrain.highlands().foothillRelief(), 0, 96, "gui.ftf.highlands.foothills");
+            addHighlandSlider(terrain, 1, terrain.highlands().uplandHeight(), 0, 160, "gui.ftf.highlands.uplands");
+            addHighlandSlider(terrain, 2, terrain.highlands().valleyDepth(), 25, 200, "gui.ftf.highlands.depth");
             addHighlandSlider(terrain, 3, terrain.highlands().valleyWidth(), 64, 512, "gui.ftf.highlands.valleys");
             this.left.addWidget(PresetWidgets.createLabel("gui.ftf.highlands.preview"));
-            return;
+            // RH3 builds on the normal FTF land, so the regular terrain controls follow.
         }
 		General general = terrain.general;
 		boolean isUpliftContinent = preset.world().continent.continentType == ContinentType.UPLIFT;
@@ -413,8 +413,8 @@ public class TerrainSettingsPage extends PresetEditorPage {
             var old = terrain.highlands();
             int blocks = (int) slider.scaleValue(value);
             terrain.rollingHighlands = new RollingHighlandsSettings(RollingHighlandsSettings.MODEL_VERSION,
-                field == 0 ? blocks : old.uplandSpacing(), field == 1 ? blocks : old.mountainHeight(),
-                field == 2 ? blocks : old.foothillRelief(), field == 3 ? blocks : old.valleyWidth());
+                field == 0 ? blocks : old.uplandSpacing(), field == 1 ? blocks : old.uplandHeight(),
+                field == 2 ? blocks : old.valleyDepth(), field == 3 ? blocks : old.valleyWidth());
             this.regenerate();
             return value;
         }));

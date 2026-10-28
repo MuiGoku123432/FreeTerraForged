@@ -175,3 +175,9 @@ Lake area 1–3% of land (default), dry depressions ≤ ~3%, junction mean 55–
   land measures 24% MULTI_IMPROVED / 20% UPLIFT; RH3 ≈ 8.5%), concavity 0.15–0.65 on water surfaces (dam backwater
   flattens them; incision uses θ = 0.45), junction angle 50–95° (RH3 69–86°, from stream capture), ≤ 25% of channel
   length incised > 60. Known deviation: Hack exponent 0.85–0.94 (elongated coast-draining basins); not gated.
+- Q6/Q7 done: model version 3 (`uplandSpacing`, `uplandHeight` 0–160 default 80, `valleyDepth` 25–200% default 100,
+  `valleyWidth`); model 1–2 presets are rejected with "create a new world". The Terrain page shows the RH controls
+  followed by the full FTF terrain controls (regions, mountains, variety, scales). The River page shows FTF controls
+  RH3 honours: river count (drainage density), flow toggles, main-river bed depth / bank heights / bank width, lake
+  chance and depth, wetland chance. FTF's Phacelle erosion filter already runs with RH's channel protection. Build
+  1.0.0014-rh3. Waterfall averaging stays off: RH profiles are limited to 0.2/block rapids and level junction cores.
