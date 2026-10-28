@@ -19,11 +19,9 @@ class HighlandQualityTest {
             check(failures, m, Double.isFinite(m.worstJump()) && Double.isFinite(m.oceanFloorMin()), "finite metrics");
             // P1: valleys are composed, so interfluves remain land and channels are contained.
             check(failures, m, m.valleyZone() <= .75, "P1 valley zone <= 75% of dry land");
-            // RH3 Q2: parallel tributaries approaching a lowered trunk can still meet in a short rapid; Q5 (junction
-            // approach shaping) restores the strict gate of 0.
-            check(failures, m, m.waterSteps() <= 10, "P1 at most 10 adjacent wet water steps >= 2 blocks");
+            check(failures, m, m.waterSteps() == 0, "P1 no adjacent wet water steps >= 2 blocks");
             // P3: lakes have continuous shorelines and no cliffs at the water's edge.
-            check(failures, m, m.dryJumps() <= 2, "P3 at most 2 RH-induced dry 1-block jumps > 3 blocks");
+            check(failures, m, m.dryJumps() == 0, "P3 no RH-induced dry 1-block jumps > 3 blocks");
             check(failures, m, m.seamPixels() <= 20, "P3 <= 20 seam pixels (> 12 blocks per 4) in the window");
             check(failures, m, m.shoreCliffs() == 0, "P3 no shore cliffs > 12 blocks within 4 blocks of water");
             // P5: every channel cell carries a current, and currents run downstream.

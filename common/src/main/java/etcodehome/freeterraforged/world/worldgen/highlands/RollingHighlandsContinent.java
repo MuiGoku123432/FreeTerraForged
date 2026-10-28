@@ -17,7 +17,7 @@ import static etcodehome.freeterraforged.world.worldgen.highlands.HighlandMath.*
 public final class RollingHighlandsContinent implements Continent {
     /** Valley floors: vanilla low peaks-and-valleys slice (normal side) and moderately flat erosion. */
     static final double VALLEY_WEIRDNESS = -.12, VALLEY_EROSION = .1;
-    static final double CHANNEL_DEPTH = 4, SHORE_RATE = .4;
+    static final double CHANNEL_DEPTH = 4, SHORE_RATE = .4, MAX_FADE = 384, CONFLUENCE_RAPID = .25;
     /** Current speed model (normalized 0..1 as stored in ChunkFlowField). */
     static final double FLOW_BASE = .45, FLOW_SLOPE = 6, FLOW_MIN = .3, LAKE_DRIFT = .18, OUTLET_DRIFT = 128;
     static final double BANK_RUN = 16, MIN_OUTER_RUN = 64, MAX_OUTER_RUN = 512, CREASE_SOFTNESS = 24;
@@ -30,6 +30,8 @@ public final class RollingHighlandsContinent implements Continent {
     private final double coastEdge;
     private final long classSeed;
     private final double coastMarker;
+    /** FTF main-river settings (bed depth, bank heights, bank width) shape every RH channel and valley. */
+    private final etcodehome.freeterraforged.data.worldgen.preset.settings.RiverSettings.River river;
     private final etcodehome.freeterraforged.world.worldgen.cell.CellPopulator oceans;
     private final etcodehome.freeterraforged.world.worldgen.noise.module.Noise beachNoise;
     static final int MAX_PLANS = 8;
@@ -49,6 +51,7 @@ public final class RollingHighlandsContinent implements Continent {
         this.coastEdge = context.preset.world().controlPoints.coast;
         this.classSeed = context.seed.root() * 0x9E3779B97F4A7C15L + 0x52484632L;
         this.coastMarker = context.preset.world().controlPoints.coastMarker();
+        this.river = context.preset.rivers().mainRivers;
         // Oceans, shelves and coast use the legacy FTF ocean populators so ocean biomes, depths and the
         // coast-to-shelf transition match the other continent types.
         var world = context.preset.world();
@@ -234,32 +237,47 @@ public final class RollingHighlandsContinent implements Continent {
         double hummock = 1.6 * (2 * noise(classSeed + 8, x, z, 24) - 1) + .6 * (2 * noise(classSeed + 9, x, z, 9) - 1);
         double area2 = (double) settings.uplandSpacing() * settings.uplandSpacing();
         Scratch scratch = SCRATCH.get().ensure(hits.count);
+        // FTF valley texture (UpliftRiverCarver noises, same scales and value ranges): width, asymmetry, pinch, depth,
+        // terrace and gully/rivulet drainage masks.
+        double widthVar = noise(classSeed + 8241, x, z, 150), asymmetry = noise(classSeed + 1193, x, z, 250);
+        double pinch = clamp(1 + 2 * noise(classSeed + 6204, x, z, 360), .05, 1.95);
+        double depthVar = noise(classSeed + 3912, x, z, 100), terrace = noise(classSeed + 5510, x, z, 200);
+        double gully = 1 - noise(classSeed + 9876, x, z, 65), rivulet = 1 - noise(classSeed + 5432, x, z, 20);
+        double drainage = .7 * gully * gully + .3 * rivulet * rivulet * rivulet;
+        double dynamic = 1 + .35 * widthVar, side = 1 + .4 * asymmetry;
         for (int k = 0; k < hits.count; k++) {
             double water = hits.water[k], distance = hits.distance[k], confinement = hits.confinement[k];
             double q = Math.max(.01, hits.area[k] / area2);
             double head = hits.head[k];
-            // Channel heads start as narrow, shallow streams and widen to the discharge-based river size.
-            double radius = clamp(16 * Math.pow(q, .35), 4, 12) * lerp(.3, 1, head);
-            double channelDepth = CHANNEL_DEPTH * lerp(.4, 1, head);
-            double dryWidth = settings.valleyWidth() * clamp(Math.pow(q, .2), .5, 1.5) * lerp(1, .3, confinement) * lerp(.35, 1, head);
-            double slopeLimit = lerp(.45, .9, confinement);
-            double outer = clamp(1.875 * Math.max(0, land - water - 4) / slopeLimit, MIN_OUTER_RUN, MAX_OUTER_RUN);
-            var section = HighlandValley.sample(distance, land, water, channelDepth, radius, BANK_RUN, dryWidth, outer);
+            double flat = 1 - smooth(.002, .03, hits.slope[k]);
+            // Channel size from discharge (hydraulic geometry); heads start as narrow shallow streams. Valley floor and
+            // fadeout follow FTF's main-river bank width, pinch and relief-scaled fadeout, widened with drainage area
+            // (floor ~ A^0.3) and narrowed where the valley is confined.
+            double radius = clamp(16 * Math.pow(q, .35), 4, 12) * lerp(.3, 1, head) * dynamic;
+            double hydraulic = clamp(Math.pow(q / .1, .3), .5, 2) * settings.valleyWidth() / 256.0;
+            double floorHalf = river.bankWidth * dynamic * pinch * hydraulic * lerp(1, .4, confinement) * head * head;
+            double fadeRun = Math.min(MAX_FADE, river.bankWidth * dynamic * pinch * Math.max(.5, hydraulic)
+                * (5 + Math.max(0, land - water) / 100) * lerp(1, .6, confinement));
+            double bedDepth = Math.max(2, 2.3 + .3 * depthVar + river.bedDepth * clamp(q / .3, 0, 1) * flat) * lerp(.4, 1, head);
+            var shape = new FtfValley.Shape(radius, Math.max(3, (river.maxBankHeight - river.minBankHeight) * dynamic * side), floorHalf,
+                Math.max(MIN_OUTER_RUN, fadeRun), bedDepth, Math.max(1, river.maxBankHeight - river.minBankHeight) + .4 * terrace - .6 * drainage,
+                terrace, drainage);
+            var section = FtfValley.sample(distance, land, water, shape);
             maxInfluence = Math.max(maxInfluence, section.influence());
-            support = Math.max(support, water + 1 - Math.max(0, distance - (radius + BANK_RUN)));
+            support = Math.max(support, water + 1 - Math.max(0, distance - shape.bankEnd()));
             double carve = section.height();
             scratch.section[k] = section;
             scratch.carve[k] = carve;
+            scratch.radius[k] = radius;
             // Floodplain wetlands: broad, flat, low valley floors of larger rivers hold pools and hummocks at the
             // river's water level. The weight is a product of continuous factors, so the composition stays smooth.
             double wetland = 0;
             if (wetlandMask > 0 && !section.wet()) {
-                double floorStart = radius + BANK_RUN, floorEnd = floorStart + dryWidth * .5;
+                double floorStart = shape.bankEnd(), floorEnd = shape.floorEnd();
                 wetland = wetlandMask * smooth(.04, .15, q) * (1 - smooth(.006, .02, hits.slope[k])) * (1 - smooth(40, 90, water))
                     * smooth(floorStart, floorStart + 12, distance) * (1 - smooth(floorEnd - 32, floorEnd, distance)) * head;
             }
             scratch.wetland[k] = wetland;
-            scratch.radius[k] = radius;
         }
         // Wet ownership: the wet channel with the lowest bed owns the cell (parallel channels are joined upstream by
         // stream capture in the plan, so channels meet at confluences rather than side by side).
@@ -298,11 +316,18 @@ public final class RollingHighlandsContinent implements Continent {
         }
         cell.riverMask = (float) (1 - maxInfluence);
         if (wetOwner >= 0) {
-            cell.riverWaterLevel = normalized(hits.water[wetOwner]);
+            // Near a lower connected channel (a confluence), the higher channel's surface descends toward it at a
+            // rapid's gradient, so the two waters meet without a step.
+            double water = hits.water[wetOwner];
+            for (int j = 0; j < hits.count; j++) {
+                if (j == wetOwner || hits.water[j] >= water || !index.connected(hits.reach[j], hits.reach[wetOwner])) continue;
+                water = Math.min(water, hits.water[j] + CONFLUENCE_RAPID * Math.max(0, hits.distance[j] - scratch.radius[j]));
+            }
+            cell.riverWaterLevel = normalized(water);
             cell.riverZone = RiverZone.Riverbed;
             cell.hasRiverWater = true; cell.terrain = TerrainType.RIVER;
             setFlow(cell, speed / flowWeight, flowX, flowZ);
-            return wetSection.height();
+            return Math.min(wetSection.height(), water - 1);
         }
         double softness = CREASE_SOFTNESS * Math.min(o1, o2) * smooth(0, 8, land - c2);
         double height = Math.max(smin(c1, c2, softness), support);
@@ -334,7 +359,8 @@ public final class RollingHighlandsContinent implements Continent {
      * erosion toward flatter values, so valley floors never keep a mountain classification.
      */
     private void classify(Cell cell) {
-        double valley = 1 - smooth(0, .6, cell.riverMask);
+        // Only channels, banks and the flat floor (not the fadeout slopes) count as valley bottom.
+        double valley = 1 - smooth(0, .15, cell.riverMask);
         if (valley > 0) {
             cell.weirdness = (float) lerp(cell.weirdness, VALLEY_WEIRDNESS, valley);
             cell.erosion = (float) lerp(cell.erosion, VALLEY_EROSION, .7 * valley);

@@ -155,3 +155,11 @@ Lake area 1–3% of land (default), dry depressions ≤ ~3%, junction mean 55–
     13–15% (now intentional valley depth), Rb 3.9–5.3, Hack 0.85–0.94 (target ≈0.6, Q5).
   - Gates temporarily relaxed with notes: ≤ 10 wet water steps, ≤ 2 RH-induced dry jumps, ≥ 98% channel flow,
     beaches ≤ 4%; integration test asserts cell water never above the plan (lower connected channel may own it).
+- Q3 done: `FtfValley` ports UpliftRiverCarver's profile (riverbed bowl, 3-step terraced bank step with gully notches,
+  flat floor at water + bank height with terrace/drainage bumpiness, 5-step terraced fadeout with talus shelves and
+  cliff faces) into RH blocks with the plan's water level. Uses the same noises/scales (width 150, asymmetry 250,
+  pinch 360, depth 100, terrace 200, gully 65, rivulet 20) and FTF main-river settings (bed depth, bank heights,
+  bank width); floor ∝ A^0.3 and confinement; fadeout = bank width × (5 + relief/100) like legacy. Confluence rapids:
+  a higher connected channel's surface descends to the lower one at 0.25/block; level wet core one sample above
+  every junction. Valley-bottom biome suppression only on channel/bank/floor. Strict gates restored (0 wet water
+  steps, 0 RH-induced dry jumps).

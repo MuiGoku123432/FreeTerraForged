@@ -360,11 +360,15 @@ public final class HighlandDrainage {
         }
         // Rapids, not walls: outside lakes, water climbs at most MAX_WATER_SLOPE per block upstream of its parent, so a
         // tributary entering a lowered trunk descends over its last reach instead of stepping at the junction.
+        int[] childCount = new int[refined];
+        for (int j = 0; j < refined; j++) if (parents[j] >= 0) childCount[parents[j]]++;
         for (int j = 0; j < refined; j++) {
             int p = parents[j];
             if (p < 0 || lakeOf.get(j) >= 0) continue;
             var a = samples.get(j); var b = samples.get(p);
-            profile[j] = Math.min(profile[j], profile[p] + MAX_WATER_SLOPE * Math.hypot(a.x() - b.x(), a.z() - b.z()));
+            // Level wet core at confluences: the first sample above a junction stays at the junction's level.
+            double rise = childCount[p] >= 2 ? 0 : MAX_WATER_SLOPE * Math.hypot(a.x() - b.x(), a.z() - b.z());
+            profile[j] = Math.min(profile[j], profile[p] + rise);
         }
         // Lake outlets: the first channel sample downstream of a flooded sample of that lake.
         for (int j = 0; j < refined; j++) {
