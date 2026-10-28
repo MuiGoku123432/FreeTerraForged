@@ -34,7 +34,7 @@ public final class HighlandDrainage {
     static final double MAX_WATER_SLOPE = .2;
     private final HighlandCoast coast;
     private final HighlandLand surface;
-    private final double spacing, coastEdge, inlandEdge, lakeChance, lakeDepth, ks, channelScale;
+    private final double spacing, coastEdge, inlandEdge, lakeChance, lakeDepth, ks, channelScale, meander;
     /** D8 neighbours; diagonals cost sqrt(2) in the flat-resolution distance and may not cross each other. */
     private static final int[] DX = {0, -1, 1, 0, -1, 1, -1, 1};
     private static final int[] DZ = {-1, 0, 0, 1, -1, 1, 1, -1};
@@ -54,11 +54,17 @@ public final class HighlandDrainage {
     static final double NODE_JITTER = .24;
 
     public HighlandDrainage(HighlandCoast coast, HighlandLand surface, double spacing, WorldSettings.ControlPoints controls) {
-        this(coast, surface, spacing, controls, .5, 10, 100, 10);
+        this(coast, surface, spacing, controls, .5, 10, 100, 10, 1);
     }
-    /** @param lakeChance FTF river settings' lake chance: probability that an eligible depression is kept as a lake. */
     public HighlandDrainage(HighlandCoast coast, HighlandLand surface, double spacing, WorldSettings.ControlPoints controls,
                             double lakeChance, double lakeDepth, double valleyDepthPercent, int riverCount) {
+        this(coast, surface, spacing, controls, lakeChance, lakeDepth, valleyDepthPercent, riverCount, 1);
+    }
+    /** @param lakeChance FTF river settings' lake chance: probability that an eligible depression is kept as a lake. */
+    /** @param meander meander strength (1 = default, 0 = channels follow the valley axis, 2 = maximum). */
+    public HighlandDrainage(HighlandCoast coast, HighlandLand surface, double spacing, WorldSettings.ControlPoints controls,
+                            double lakeChance, double lakeDepth, double valleyDepthPercent, int riverCount, double meander) {
+        this.meander = clamp(meander, 0, 2);
         this.coast = coast; this.surface = surface; this.spacing = spacing; this.lakeChance = clamp(lakeChance, 0, 1);
         this.lakeDepth = clamp(lakeDepth, 1, 32);
         // Valley depth scales the stream-power steepness; FTF's river count sets drainage density (10 = default).
@@ -77,15 +83,53 @@ public final class HighlandDrainage {
     }
     /** Refined channel sample. {@code head} ramps 0..1 over the first HEAD_TAPER blocks below a channel head. */
     public record Node(double x, double z, double ground, double water, double area, int parent, double head) {}
-    public record Reach(int downstream, int first, int last) {}
+    /**
+     * Channel polyline {@code downstream, first..last} (refined nodes) and the valley-axis polyline
+     * {@code axisFrom..axisTo} (indices into {@link Plan#axis()}) it meanders around.
+     */
+    public record Reach(int downstream, int first, int last, int axisFrom, int axisTo) {}
+    /** Valley-axis sample; {@code belt} is the largest lateral channel offset (meander amplitude) nearby. */
+    public record AxisNode(double x, double z, double belt) {}
+    /**
+     * Abandoned meander loop (oxbow): still water along the middle of the arc, infilled wetland toward its ends and
+     * around it. {@code halfWidth} is the open-water half width per point (zero at the infilled ends); {@code water}
+     * the still-water level (the lowest level of the channel beside it).
+     */
+    public record Oxbow(double[] x, double[] z, double[] halfWidth, double water) {}
     /**
      * {@code incision} holds, per plan grid node (origin, width, gridStep), how far stream-power incision lowered the
      * land; the rendered surface is the full-resolution land minus its smooth interpolation. {@code water} holds the
      * per-node water level (base level) that dry ground must stay above.
      */
-    public record Plan(int ownerX, int ownerZ, int gridStep, int gridNodes, int landNodes, List<Node> nodes, List<Reach> reaches,
+    public record Plan(int ownerX, int ownerZ, int gridStep, int gridNodes, int landNodes, List<Node> nodes, List<Reach> reaches, List<AxisNode> axis, List<Oxbow> oxbows,
                        HighlandBasins basins, long buildNanos, int originX, int originZ, int width, double[] incision, double[] water) {}
     private record QueueNode(int index, double level, double distance) {}
+    /** Lake id of axis samples in the sea (river mouths). */
+    static final int OCEAN = -2;
+
+    /** Growable valley-axis samples (16-block pieces of the Hermite centreline), parents downstream. */
+    static final class AxisSamples {
+        int size;
+        double[] x = new double[1024], z = new double[1024], ground = new double[1024], level = new double[1024],
+            area = new double[1024], head = new double[1024];
+        int[] parent = new int[1024], lake = new int[1024], grid = new int[1024];
+        int add(double px, double pz, double h, double lvl, double a, int p, double hd, int lk, int g) {
+            if (size == x.length) {
+                int m = size * 2;
+                x = Arrays.copyOf(x, m); z = Arrays.copyOf(z, m); ground = Arrays.copyOf(ground, m); level = Arrays.copyOf(level, m);
+                area = Arrays.copyOf(area, m); head = Arrays.copyOf(head, m);
+                parent = Arrays.copyOf(parent, m); lake = Arrays.copyOf(lake, m); grid = Arrays.copyOf(grid, m);
+            }
+            x[size] = px; z[size] = pz; ground[size] = h; level[size] = lvl; area[size] = a; head[size] = hd;
+            parent[size] = p; lake[size] = lk; grid[size] = g;
+            return size++;
+        }
+    }
+    HighlandCoast coast() { return coast; }
+    double coastEdge() { return coastEdge; }
+    double spacing() { return spacing; }
+    long seed() { return surface.seed(); }
+    double meander() { return meander; }
 
     /**
      * FTF-style lakes on flat, large rivers (legacy lakes widen rivers on flat steps): at deterministic dam sites on
@@ -174,7 +218,7 @@ public final class HighlandDrainage {
     /** Deterministic river-less plan used when an owner's drainage cannot be built. */
     public Plan emptyPlan(int ownerX, int ownerZ) {
         var basins = new HighlandBasins(surface.seed(), 0, 0, 1, 1, 64, new double[1], new double[1], new boolean[1], new boolean[1], new double[1], new double[1]);
-        return new Plan(ownerX, ownerZ, 64, 0, 0, List.of(), List.of(), basins, 0, 0, 0, 1, new double[1], new double[1]);
+        return new Plan(ownerX, ownerZ, 64, 0, 0, List.of(), List.of(), List.of(), List.of(), basins, 0, 0, 0, 1, new double[1], new double[1]);
     }
 
     /**
@@ -480,26 +524,18 @@ public final class HighlandDrainage {
         HighlandBasins basins = new HighlandBasins(surface.seed() + 52361, originX, originZ, width, depth, step, incised, water, land, channel, nodeX, nodeZ);
         // Channels run through the routing nodes' own (jittered) positions.
         double[] pathX = nodeX, pathZ = nodeZ;
-        List<Node> samples = new ArrayList<>();
-        List<Reach> reaches = new ArrayList<>();
-        List<Double> levels = new ArrayList<>();
-        List<Integer> lakeOf = new ArrayList<>();
-        int[] endpoint = new int[n]; Arrays.fill(endpoint, -1);
+        // Valley axis (RH3 centreline): tangent-continuous Hermite per grid link, 16-block samples.
+        AxisSamples axis = new AxisSamples();
+        int[] endpoint = new int[n], linkFirst = new int[n];
+        Arrays.fill(endpoint, -1); Arrays.fill(linkFirst, -1);
         double[] curveX = new double[17], curveZ = new double[17];
         for (int k = 0; k < count; k++) {
             int i = order[k];
             if (!channel[i]) continue;
             double x = pathX[i], z = pathZ[i];
             int p = parent[i];
-            if (p < 0) {
-                endpoint[i] = samples.size();
-                samples.add(new Node(x, z, 0, 0, area[i], -1, 1));
-                levels.add(0.0); lakeOf.add(-1);
-                continue;
-            }
+            if (p < 0) { endpoint[i] = axis.add(x, z, 0, 0, area[i], -1, 1, OCEAN, i); continue; }
             double px = pathX[p], pz = pathZ[p];
-            int previous = endpoint[p];
-            int downstream = previous, first = samples.size();
             // Hermite curve from the downstream node to this node, tangent-continuous along each main stem.
             int beyond = parent[p], upstream = mainChild[i];
             double qx = beyond >= 0 ? pathX[beyond] : 2 * px - x, qz = beyond >= 0 ? pathZ[beyond] : 2 * pz - z;
@@ -523,8 +559,10 @@ public final class HighlandDrainage {
             }
             int pieces = Math.max(1, (int) Math.ceil(length / 16.0));
             boolean headReach = tributaries[i] == 0;
+            int previous = endpoint[p];
+            linkFirst[i] = axis.size;
             for (int piece = 1; piece <= pieces; piece++) {
-                if (samples.size() >= MAX_REFINED_NODES) throw new IllegalStateException("RH profile refinement budget exceeded");
+                if (axis.size >= MAX_REFINED_NODES) throw new IllegalStateException("RH profile refinement budget exceeded");
                 double t = piece / (double) pieces, f = t * 16;
                 int c = Math.min(15, (int) f);
                 double sx = lerp(curveX[c], curveX[c + 1], f - c), sz = lerp(curveZ[c], curveZ[c + 1], f - c);
@@ -534,17 +572,18 @@ public final class HighlandDrainage {
                 var lake = basins.sample(sx, sz);
                 boolean flooded = lake != null && lake.depth() > 0;
                 if (flooded) level = lake.water();
-                if (location.edge() <= coastEdge) level = 0;
-                lakeOf.add(flooded ? lake.lake() : -1);
-                levels.add(level);
-                int next = samples.size();
+                boolean ocean = location.edge() <= coastEdge;
+                if (ocean) level = 0;
                 double head = headReach ? smooth(0, HEAD_TAPER, (1 - t) * length) : 1;
-                samples.add(new Node(sx, sz, h, 0, lerp(area[p], area[i], t), previous, head));
-                previous = next;
+                previous = axis.add(sx, sz, h, level, lerp(area[p], area[i], t), previous, head, ocean ? OCEAN : flooded ? lake.lake() : -1, i);
             }
             endpoint[i] = previous;
-            reaches.add(new Reach(downstream, first, previous));
         }
+        var channels = new HighlandMeanders(this, axis, endpoint, linkFirst, mainChild, parent, channel, n, basins).build();
+        List<Node> samples = channels.samples();
+        List<Reach> reaches = channels.reaches();
+        List<Double> levels = channels.levels();
+        List<Integer> lakeOf = channels.lakeOf();
         int refined = samples.size();
         int[] parents = new int[refined];
         double[] profile = new double[refined];
@@ -571,11 +610,18 @@ public final class HighlandDrainage {
             int lake = lakeOf.get(j), p = parents[j];
             if (lake >= 0 && p >= 0 && lakeOf.get(p) != lake) basins.setOutlet(lake, samples.get(p).x(), samples.get(p).z());
         }
+        // Oxbows hold the lowest water of the channel stretch beside them (never above the surrounding floor).
+        List<Oxbow> oxbows = new ArrayList<>();
+        for (var site : channels.oxbows()) {
+            double level = Double.POSITIVE_INFINITY;
+            for (int j = site.nodeFrom(); j <= site.nodeTo(); j++) level = Math.min(level, profile[j]);
+            if (level > 0 && Double.isFinite(level)) oxbows.add(new Oxbow(site.x(), site.z(), site.halfWidth(), level));
+        }
         List<Node> nodes = new ArrayList<>(refined);
         for (int j = 0; j < refined; j++) {
             var point = samples.get(j);
             nodes.add(new Node(point.x(), point.z(), point.ground(), profile[j], point.area(), point.parent(), point.head()));
         }
-        return new Plan(ownerX, ownerZ, step, n, landCount, List.copyOf(nodes), List.copyOf(reaches), basins, System.nanoTime() - started, originX, originZ, width, incision, waterGrid);
+        return new Plan(ownerX, ownerZ, step, n, landCount, List.copyOf(nodes), List.copyOf(reaches), List.copyOf(channels.axis()), List.copyOf(oxbows), basins, System.nanoTime() - started, originX, originZ, width, incision, waterGrid);
     }
 }

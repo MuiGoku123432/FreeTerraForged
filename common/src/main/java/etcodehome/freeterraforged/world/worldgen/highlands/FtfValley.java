@@ -24,31 +24,47 @@ final class FtfValley {
         double reach() { return floorEnd() + fadeRun; }
     }
 
+    /** Single-line valley (channel on its axis): the RH3 section. */
     static HighlandValley.Section sample(double distance, double land, double water, Shape s) {
-        double d = Math.abs(distance);
-        double r1 = s.bedRadius(), r2 = s.bankEnd(), r3 = s.floorEnd(), r4 = s.reach();
+        return sample(distance, distance, 0, land, water, s);
+    }
+
+    /**
+     * Two-line valley (RH4): the bed and bank step follow the channel; the floor and fadeout follow the valley axis,
+     * with the floor widened by the local meander belt and the valley's outer edge kept where possible. The bank rises from the water to the valley surface at that
+     * point (the floor where the channel is inside it, a cut bank where a bend meets the valley side), so the
+     * section is continuous for any channel position and equals the single-line section when the channel lies on
+     * the axis.
+     */
+    static HighlandValley.Section sample(double channel, double axis, double belt, double land, double water, Shape s) {
+        double d = Math.abs(channel), a = Math.abs(axis);
+        // The belt widens the floor inside the valley's own extent (the side slope steepens, at most twofold) rather
+        // than pushing the valley sides outward into neighbouring valleys.
+        double r1 = s.bedRadius(), r2 = s.bankEnd(), r3 = s.floorEnd() + belt, r4 = Math.max(s.reach(), r3 + .5 * s.fadeRun());
         double floor = water + s.floorRise();
         if (d < r1) {
             double influence = 1 - d * d / (r1 * r1);
             influence = influence * influence * (3 - 2 * influence);
             return new HighlandValley.Section(water - s.bedDepth() * influence, 1, true, 0);
         }
-        if (d < r2) {
-            double progress = terracing((d - r1) / (r2 - r1), s.terrace(), s.drainage(), 3);
-            double arc = progress * (1 - progress) * 4;
-            progress = Math.max(0, progress - s.drainage() * .3 * arc);
-            return new HighlandValley.Section(lerp(water, floor, progress * progress * (3 - 2 * progress)), 1, false, 1);
-        }
-        if (d < r3) return new HighlandValley.Section(floor, 1, false, 2);
-        if (d < r4) {
-            double raw = (d - r3) / (r4 - r3);
+        double valley, influence;
+        int zone;
+        if (a < r3) { valley = floor; influence = 1; zone = 2; }
+        else if (a < r4) {
+            double raw = (a - r3) / (r4 - r3);
             double progress = terracing(raw, s.terrace(), s.drainage(), 5);
             double slopeMask = raw * (1 - raw) * 4;
             progress = Math.max(0, progress - s.drainage() * .25 * slopeMask);
             double smooth = progress * progress * (3 - 2 * progress);
-            return new HighlandValley.Section(lerp(floor, land, smooth), 1 - smooth, false, 3);
+            valley = lerp(floor, land, smooth); influence = 1 - smooth; zone = 3;
+        } else { valley = land; influence = 0; zone = 4; }
+        if (d < r2) {
+            double progress = terracing((d - r1) / (r2 - r1), s.terrace(), s.drainage(), 3);
+            double arc = progress * (1 - progress) * 4;
+            progress = Math.max(0, progress - s.drainage() * .3 * arc);
+            return new HighlandValley.Section(lerp(water, Math.max(water, valley), progress * progress * (3 - 2 * progress)), 1, false, 1);
         }
-        return new HighlandValley.Section(land, 0, false, 4);
+        return new HighlandValley.Section(valley, influence, false, zone);
     }
 
     /** FTF {@code applyTerracing}: talus shelves (t^3.5) below a cliff face, broken up by drainage. */

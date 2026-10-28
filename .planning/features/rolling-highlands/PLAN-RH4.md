@@ -114,7 +114,7 @@ One commit per phase; each runs the full `:common:test` suite, the RH4 metrics a
 - Gates: tongue width ≥ 6 blocks; FULL-chunk validation at confluences (both loaders).
 
 ### R6 — C2b (conditional): irregular routing graph
-- Only if direction bias > 26% after R5 (RH3 baseline 27.6–30.7%, uniform 22.2%).
+- Only if direction anisotropy > 8% after R5 (R1 baseline 6.9–18.1%; R2 4.0–7.4%; R3 3.1–6.7%).
 - Poisson-disc nodes + Delaunay neighbours; Priority-Flood and stream power on the graph; fields rasterised as in R2.
 
 ### R7 — Settings and model 4
@@ -133,8 +133,11 @@ One commit per phase; each runs the full `:common:test` suite, the RH4 metrics a
 ## 4. Targets
 
 See RESEARCH-RH4 §6. Summary: sinuosity mean 1.25–1.6 with ≥ 20% straight (< 1.1) and ≥ 15% meandering (> 1.5)
-windows; direction bias ≤ 30%; junction mean 60–80°, < 25° ≤ 10%; tongue ≥ 6 blocks; 0 channels outside their floor;
-0 crossings; tip width median ≥ 8 with ≤ 5% < 5; direction bias ≤ 26%; plan build ≤ 1 s on the user continent; sampling ≤ +25%; all RH3 gates.
+windows; direction anisotropy ≤ 8% (total-variation distance of 512-block chord directions from uniform; sampling
+noise ≈ 4% at n ≈ 700 — replaces the axis-share direction bias, which misses bias toward other directions and is now
+reported only); junction mean 60–80°, < 25° ≤ 10%; tongue ≥ 6 blocks; 0 channels outside their belt/floor; 0 crossings
+(gated from R4: remaining crossings are tributary-mouth hooks); tip width median ≥ 8 with ≤ 5% < 5; plan build ≤ 1 s on
+the user continent; sampling ≤ +25%; all RH3 gates.
 
 ## 5. Decisions
 
@@ -202,3 +205,47 @@ the centre and wetland margins — yes. **O3** knight-move neighbours — evalua
   (`KNIGHT_MOVES = false`). Residual bias is expected to fall further once R3 meanders the channel; R6 decides.
   Lakes 0.73–0.85%, depressions 2.2–2.4%, all gates pass. The blocky grid-scale pattern visible on upland hillshades
   predates R2 (present at R1/128 and RH3/256) — tracked as a follow-up, not part of the routing change.
+- R3 done (`HighlandMeanders`): every valley axis (the R2 centreline, 16-block samples) is split into stems (main
+  chains); along each stem the channel follows a Kinoshita heading integrated in channel arc length (2-block steps),
+  applied as lateral offsets in the axis frame (normals of the axis smoothed over 320 blocks). Plan data: `Reach` gains
+  its axis range, `Plan.axis` (axis samples with the local meander belt) and `Plan.oxbows`; the water level is
+  interpolated along the axis and the existing monotone/rapid passes run on the channel samples. `HighlandDrainage`
+  takes a meander strength (1 = default; the R7 slider feeds it).
+  - ω = strength · 1.55 · regime (2.4 km noise, 0.08–1) · (0.1 + 0.9 · flat) · (1 − 0.75 · confined) · taper, capped by
+    the belt limit min(160, 0.6 · axis bend radius, neighbour clearance); flat fades between water slopes 0.6% and 3%
+    (loops on steeper reaches put neighbouring loops of one channel blocks apart in level → terraces); wavelength
+    10–14 widths × sinuosity; bend-to-bend irregularity ±45% in amplitude and length, but each bend's ω never exceeds
+    what fits the cap at its actual length (a clamped loop flattens into parallel limbs) and never 1.9; Kinoshita skew
+    ±0.04 (larger values fold loops at high ω). Taper to 0 at stem ends, lakes, sea and tributaries with ≥ 20% of the
+    flow. Neighbour clearance: half the gap between axes less both half widths and 10 blocks; a tributary's lowest
+    400 blocks are instead held clear of the parent's already-built channel.
+  - Valley section (`FtfValley`, two lines): bed and bank by channel distance; floor and fadeout by axis distance, the
+    floor widened by the belt (smoothed upper bound: moving max then two box means over 96 blocks) inside the valley's
+    own extent (outer edge kept, side slope at most twice as steep); the bank rises from the water to the valley
+    surface there (cut banks where a bend meets the side). Belt widening fades within 24–120 blocks of any higher
+    channel (a floodplain never undercuts a tributary above it). Wetland pools fade where a lower reach (a downstream
+    loop) carves near their level — continuous in level difference and ground — which fixed perched pools on seed 0.
+  - Oxbows (O2): 30% of loops (at full strength) whose apex reaches 2.5 widths and whose channel is 1.5× its axis span
+    are cut at the neck (10% of apex offset) by a near-straight Hermite shortcut; the loop beyond 40% becomes the oxbow:
+    still water (0.35 widths half width, 2.5 deep, no flow, `RIVER`) beyond 60% of the apex offset, silted `WETLAND`
+    ends and an 8-block wetland margin that never drops below the floor's own channel water − 0.5. Water = lowest
+    channel water beside it. Open water keeps bank + 3 blocks from the channel segments; silted ends that reach the
+    bank are trimmed. The belt includes the oxbow (always on the floor).
+
+  | | sinuosity | < 1.1 | > 1.5 | anisotropy | junction | < 25° | tip (sharp < 5) | crossings | oxbows | build |
+  |---|---|---|---|---|---|---|---|---|---|---|
+  | seed 0 | 1.31 | 10% | 15% | 3.1% | 93° | 0% | 8 (11%) | 0 | 0 | 355 ms |
+  | seed 42 | 1.21 | 28% | 2% | 6.7% | 79° | 7% | 8 (29%) | 0 | 0 | 351 ms |
+  | seed 8675309 | 1.21 | 17% | 0% | 3.4% | 79° | 0% | 9 (15%) | 2 | 0 | 321 ms |
+  | user | 1.33 | 17% | 20% | 4.8% | 75° | 10% | 7 (24%) | 2 | 5 | 599 ms |
+
+  All windows: mean 1.29, 18.7% < 1.1, 14.1% > 1.5 (targets 20% / 15% — default revisited with the R7 slider).
+  Gates added: 0 channel nodes outside their belt, sinuosity 1.15–1.65, anisotropy ≤ 8%, oxbows present. Remaining
+  crossings are tributary mouths meeting a meandering parent within 48–63 blocks of the junction (R4 rebuilds the
+  mouth geometry; the crossing gate moves there). Sampling cost (user world, 262k samples): R2 21.2 → R3 23.4 µs
+  (+10%) after squared-distance and near-channel shortcuts. Quality gates: perched back to the 3 pre-existing coastal
+  mouth cells per seed; sunken 0/684/1247/330/334 (R2 2/696/1377/134/220); lakes and depressions unchanged.
+  Pre-existing, not R3 (confirmed against R2 renders): river mouths 1–2 blocks above sea-level shore cells; channels
+  that start with large drainage area end in a square head against a wall; streams on narrow spurs between two lower
+  valleys; two near-parallel rivers converging into a lake junction. Polyline support cones can show 16-block facets
+  where a channel stands on a terrace (mitigated by the slope fade; a smooth channel distance field is a follow-up).

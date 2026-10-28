@@ -13,6 +13,8 @@ public final class HighlandPlanIndex {
     public static final int INFLUENCE = 960;
     private static final int BUCKET = 512;
     private static final int MAX_HITS = 512;
+    /** Oxbow influence (open water plus wetland margin) never exceeds this distance from the arc. */
+    static final double OXBOW_REACH = 32;
     /** Attribute blend width per block of distance from the channel (see near()). */
     private static final double BLEND_RATE = .25;
     private final HighlandDrainage.Plan plan;
@@ -29,9 +31,14 @@ public final class HighlandPlanIndex {
         public final int[] reach = new int[MAX_HITS];
         public final double[] distance = new double[MAX_HITS], water = new double[MAX_HITS], area = new double[MAX_HITS],
             confinement = new double[MAX_HITS], flowX = new double[MAX_HITS], flowZ = new double[MAX_HITS],
-            head = new double[MAX_HITS], slope = new double[MAX_HITS], offsetX = new double[MAX_HITS], offsetZ = new double[MAX_HITS];
+            head = new double[MAX_HITS], slope = new double[MAX_HITS], offsetX = new double[MAX_HITS], offsetZ = new double[MAX_HITS],
+            axis = new double[MAX_HITS], belt = new double[MAX_HITS];
     }
     private static final ThreadLocal<Hits> HITS = ThreadLocal.withInitial(Hits::new);
+    /** Oxbow query result: distance to the arc, open-water half width there, and the still-water level. */
+    public record OxbowSample(double distance, double halfWidth, double water) {}
+    /** Oxbow arcs by bucket (indices into plan.oxbows()). */
+    private final Map<Long, int[]> oxbowBuckets;
 
     public HighlandPlanIndex(HighlandDrainage.Plan plan) {
         this.plan = plan;
@@ -62,6 +69,11 @@ public final class HighlandPlanIndex {
                 bx0 = Math.min(bx0, node.x()); bz0 = Math.min(bz0, node.z());
                 bx1 = Math.max(bx1, node.x()); bz1 = Math.max(bz1, node.z());
             }
+            for (int v = reach.axisFrom(); v <= reach.axisTo(); v++) {
+                var node = plan.axis().get(v);
+                bx0 = Math.min(bx0, node.x()); bz0 = Math.min(bz0, node.z());
+                bx1 = Math.max(bx1, node.x()); bz1 = Math.max(bz1, node.z());
+            }
             boxes[i * 4] = bx0; boxes[i * 4 + 1] = bz0; boxes[i * 4 + 2] = bx1; boxes[i * 4 + 3] = bz1;
             int minX = bucket(bx0 - INFLUENCE), maxX = bucket(bx1 + INFLUENCE);
             int minZ = bucket(bz0 - INFLUENCE), maxZ = bucket(bz1 + INFLUENCE);
@@ -70,9 +82,24 @@ public final class HighlandPlanIndex {
                 building.computeIfAbsent(key(x, z), k -> new ArrayList<>()).add(i);
             }
         }
-        long estimatedBytes = entries * 4 + building.size() * 96L + nodes.size() * 100L + boxes.length * 8L
+        long estimatedBytes = entries * 4 + building.size() * 96L + nodes.size() * 100L + plan.axis().size() * 40L + boxes.length * 8L
             + plan.gridNodes() * 12L + plan.reaches().size() * 32L;
         if (estimatedBytes > 8L * 1024 * 1024) throw new IllegalStateException("RH retained plan exceeds 8 MiB budget");
+        Map<Long, List<Integer>> oxbowBuilding = new HashMap<>();
+        for (int i = 0; i < plan.oxbows().size(); i++) {
+            var oxbow = plan.oxbows().get(i);
+            double bx0 = Double.POSITIVE_INFINITY, bz0 = Double.POSITIVE_INFINITY, bx1 = Double.NEGATIVE_INFINITY, bz1 = Double.NEGATIVE_INFINITY;
+            for (int p = 0; p < oxbow.x().length; p++) {
+                bx0 = Math.min(bx0, oxbow.x()[p]); bz0 = Math.min(bz0, oxbow.z()[p]);
+                bx1 = Math.max(bx1, oxbow.x()[p]); bz1 = Math.max(bz1, oxbow.z()[p]);
+            }
+            for (int z = bucket(bz0 - OXBOW_REACH); z <= bucket(bz1 + OXBOW_REACH); z++)
+                for (int x = bucket(bx0 - OXBOW_REACH); x <= bucket(bx1 + OXBOW_REACH); x++)
+                    oxbowBuilding.computeIfAbsent(key(x, z), k -> new ArrayList<>()).add(i);
+        }
+        Map<Long, int[]> oxbowFinished = new HashMap<>();
+        oxbowBuilding.forEach((k, v) -> oxbowFinished.put(k, v.stream().mapToInt(Integer::intValue).toArray()));
+        this.oxbowBuckets = Map.copyOf(oxbowFinished);
         Map<Long, int[]> finished = new HashMap<>();
         building.forEach((k, v) -> finished.put(k, v.stream().mapToInt(Integer::intValue).toArray()));
         this.buckets = Map.copyOf(finished);
@@ -137,6 +164,25 @@ public final class HighlandPlanIndex {
     double basinsOutletZ(int lake) { return plan.basins().outletZ(lake); }
     public HighlandBasins.Sample lake(double x, double z) { return plan.basins().sample(x, z); }
 
+    /** Nearest oxbow arc within OXBOW_REACH, or null. */
+    public OxbowSample oxbow(double x, double z) {
+        int[] candidates = oxbowBuckets.get(key(bucket(x), bucket(z)));
+        if (candidates == null) return null;
+        double best = OXBOW_REACH, half = 0, water = 0;
+        boolean found = false;
+        for (int index : candidates) {
+            var oxbow = plan.oxbows().get(index);
+            double[] ax = oxbow.x(), az = oxbow.z(), hw = oxbow.halfWidth();
+            for (int p = 0; p + 1 < ax.length; p++) {
+                double dx = ax[p + 1] - ax[p], dz = az[p + 1] - az[p], length2 = dx * dx + dz * dz;
+                double t = length2 > 1e-12 ? clamp(((x - ax[p]) * dx + (z - az[p]) * dz) / length2, 0, 1) : 0;
+                double d = Math.hypot(x - ax[p] - dx * t, z - az[p] - dz * t);
+                if (d < best) { best = d; half = lerp(hw[p], hw[p + 1], t); water = oxbow.water(); found = true; }
+            }
+        }
+        return found ? new OxbowSample(best, half, water) : null;
+    }
+
     /** All reaches whose centreline lies within INFLUENCE of (x, z), in ascending reach order. */
     public Hits near(double x, double z) {
         Hits out = HITS.get();
@@ -153,7 +199,7 @@ public final class HighlandPlanIndex {
             // Distance to every piece of the refined polyline downstream, first, ..., last.
             int pieces = reach.last() - reach.first() + 1;
             double[] dist = scratch(pieces, 0), along = scratch(pieces, 1);
-            double best = Double.POSITIVE_INFINITY, nearestX = 0, nearestZ = 0;
+            double best2 = Double.POSITIVE_INFINITY, nearestX = 0, nearestZ = 0;
             int left = reach.downstream();
             for (int piece = 0; piece < pieces; piece++) {
                 int right = reach.first() + piece;
@@ -161,21 +207,34 @@ public final class HighlandPlanIndex {
                 var b = nodes.get(right);
                 double dx = b.x() - a.x(), dz = b.z() - a.z(), length2 = dx * dx + dz * dz;
                 double t = length2 > 1e-12 ? clamp(((x - a.x()) * dx + (z - a.z()) * dz) / length2, 0, 1) : 0;
-                double ox = x - a.x() - dx * t, oz = z - a.z() - dz * t;
-                dist[piece] = Math.sqrt(ox * ox + oz * oz); along[piece] = t;
-                if (dist[piece] < best) { best = dist[piece]; nearestX = ox; nearestZ = oz; }
+                double ox = x - a.x() - dx * t, oz = z - a.z() - dz * t, d2 = ox * ox + oz * oz;
+                dist[piece] = d2; along[piece] = t; // squared until the blend below
+                if (d2 < best2) { best2 = d2; nearestX = ox; nearestZ = oz; }
                 left = right;
             }
-            if (best >= INFLUENCE) continue;
+            double best = Math.sqrt(best2);
+            // Valley axis distance and the meander belt there (floors widen to contain the belt).
+            double axisBest = Double.POSITIVE_INFINITY, belt = 0;
+            var axis = plan.axis();
+            for (int v = reach.axisFrom(); v < reach.axisTo(); v++) {
+                var a = axis.get(v);
+                var b = axis.get(v + 1);
+                double dx = b.x() - a.x(), dz = b.z() - a.z(), length2 = dx * dx + dz * dz;
+                double t = length2 > 1e-12 ? clamp(((x - a.x()) * dx + (z - a.z()) * dz) / length2, 0, 1) : 0;
+                double ox = x - a.x() - dx * t, oz = z - a.z() - dz * t, d2 = ox * ox + oz * oz;
+                if (d2 < axisBest) { axisBest = d2; belt = lerp(a.belt(), b.belt(), t); }
+            }
+            axisBest = Math.sqrt(axisBest);
+            if (best >= INFLUENCE && axisBest - belt >= INFLUENCE) continue;
             if (out.count == MAX_HITS) break; // far beyond any real density; deterministic order, never throws
             // A curved reach can have separate nearly equidistant parts (inside a bend). Attributes are a smooth
             // weighted blend over pieces by their excess distance; the blend width grows with distance, so on and
             // near the channel the result is the exact interpolated profile, and far away it varies continuously.
-            double sigma = Math.max(1, BLEND_RATE * best);
+            double sigma = Math.max(1, BLEND_RATE * best), reach2 = (best + 3 * sigma) * (best + 3 * sigma);
             double weights = 0, water = 0, area = 0, conf = 0, head = 0, fx = 0, fz = 0, slope = 0;
             for (int piece = 0; piece < pieces; piece++) {
-                double excess = dist[piece] - best;
-                if (excess >= 3 * sigma) continue;
+                if (dist[piece] >= reach2) continue;
+                double excess = Math.sqrt(dist[piece]) - best;
                 int l = piece == 0 ? reach.downstream() : reach.first() + piece - 1, r = reach.first() + piece;
                 var a = nodes.get(l);
                 var b = nodes.get(r);
@@ -193,6 +252,8 @@ public final class HighlandPlanIndex {
             double flow = Math.hypot(fx, fz);
             out.reach[k] = index;
             out.distance[k] = dmin;
+            out.axis[k] = axisBest;
+            out.belt[k] = belt;
             out.water[k] = water / weights;
             out.area[k] = area / weights;
             out.confinement[k] = conf / weights;

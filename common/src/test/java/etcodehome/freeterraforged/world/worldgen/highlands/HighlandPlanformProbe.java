@@ -26,14 +26,14 @@ final class HighlandPlanformProbe {
     record Metrics(String label, int gridStep, int gridNodes, int landNodes, int refinedNodes, double buildMs,
                    double sinuosity, double straightShare, double meanderShare, int sinuosityWindows,
                    double directionBias, double knightBias, double anisotropy, int directionWindows, double junctionAngle, double acuteShare, int junctions,
-                   double tongueMedian, double narrowTongueShare, int tongues, long crossings) {
+                   double tongueMedian, double narrowTongueShare, int tongues, long crossings, int oxbows, long outsideBelt) {
         String summary() {
             return String.format(Locale.ROOT,
                 "RHP %s grid=%d nodes=%d land=%d refined=%d build=%.0fms sinuosity=%.3f straight<1.1=%.0f%% meander>1.5=%.0f%% (n=%d) "
-                    + "directionBias=%.1f%% knightBias=%.1f%% anisotropy=%.1f%% (n=%d, uniform 22.2%%) junction=%.1fdeg acute<25=%.0f%% (n=%d) tipWidth=%.1f sharp<5=%.0f%% (n=%d) crossings=%d",
+                    + "directionBias=%.1f%% knightBias=%.1f%% anisotropy=%.1f%% (n=%d, uniform 22.2%%) junction=%.1fdeg acute<25=%.0f%% (n=%d) tipWidth=%.1f sharp<5=%.0f%% (n=%d) crossings=%d oxbows=%d outsideBelt=%d",
                 label, gridStep, gridNodes, landNodes, refinedNodes, buildMs, sinuosity, 100 * straightShare, 100 * meanderShare,
                 sinuosityWindows, 100 * directionBias, 100 * knightBias, 100 * anisotropy, directionWindows, junctionAngle, 100 * acuteShare, junctions, tongueMedian,
-                100 * narrowTongueShare, tongues, crossings);
+                100 * narrowTongueShare, tongues, crossings, oxbows, outsideBelt);
         }
     }
 
@@ -145,7 +145,28 @@ final class HighlandPlanformProbe {
             windows == 0 ? Double.NaN : sinSum / windows, ratio(straight, windows), ratio(meander, windows), windows,
             ratio(biased, chords), ratio(knight, chords), anisotropy(sector, chords), chords, junctions == 0 ? Double.NaN : angleSum / junctions, ratio(acute, junctions), junctions,
             tongues.isEmpty() ? Double.NaN : tongues.get(tongues.size() / 2), ratio(narrow, tongues.size()), tongues.size(),
-            crossings(nodes));
+            crossings(nodes), plan.oxbows().size(), outsideBelt(plan));
+    }
+
+    /** Channel nodes farther from their own reach's valley axis than the meander belt there (+1 block). */
+    static long outsideBelt(HighlandDrainage.Plan plan) {
+        long outside = 0;
+        var axis = plan.axis();
+        for (var reach : plan.reaches()) {
+            for (int v = reach.first(); v <= reach.last(); v++) {
+                var node = plan.nodes().get(v);
+                double best = Double.POSITIVE_INFINITY, belt = 0;
+                for (int a = reach.axisFrom(); a < reach.axisTo(); a++) {
+                    var p = axis.get(a); var q = axis.get(a + 1);
+                    double dx = q.x() - p.x(), dz = q.z() - p.z(), l2 = dx * dx + dz * dz;
+                    double t = l2 > 1e-12 ? Math.max(0, Math.min(1, ((node.x() - p.x()) * dx + (node.z() - p.z()) * dz) / l2)) : 0;
+                    double d = Math.hypot(node.x() - p.x() - dx * t, node.z() - p.z() - dz * t);
+                    if (d < best) { best = d; belt = p.belt() + (q.belt() - p.belt()) * t; }
+                }
+                if (best > belt + 1) outside++;
+            }
+        }
+        return outside;
     }
 
     private static int dryWidth(GeneratorContext context, Cell c, double sx, double sz, double bx, double bz) {

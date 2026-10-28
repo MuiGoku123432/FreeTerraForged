@@ -21,6 +21,10 @@ public final class RollingHighlandsContinent implements Continent {
     static final double CHANNEL_DEPTH = 4, SHORE_RATE = .4, MAX_FADE = 384, CONFLUENCE_RAPID = .25, LAKE_RIM = 12, FLOOR_MARGIN = 1.5, FLOOR_SOFTNESS = 4, FLOOR_COAST_RAMP = 6, SUPPORT_SLOPE = .5;
     /** Current speed model (normalized 0..1 as stored in ChunkFlowField). */
     static final double FLOW_BASE = .45, FLOW_SLOPE = 6, FLOW_MIN = .3, LAKE_DRIFT = .18, OUTLET_DRIFT = 128;
+    /** Distance range (blocks) from a higher channel over which a floodplain's meander-belt widening fades in. */
+    static final double BELT_YIELD_NEAR = 24, BELT_YIELD_FAR = 120;
+    /** Oxbow open-water depth at the centre and wetland margin width (blocks). */
+    static final double OXBOW_DEPTH = 2.5, OXBOW_MARGIN = 8;
     static final double BANK_RUN = 16, MIN_OUTER_RUN = 64, MAX_OUTER_RUN = 512, CREASE_SOFTNESS = 24;
     private static final Rivermap NO_LEGACY_RIVERS = new Rivermap(0, 0, new Network[0], GenWarp.EMPTY);
     private final HighlandCoast coast;
@@ -190,6 +194,10 @@ public final class RollingHighlandsContinent implements Continent {
         // detail, and valleys deepen exactly where the drainage computed on this same land says they should.
         double surface = floored(index, x, z, blend, blend * land.apply(cell, x, z) - index.incision(x, z));
         double height = carveValleys(cell, x, z, location.edge(), index, index.near(x, z), surface);
+        if (!cell.hasRiverWater) {
+            var oxbow = index.oxbow(x, z);
+            if (oxbow != null) height = shapeOxbow(cell, x, z, oxbow, height);
+        }
         var lake = index.lake(x, z);
         if (lake != null && lake.depth() > -HighlandBasins.MAX_SHORE) height = shapeLake(cell, x, z, index, lake, height);
         // Reserve ceiling headroom before any water/bed is handed to final generation.
@@ -237,6 +245,32 @@ public final class RollingHighlandsContinent implements Continent {
     }
 
     /**
+     * Oxbow (abandoned meander loop on the valley floor): still, shallow water within the open-water half width;
+     * around it and along its silted-up ends a wetland margin lowered toward the water level with hummocks. Only
+     * lowers the floor, and only where the valley floor (not a slope) lies under it.
+     */
+    private double shapeOxbow(Cell cell, double x, double z, HighlandPlanIndex.OxbowSample oxbow, double height) {
+        double level = oxbow.water(), d = oxbow.distance(), half = oxbow.halfWidth();
+        double floor = 1 - smooth(0, .3, cell.riverMask);
+        if (floor <= 0) return height;
+        if (d < half && height > level - 1) {
+            double depth = OXBOW_DEPTH * (1 - (d / half) * (d / half));
+            cell.riverWaterLevel = normalized(level); cell.hasRiverWater = true;
+            cell.terrain = TerrainType.RIVER; cell.riverZone = RiverZone.Riverbed;
+            cell.hasFlow = false; cell.flowAngle = 0;
+            return Math.min(height, level - Math.max(.5, depth));
+        }
+        double margin = floor * (1 - smooth(half + OXBOW_MARGIN * .5, half + OXBOW_MARGIN, d));
+        if (margin <= 0) return height;
+        double hummock = .5 + .5 * noise(classSeed + 31, x, z, 7);
+        // Never more than half a block below the water of the channel owning this floor (its banks stay sealed).
+        double owner = (cell.riverWaterLevel - levels.water) * levels.terrainScaleFactor;
+        double shaped = Math.max(Math.max(level + .2, owner - .5), lerp(height, Math.min(height, level + hummock), margin));
+        if (margin > .5) { cell.terrain = TerrainType.WETLAND; cell.erosionMask = true; }
+        return Math.min(height, shaped);
+    }
+
+    /**
      * Composes every nearby reach's valley section.
      * <ul>
      * <li>Wet: a point inside any reach's wet radius belongs to the wet reach with the lowest bed, so a channel is
@@ -258,6 +292,9 @@ public final class RollingHighlandsContinent implements Continent {
         double hummock = 1.6 * (2 * noise(classSeed + 8, x, z, 24) - 1) + .6 * (2 * noise(classSeed + 9, x, z, 9) - 1);
         double area2 = (double) settings.uplandSpacing() * settings.uplandSpacing();
         Scratch scratch = SCRATCH.get().ensure(hits.count);
+        // Channels close enough to affect another valley's belt widening (see below).
+        int closeCount = 0;
+        for (int k = 0; k < hits.count; k++) if (hits.distance[k] < BELT_YIELD_FAR) scratch.close[closeCount++] = k;
         // FTF valley texture (UpliftRiverCarver noises, same scales and value ranges): width, asymmetry, pinch, depth,
         // terrace and gully/rivulet drainage masks.
         double widthVar = noise(classSeed + 8241, x, z, 150), asymmetry = noise(classSeed + 1193, x, z, 250);
@@ -280,10 +317,21 @@ public final class RollingHighlandsContinent implements Continent {
             double fadeRun = Math.min(MAX_FADE, river.bankWidth * dynamic * pinch * Math.max(.5, hydraulic)
                 * (5 + Math.max(0, land - water) / 100) * lerp(1, .6, confinement));
             double bedDepth = Math.max(2, 2.3 + .3 * depthVar + river.bedDepth * clamp(q / .3, 0, 1) * flat) * lerp(.4, 1, head);
-            var shape = new FtfValley.Shape(radius, Math.max(3, (river.maxBankHeight - river.minBankHeight) * dynamic * side), floorHalf,
-                Math.max(MIN_OUTER_RUN, fadeRun), bedDepth, Math.max(1, river.maxBankHeight - river.minBankHeight) + .4 * terrace - .6 * drainage,
-                terrace, drainage);
-            var section = FtfValley.sample(distance, land, water, shape);
+            double bankRun = Math.max(3, (river.maxBankHeight - river.minBankHeight) * dynamic * side);
+            // The axis floor contains the meander belt; the valley still ends inside the index influence.
+            double belt = hits.belt[k], axisDistance = hits.axis[k];
+            // The belt widens this floor only away from higher channels: a floodplain never undercuts a tributary
+            // or a neighbouring river running above it (continuous in both distance and level difference).
+            for (int n = 0; n < closeCount && belt > 0; n++) {
+                int j = scratch.close[n];
+                if (j == k) continue;
+                double higher = smooth(.5, 2, hits.water[j] - water);
+                if (higher > 0) belt *= 1 - higher * (1 - smooth(BELT_YIELD_NEAR, BELT_YIELD_FAR, hits.distance[j]));
+            }
+            double outer = Math.min(Math.max(MIN_OUTER_RUN, fadeRun), HighlandPlanIndex.INFLUENCE - 8 - belt - (radius + bankRun + floorHalf));
+            var shape = new FtfValley.Shape(radius, bankRun, floorHalf, Math.max(8, outer), bedDepth,
+                Math.max(1, river.maxBankHeight - river.minBankHeight) + .4 * terrace - .6 * drainage, terrace, drainage);
+            var section = FtfValley.sample(distance, axisDistance, belt, land, water, shape);
             maxInfluence = Math.max(maxInfluence, section.influence());
             support = Math.max(support, water + 1 - SUPPORT_SLOPE * Math.max(0, distance - shape.bankEnd()));
             double carve = section.height();
@@ -296,7 +344,7 @@ public final class RollingHighlandsContinent implements Continent {
             if (wetlandMask > 0 && !section.wet()) {
                 double floorStart = shape.bankEnd(), floorEnd = shape.floorEnd();
                 wetland = wetlandMask * smooth(.04, .15, q) * (1 - smooth(.006, .02, hits.slope[k])) * (1 - smooth(40, 90, water))
-                    * smooth(floorStart, floorStart + 12, distance) * (1 - smooth(floorEnd - 32, floorEnd, distance)) * head;
+                    * smooth(floorStart, floorStart + 12, distance) * (1 - smooth(floorEnd + belt - 32, floorEnd + belt, axisDistance)) * head;
             }
             scratch.wetland[k] = wetland;
         }
@@ -324,10 +372,13 @@ public final class RollingHighlandsContinent implements Continent {
         for (int k = 0; k < hits.count; k++) {
             double carve = scratch.carve[k], wetland = scratch.wetland[k], water = hits.water[k];
             if (wetland > 0) {
-                // Lowest ground carved by any clearly lower river (same-river neighbours share the level).
-                double others = Double.POSITIVE_INFINITY;
-                for (int j = 0; j < hits.count; j++) if (j != k && hits.water[j] < water - 2) others = Math.min(others, scratch.carve[j]);
-                wetland *= smooth(water + 1, water + 6, others);
+                // Pools hold this reach's level only where no lower reach (a meander loop further downstream, another
+                // river) carves near that level: continuous in both the level difference and the other reach's ground.
+                for (int j = 0; j < hits.count && wetland > 0; j++) {
+                    if (j == k) continue;
+                    double lower = smooth(.5, 1.5, water - hits.water[j]);
+                    if (lower > 0) wetland *= 1 - lower * (1 - smooth(water + 1, water + 6, scratch.carve[j]));
+                }
                 if (wetland > 0) carve = lerp(carve, Math.min(carve, water + hummock), wetland);
                 if (wetland > maxWetland) { maxWetland = wetland; wetlandOwner = k; }
             }
@@ -401,10 +452,11 @@ public final class RollingHighlandsContinent implements Continent {
     private static final class Scratch {
         HighlandValley.Section[] section = new HighlandValley.Section[64];
         double[] carve = new double[64], wetland = new double[64], radius = new double[64];
+        int[] close = new int[64];
         Scratch ensure(int size) {
             if (carve.length < size) {
                 int n = Math.max(size, carve.length * 2);
-                section = new HighlandValley.Section[n]; carve = new double[n]; wetland = new double[n]; radius = new double[n];
+                section = new HighlandValley.Section[n]; carve = new double[n]; wetland = new double[n]; radius = new double[n]; close = new int[n];
             }
             return this;
         }
