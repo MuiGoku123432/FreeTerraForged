@@ -234,7 +234,7 @@ public final class RollingHighlandsContinent implements Continent {
         int wetOwner = -1;
         HighlandValley.Section wetSection = null;
         // Kept out of the climate coast band, where shared climate code would reclassify WETLAND as coast/ocean.
-        double wetlandMask = smooth(.45, .65, noise(classSeed + 7, x, z, 220)) * smooth(coastMarker, coastMarker + .1, edge);
+        double wetlandMask = smooth(.45, .65, noise(classSeed + 7, x, z, 220)) * smooth(coastMarker + .1, coastMarker + .25, edge);
         double hummock = 1.6 * (2 * noise(classSeed + 8, x, z, 24) - 1) + .6 * (2 * noise(classSeed + 9, x, z, 9) - 1);
         double area2 = (double) settings.uplandSpacing() * settings.uplandSpacing();
         Scratch scratch = SCRATCH.get().ensure(hits.count);

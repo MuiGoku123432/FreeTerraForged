@@ -169,3 +169,9 @@ Lake area 1–3% of land (default), dry depressions ≤ ~3%, junction mean 55–
   ≤ 600 nodes. Result: dendritic finger lakes in flooded valleys; lake area 1.3 / 2.5 / 1.6% (target 1–3%).
   Depression lakes need ≥ 4 blocks. Wetland cells get vanilla's top erosion level (swamp / mangrove biomes, which
   Streams Reflowing treats as outlets).
+- Q5 done (scoped): wetlands kept 0.1–0.25 edge units clear of the coast band (shared climate code turned coastal
+  wetland pools into ocean terrain; channel currents back to 100%); single-node depression ponds (square at plan
+  resolution) are breached (≥ 3 nodes); realism gates added: lake area 0.5–4%, closed depressions ≤ 12% (legacy FTF
+  land measures 24% MULTI_IMPROVED / 20% UPLIFT; RH3 ≈ 8.5%), concavity 0.15–0.65 on water surfaces (dam backwater
+  flattens them; incision uses θ = 0.45), junction angle 50–95° (RH3 69–86°, from stream capture), ≤ 25% of channel
+  length incised > 60. Known deviation: Hack exponent 0.85–0.94 (elongated coast-draining basins); not gated.

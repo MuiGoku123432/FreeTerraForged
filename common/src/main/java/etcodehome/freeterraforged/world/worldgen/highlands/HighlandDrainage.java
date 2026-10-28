@@ -16,6 +16,8 @@ public final class HighlandDrainage {
     /** Depressions left after incision become lakes only if at least this deep and no larger than MAX_LAKE_NODES. */
     static final double LAKE_MIN_DEPTH = 4;
     static final int MAX_LAKE_NODES = 600;
+    /** Single-node pits read as square ponds at plan resolution; such depressions are breached instead. */
+    static final int MIN_DEPRESSION_LAKE_NODES = 3;
     /** Dam-lake sites: channel gradient limit, share of eligible sites used at lake chance 1, minimum spacing. */
     static final double LAKE_SITE_SLOPE = .015, LAKE_SITE_DENSITY = 1, LAKE_SPACING = 1000;
     /** Steepest water-surface gradient between refined samples (rapids); keeps adjacent wet cells within a block. */
@@ -311,7 +313,7 @@ public final class HighlandDrainage {
                     }
                 }
                 double hash = (mix(surface.seed() * 31 + bottom) >>> 11) * 0x1.0p-53;
-                boolean lake = round == 0 && water[start] - incised[bottom] >= LAKE_MIN_DEPTH && tail <= MAX_LAKE_NODES && hash < lakeChance;
+                boolean lake = round == 0 && water[start] - incised[bottom] >= LAKE_MIN_DEPTH && tail >= MIN_DEPRESSION_LAKE_NODES && tail <= MAX_LAKE_NODES && hash < lakeChance;
                 if (lake) { for (int q = 0; q < tail; q++) keep[queueBuffer[q]] = true; continue; }
                 double limit = incised[bottom];
                 for (int v = parent[bottom]; v >= 0 && land[v]; v = parent[v]) {

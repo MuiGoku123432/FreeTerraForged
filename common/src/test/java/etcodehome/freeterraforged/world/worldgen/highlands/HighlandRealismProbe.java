@@ -157,7 +157,8 @@ final class HighlandRealismProbe {
                 if (p < 0) continue;
                 double run = Math.hypot(nodes.get(i).x() - nodes.get(p).x(), nodes.get(i).z() - nodes.get(p).z());
                 double drop = nodes.get(i).water() - nodes.get(p).water();
-                if (run < 1 || drop <= 1e-3) continue;
+                // Lakes (flat) and dam outlets/cascades (> 10%) are not part of the graded channel profile.
+                if (run < 1 || drop <= 1e-3 || drop / run > .1) continue;
                 double lx = Math.log(nodes.get(i).area()), ly = Math.log(drop / run);
                 sx += lx; sy += ly; sxx += lx * lx; sxy += lx * ly; m++;
             }
