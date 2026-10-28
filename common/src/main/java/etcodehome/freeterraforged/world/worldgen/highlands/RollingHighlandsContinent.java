@@ -17,6 +17,7 @@ import static etcodehome.freeterraforged.world.worldgen.highlands.HighlandMath.*
 public final class RollingHighlandsContinent implements Continent {
     /** Valley floors: vanilla low peaks-and-valleys slice (normal side) and moderately flat erosion. */
     static final double VALLEY_WEIRDNESS = -.12, VALLEY_EROSION = .1;
+    static final float WETLAND_EROSION = .78F;
     static final double CHANNEL_DEPTH = 4, SHORE_RATE = .4, MAX_FADE = 384, CONFLUENCE_RAPID = .25;
     /** Current speed model (normalized 0..1 as stored in ChunkFlowField). */
     static final double FLOW_BASE = .45, FLOW_SLOPE = 6, FLOW_MIN = .3, LAKE_DRIFT = .18, OUTLET_DRIFT = 128;
@@ -47,7 +48,7 @@ public final class RollingHighlandsContinent implements Continent {
         this.levels = context.levels;
         this.coast = new HighlandCoast(context);
         this.land = HighlandLand.create(context);
-        this.drainage = new HighlandDrainage(coast, land, settings.uplandSpacing(), context.preset.world().controlPoints, context.preset.rivers().lakes.chance);
+        this.drainage = new HighlandDrainage(coast, land, settings.uplandSpacing(), context.preset.world().controlPoints, context.preset.rivers().lakes.chance, context.preset.rivers().lakes.depth);
         this.coastEdge = context.preset.world().controlPoints.coast;
         this.classSeed = context.seed.root() * 0x9E3779B97F4A7C15L + 0x52484632L;
         this.coastMarker = context.preset.world().controlPoints.coastMarker();
@@ -367,6 +368,11 @@ public final class RollingHighlandsContinent implements Continent {
             if (!cell.hasRiverWater && cell.terrain != TerrainType.WETLAND && valley > .5 && cell.terrain == TerrainType.MOUNTAIN_CHAIN) {
                 cell.terrain = TerrainType.HILLS;
             }
+        }
+        if (cell.terrain == TerrainType.WETLAND) {
+            // Vanilla's highest erosion level selects swamp (temperate) and mangrove swamp (hot): wet biomes that
+            // Streams Reflowing also treats as outlets (#c:is_swamp / #c:is_wet).
+            cell.erosion = WETLAND_EROSION;
         }
         cell.terrainErosion = cell.erosion;
         etcodehome.freeterraforged.world.worldgen.cell.terrain.populator.VolcanoPopulator.modifyVolcanoType(cell, levels);

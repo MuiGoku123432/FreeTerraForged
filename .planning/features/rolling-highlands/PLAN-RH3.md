@@ -163,3 +163,9 @@ Lake area 1–3% of land (default), dry depressions ≤ ~3%, junction mean 55–
   a higher connected channel's surface descends to the lower one at 0.25/block; level wet core one sample above
   every junction. Valley-bottom biome suppression only on channel/bank/floor. Strict gates restored (0 wet water
   steps, 0 RH-induced dry jumps).
+- Q4 done: FTF-style lakes on flat, large rivers (`damLakes`): at deterministic dam sites on main channels with
+  gradient < 1.5%, spaced ≥ 1000 blocks and chosen with the FTF lake chance, water rises by the FTF lake depth
+  (×0.6–1.4) behind a natural barrier, flooding the upstream valley only if it stays inside the dam's own basin and
+  ≤ 600 nodes. Result: dendritic finger lakes in flooded valleys; lake area 1.3 / 2.5 / 1.6% (target 1–3%).
+  Depression lakes need ≥ 4 blocks. Wetland cells get vanilla's top erosion level (swamp / mangrove biomes, which
+  Streams Reflowing treats as outlets).

@@ -14,13 +14,15 @@ public final class HighlandDrainage {
      */
     static final double KS = .04, THETA = .45, SLOPE_MIN = .0005, SLOPE_MAX = .6;
     /** Depressions left after incision become lakes only if at least this deep and no larger than MAX_LAKE_NODES. */
-    static final double LAKE_MIN_DEPTH = 8;
-    static final int MAX_LAKE_NODES = 400;
+    static final double LAKE_MIN_DEPTH = 4;
+    static final int MAX_LAKE_NODES = 600;
+    /** Dam-lake sites: channel gradient limit, share of eligible sites used at lake chance 1, minimum spacing. */
+    static final double LAKE_SITE_SLOPE = .015, LAKE_SITE_DENSITY = 1, LAKE_SPACING = 1000;
     /** Steepest water-surface gradient between refined samples (rapids); keeps adjacent wet cells within a block. */
     static final double MAX_WATER_SLOPE = .2;
     private final HighlandCoast coast;
     private final HighlandLand surface;
-    private final double spacing, coastEdge, inlandEdge, lakeChance;
+    private final double spacing, coastEdge, inlandEdge, lakeChance, lakeDepth;
     /** D8 neighbours; diagonals cost sqrt(2) in the flat-resolution distance and may not cross each other. */
     private static final int[] DX = {0, -1, 1, 0, -1, 1, -1, 1};
     private static final int[] DZ = {-1, 0, 0, 1, -1, 1, 1, -1};
@@ -34,11 +36,13 @@ public final class HighlandDrainage {
     static final double JITTER = .15;
 
     public HighlandDrainage(HighlandCoast coast, HighlandLand surface, double spacing, WorldSettings.ControlPoints controls) {
-        this(coast, surface, spacing, controls, .5);
+        this(coast, surface, spacing, controls, .5, 10);
     }
     /** @param lakeChance FTF river settings' lake chance: probability that an eligible depression is kept as a lake. */
-    public HighlandDrainage(HighlandCoast coast, HighlandLand surface, double spacing, WorldSettings.ControlPoints controls, double lakeChance) {
+    public HighlandDrainage(HighlandCoast coast, HighlandLand surface, double spacing, WorldSettings.ControlPoints controls,
+                            double lakeChance, double lakeDepth) {
         this.coast = coast; this.surface = surface; this.spacing = spacing; this.lakeChance = clamp(lakeChance, 0, 1);
+        this.lakeDepth = clamp(lakeDepth, 1, 32);
         this.coastEdge = controls.coast; this.inlandEdge = controls.coast + Math.max(controls.inland - controls.coast, COASTAL_RISE * Math.max(1, 16000.0 / coast.tectonicScale));
         if (!(inlandEdge > coastEdge)) throw new IllegalArgumentException("Rolling Highlands needs inland > coast");
     }
@@ -60,6 +64,79 @@ public final class HighlandDrainage {
     public record Plan(int ownerX, int ownerZ, int gridStep, int gridNodes, int landNodes, List<Node> nodes, List<Reach> reaches,
                        HighlandBasins basins, long buildNanos, int originX, int originZ, int width, double[] incision) {}
     private record QueueNode(int index, double level, double distance) {}
+
+    /**
+     * FTF-style lakes on flat, large rivers (legacy lakes widen rivers on flat steps): at deterministic dam sites on
+     * low-gradient main channels, water rises behind a natural barrier (moraine, landslide or alluvial fan) by the
+     * FTF lake depth, flooding the upstream valley. A site is used only when the flooded region stays inside the
+     * dam's own drainage basin (no spill elsewhere) and within the lake size limit. Mutates {@code incised} (dam crest)
+     * and {@code water}.
+     */
+    private void damLakes(int ownerX, int ownerZ, int width, int depth, int step, int n, int count, int[] order, int[] parent,
+                          boolean[] land, double[] area, double[] run, double[] ground, double[] incised, double[] water, double threshold) {
+        if (lakeChance <= 0) return;
+        int[] childCount = new int[n];
+        for (int i = 0; i < n; i++) if (parent[i] >= 0) childCount[parent[i]]++;
+        int[] offset = new int[n + 1];
+        for (int i = 0; i < n; i++) offset[i + 1] = offset[i] + childCount[i];
+        int[] children = new int[offset[n]], fill = offset.clone();
+        for (int i = 0; i < n; i++) if (parent[i] >= 0) children[fill[parent[i]]++] = i;
+        // Candidates: main channels on gentle reaches, largest first (deterministic order).
+        List<Integer> candidates = new ArrayList<>();
+        for (int k = 0; k < count; k++) {
+            int i = order[k], p = parent[i];
+            if (!land[i] || p < 0 || !land[p] || area[i] < 4 * threshold) continue;
+            if ((water[i] - water[p]) / Math.max(1, run[i]) > LAKE_SITE_SLOPE) continue;
+            candidates.add(i);
+        }
+        candidates.sort(Comparator.<Integer>comparingDouble(i -> -area[i]).thenComparingInt(i -> i));
+        int[] mark = new int[n];
+        int stamp = 0;
+        List<int[]> sites = new ArrayList<>();
+        int[] queue = new int[n];
+        for (int d : candidates) {
+            double hash = (mix(surface.seed() * 131 + d) >>> 11) * 0x1.0p-53;
+            if (hash >= lakeChance * LAKE_SITE_DENSITY) continue;
+            boolean spaced = true;
+            for (int[] site : sites) if (Math.hypot(site[0] - d % width, site[1] - d / width) * step < LAKE_SPACING) { spaced = false; break; }
+            if (!spaced) continue;
+            double damHeight = Math.max(4, lakeDepth * (.6 + .8 * ((mix(surface.seed() * 137 + d) >>> 11) * 0x1.0p-53)));
+            double level = water[d] + damHeight;
+            // Mark the dam's drainage basin (its subtree), then flood the connected upstream nodes below the level.
+            stamp++;
+            int head = 0, tail = 0;
+            queue[tail++] = d;
+            while (head < tail) { int v = queue[head++]; mark[v] = stamp; for (int c = offset[v]; c < offset[v + 1]; c++) queue[tail++] = children[c]; }
+            stamp++;
+            int basinStamp = stamp - 1;
+            head = 0; tail = 0;
+            for (int c = offset[d]; c < offset[d + 1]; c++) if (incised[children[c]] < level) { queue[tail++] = children[c]; mark[children[c]] = stamp; }
+            boolean leaks = false;
+            while (head < tail && !leaks) {
+                int v = queue[head++], vx = v % width, vz = v / width;
+                for (int dir = 0; dir < DX.length; dir++) {
+                    int nx = vx + DX[dir], nz = vz + DZ[dir];
+                    if (nx < 0 || nz < 0 || nx >= width || nz >= depth) continue;
+                    int j = nz * width + nx;
+                    if (j == d || mark[j] == stamp || incised[j] >= level) continue;
+                    if (!land[j] || mark[j] != basinStamp) { leaks = true; break; }
+                    mark[j] = stamp; queue[tail++] = j;
+                    if (tail > MAX_LAKE_NODES) { leaks = true; break; }
+                }
+            }
+            if (leaks || tail < 2) continue;
+            for (int q = 0; q < tail; q++) water[queue[q]] = level;
+            incised[d] = Math.max(incised[d], level + 1);
+            water[d] = Math.max(water[d], incised[d]);
+            sites.add(new int[]{d % width, d / width});
+        }
+        if (!sites.isEmpty()) {
+            for (int k = 0; k < count; k++) {
+                int i = order[k], p = parent[i];
+                if (land[i] && p >= 0) water[i] = Math.max(water[i], Math.max(incised[i], water[p]));
+            }
+        }
+    }
 
     /** Deterministic river-less plan used when an owner's drainage cannot be built. */
     public Plan emptyPlan(int ownerX, int ownerZ) {
@@ -246,15 +323,17 @@ public final class HighlandDrainage {
             }
             if (!breached || round == 3) break;
         }
-        boolean[] channel = new boolean[n];
         double threshold = Math.max(3.0 * step * step, .03 * spacing * spacing);
+        damLakes(ownerX, ownerZ, width, depth, step, n, count, order, parent, land, area, run, ground, incised, water, threshold);
+        boolean[] channel = new boolean[n];
         for (int i = 0; i < n; i++) channel[i] = land[i] && area[i] >= threshold;
         for (int k = count - 1; k >= 0; k--) {
             int i = order[k];
             if (channel[i] && parent[i] >= 0) channel[parent[i]] = true;
         }
         double[] incision = new double[n];
-        for (int i = 0; i < n; i++) incision[i] = land[i] ? Math.max(0, ground[i] - incised[i]) : 0;
+        // Positive: incision; negative only at lake dams (a natural barrier raised above the land, like a moraine).
+        for (int i = 0; i < n; i++) incision[i] = land[i] ? ground[i] - incised[i] : 0;
         int[] tributaries = new int[n], mainChild = new int[n];
         Arrays.fill(mainChild, -1);
         for (int i = 0; i < n; i++) {
