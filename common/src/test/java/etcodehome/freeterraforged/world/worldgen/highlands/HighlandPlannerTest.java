@@ -25,7 +25,7 @@ class HighlandPlannerTest {
                         sites++;
                     }
                 }
-                assertTrue(plan.gridNodes() <= HighlandDrainage.MAX_NODES);
+                assertTrue(plan.gridNodes() <= HighlandDrainage.MAX_GRID_NODES);
                 if (ownerX == 0) assertFalse(plan.nodes().isEmpty());
                 for (int i = 0; i < plan.nodes().size(); i++) {
                     var node = plan.nodes().get(i);

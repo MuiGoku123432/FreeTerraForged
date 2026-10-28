@@ -6,7 +6,13 @@ import static etcodehome.freeterraforged.world.worldgen.highlands.HighlandMath.*
 
 /** Bounded, pure terrain-aware drainage construction. Never calls final terrain or chunk caches. */
 public final class HighlandDrainage {
-    public static final int MAX_NODES = 65_536;
+    /**
+     * Routing/field lattice budget. Sized so continent scale 5000 (≈ 34 km bounding box) still routes at 128 blocks;
+     * larger continents coarsen the step.
+     */
+    public static final int MAX_GRID_NODES = 131_072;
+    /** Refined channel samples per continent (meandering channels are longer than their valley axis). */
+    public static final int MAX_REFINED_NODES = 262_144;
     static final double COASTAL_RISE = .8;
     /**
      * Stream-power steady state (Flint's law): channel slope S = KS * (A / 1 km^2)^-THETA, capped by a talus slope.
@@ -175,7 +181,7 @@ public final class HighlandDrainage {
             originZ = (int) Math.floor(minZ / step) * step;
             width = (int) Math.ceil((maxX - originX) / step) + 1;
             depth = (int) Math.ceil((maxZ - originZ) / step) + 1;
-            if ((long) width * depth <= MAX_NODES) break;
+            if ((long) width * depth <= MAX_GRID_NODES) break;
             step *= 2;
         }
         if (step > spacing / 8) throw new IllegalArgumentException("Rolling Highlands continent scale needs upland spacing >= " + step * 8);
@@ -434,7 +440,7 @@ public final class HighlandDrainage {
             int pieces = Math.max(1, (int) Math.ceil(length / 16.0));
             boolean headReach = tributaries[i] == 0;
             for (int piece = 1; piece <= pieces; piece++) {
-                if (samples.size() >= MAX_NODES) throw new IllegalStateException("RH profile refinement budget exceeded");
+                if (samples.size() >= MAX_REFINED_NODES) throw new IllegalStateException("RH profile refinement budget exceeded");
                 double t = piece / (double) pieces, f = t * 16;
                 int c = Math.min(15, (int) f);
                 double sx = lerp(curveX[c], curveX[c + 1], f - c), sz = lerp(curveZ[c], curveZ[c + 1], f - c);

@@ -179,3 +179,7 @@ the centre and wetland margins — yes. **O3** knight-move neighbours — evalua
 
   Crossings are tributary Hermite curves hooking back over the main stem near junctions (visible as hooks in the
   render) — R4 removes them. Tip-width target revised to ≥ 5 blocks 2 behind the tip (knife edge ≈ 3).
+- R1 done: `MAX_GRID_NODES` 131,072 (routing/field lattice) and `MAX_REFINED_NODES` 262,144 (channel samples). The
+  user continent now routes at 128 (71,446 grid / 19,051 land nodes, build 539 ms; default seeds unchanged at 128,
+  205–265 ms). User metrics: sinuosity 1.18, junction 79°, tip width 14, but direction bias rises 30.3% → 38.1% —
+  four lattice steps per 512-block chord expose the D8 axes more than two smoothed 256 steps did (R2 target).
