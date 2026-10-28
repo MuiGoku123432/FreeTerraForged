@@ -18,6 +18,8 @@ public final class HighlandPlanIndex {
     private final HighlandDrainage.Plan plan;
     private final Map<Long, int[]> buckets;
     private final double[] confinement;
+    /** Reach that owns each refined node (-1 for outlet roots). */
+    private final int[] nodeReach;
     /** Per-reach bounding boxes of the refined polyline (minX, minZ, maxX, maxZ). */
     private final double[] boxes;
 
@@ -41,6 +43,12 @@ public final class HighlandPlanIndex {
             var parent = nodes.get(node.parent());
             double run = Math.max(1, Math.hypot(node.x() - parent.x(), node.z() - parent.z()));
             confinement[i] = smooth(.03, .25, Math.abs(node.ground() - parent.ground()) / run);
+        }
+        this.nodeReach = new int[nodes.size()];
+        Arrays.fill(nodeReach, -1);
+        for (int r = 0; r < plan.reaches().size(); r++) {
+            var reach = plan.reaches().get(r);
+            for (int v = reach.first(); v <= reach.last(); v++) nodeReach[v] = r;
         }
         Map<Long, List<Integer>> building = new HashMap<>();
         long entries = 0;
@@ -71,6 +79,41 @@ public final class HighlandPlanIndex {
     }
 
     HighlandDrainage.Plan plan() { return plan; }
+
+    /** True when two reaches meet in the network (one flows into the other, or both join at the same node). */
+    public boolean connected(int a, int b) {
+        var ra = plan.reaches().get(a);
+        var rb = plan.reaches().get(b);
+        return ra.downstream() == rb.downstream() || nodeReach[ra.downstream()] == b || nodeReach[rb.downstream()] == a;
+    }
+
+    /** Stream-power incision depth at a position: C1 Catmull-Rom interpolation of the plan grid, never negative. */
+    public double incision(double x, double z) {
+        double[] grid = plan.incision();
+        int width = plan.width(), depth = grid.length / Math.max(1, width), step = plan.gridStep();
+        double gx = (x - plan.originX()) / step, gz = (z - plan.originZ()) / step;
+        int ix = (int) Math.floor(gx), iz = (int) Math.floor(gz);
+        double tx = gx - ix, tz = gz - iz, sum = 0;
+        for (int dz = -1; dz <= 2; dz++) {
+            double row = 0;
+            for (int dx = -1; dx <= 2; dx++) {
+                int cx = ix + dx, cz = iz + dz;
+                double v = cx < 0 || cz < 0 || cx >= width || cz >= depth ? 0 : grid[cz * width + cx];
+                row += v * catmullRom(dx, tx);
+            }
+            sum += row * catmullRom(dz, tz);
+        }
+        return Math.max(0, sum);
+    }
+    private static double catmullRom(int offset, double t) {
+        double t2 = t * t, t3 = t2 * t;
+        return switch (offset) {
+            case -1 -> .5 * (-t3 + 2 * t2 - t);
+            case 0 -> .5 * (3 * t3 - 5 * t2 + 2);
+            case 1 -> .5 * (-3 * t3 + 4 * t2 + t);
+            default -> .5 * (t3 - t2);
+        };
+    }
     double basinsOutletX(int lake) { return plan.basins().outletX(lake); }
     double basinsOutletZ(int lake) { return plan.basins().outletZ(lake); }
     public HighlandBasins.Sample lake(double x, double z) { return plan.basins().sample(x, z); }

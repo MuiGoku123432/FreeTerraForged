@@ -26,7 +26,7 @@ class HighlandBoundsTest {
             var p = Presets.makeFTFDefault(); p.world().continent.continentScale = continentScale;
             new RollingHighlandsSettings(2, spacing, 160, 48, 256).validate(p.world());
             try (var context = WorldgenFixture.context(p, seed); var coast = new HighlandCoast(context)) {
-                var planner = new HighlandDrainage(coast, new HighlandFields(seed, spacing), spacing, p.world().controlPoints);
+                var planner = new HighlandDrainage(coast, HighlandLand.create(context), spacing, p.world().controlPoints);
                 var plan = planner.build(0, 0);
                 assertTrue(plan.gridStep() <= spacing / 8);
                 new HighlandPlanIndex(plan);

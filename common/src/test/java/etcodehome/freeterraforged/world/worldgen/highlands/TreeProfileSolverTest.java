@@ -45,9 +45,4 @@ class TreeProfileSolverTest {
         assertThrows(IllegalArgumentException.class, () -> TreeProfileSolver.solve(new int[]{0}, new double[]{0}, new double[]{0}, new double[]{0}, new double[]{0}, new double[]{0}));
         assertThrows(IllegalArgumentException.class, () -> TreeProfileSolver.solve(new int[]{-1}, new double[]{0}, new double[]{1}, new double[]{Double.NaN}, new double[]{0}, new double[]{0}));
     }
-    @Test void regionalFieldsKeepAdjacentFarCoordinatesDistinct() {
-        var fields = new HighlandFields(42, 4096);
-        assertNotEquals(fields.sample(29_999_980, -29_999_990), fields.sample(29_999_981, -29_999_990));
-        assertEquals(fields.sample(-400, -100), fields.sample(-400, -100));
-    }
 }

@@ -59,7 +59,7 @@ class HighlandDeterminismTest {
         double siteX, siteZ;
         try (var context = WorldgenFixture.context(preset(RollingHighlandsSettings.DEFAULT), 0);
              var coast = new HighlandCoast(context)) {
-            var plan = new HighlandDrainage(coast, new HighlandFields(0,4096),4096,context.preset.world().controlPoints).build(0,0);
+            var plan = new HighlandDrainage(coast, HighlandLand.create(context),4096,context.preset.world().controlPoints).build(0,0);
             var site = plan.nodes().stream().filter(n -> n.water() > 20 && n.parent() >= 0).findFirst().orElseThrow();
             siteX = site.x(); siteZ = site.z();
         }

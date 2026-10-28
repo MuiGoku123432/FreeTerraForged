@@ -11,9 +11,11 @@ import static etcodehome.freeterraforged.world.worldgen.highlands.HighlandMath.*
  * planning surface's contours rather than grid cells.
  */
 public final class HighlandBasins {
-    /** Minimum flooded depth (planning blocks) before a depression becomes a lake rather than being breached. */
-    static final double MIN_LAKE_DEPTH = 12;
+    /** Lakes are decided by the drainage plan (depth, size, chance); any remaining fill deeper than this floods. */
+    static final double MIN_LAKE_DEPTH = 1;
     static final int MIN_LAKE_NODES = 1;
+    /** The surface stands this far below the spill so the rim always contains it. */
+    static final double FREEBOARD = 1;
     /** Widest shore blend in depth units. */
     static final double MAX_SHORE = 40;
     /** Shore regions extend over dry nodes less than this far above the lake; also the depth assumed beyond. */
@@ -59,7 +61,7 @@ public final class HighlandBasins {
                 }
             }
             if (connectedRiver && deepest >= MIN_LAKE_DEPTH && tail >= MIN_LAKE_NODES) {
-                int id = surfaces.size(); surfaces.add(Math.max(0, filled[i] - 2));
+                int id = surfaces.size(); surfaces.add(Math.max(0, filled[i] - FREEBOARD));
                 for (int q = 0; q < tail; q++) basin[queue[q]] = id;
             }
         }

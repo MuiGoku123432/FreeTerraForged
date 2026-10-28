@@ -147,22 +147,80 @@ public record Heightmap(
                     ctx.levels, ctx.preset.world().controlPoints, 1, Noises.constant(0), null);
             } catch (RuntimeException | Error failure) { continent.close(); throw failure; }
         }
-    	HolderGetter<Noise> noiseLookup = ctx.noiseLookup;
-    	
         Preset preset = ctx.preset;
         WorldSettings world = ctx.preset.world();
         WorldSettings.ControlPoints controlPoints = world.controlPoints;
+        TerrainSettings.General general = preset.terrain().general;
+        Levels levels = ctx.levels;
+        // Same construction and seed draw order as before the extraction (legacy fingerprints depend on it).
+        Land composed = makeLand(ctx, ctx.seed);
+        CellPopulator region = composed.region();
+        CellPopulator land = composed.land();
+        float terrainFrequency = composed.terrainFrequency();
+        Continent continent = world.continent.continentType.create(ctx.seed, ctx);
+        Climate climate;
+		try {
+			climate = Climate.make(continent, ctx);
+		} catch (RuntimeException | Error failure) {
+			continent.close();
+			throw failure;
+		}
+        // Keep existing terrain/noise seed draws unchanged.
+        ClimateParameterSampler oceanClimate = ClimateParameterSampler.make(
+            ctx.seed.offset(89031), preset.climate().biomeShape.biomeSize, general.globalHorizontalScale
+        );
+        CellPopulator deepOcean = Populators.makeDeepOcean(ctx.seed.next(), ctx.levels, world.properties.oceanDepth, oceanClimate);
+        CellPopulator shallowOcean = Populators.makeShallowOcean(ctx.levels, world.properties.oceanDepth, oceanClimate);
+        CellPopulator coast = Populators.makeCoast(ctx.levels, oceanClimate);
+
+        CellPopulator oceans = new ContinentLerper3(deepOcean, shallowOcean, coast, controlPoints.deepOcean, controlPoints.shallowOcean, controlPoints.coast);
+
+        CellPopulator terrain = new ContinentLerper2(oceans, (cell, x, z) -> {
+            land.apply(cell, x, z);
+            cell.globalContinentScale = world.continent.continentScale;
+            cell.height += (ContinentalHydrology.getComplexWaterHeight(
+                    cell.waterTable,
+                    cell.globalContinentScale,
+                    cell.continentSizeModifier)
+            );
+        }, controlPoints.shallowOcean, controlPoints.inland);
+        
+        // Wrap with archipelago layer if enabled
+        if (ctx.preset.island().spawnIslands) {
+            terrain = new IslandBlender(terrain, new ArchipelagoPopulator(ctx.preset.island(), ctx.levels, controlPoints, ctx.seed, world.properties.oceanDepth), ctx.levels);
+        }
+
+        Noise beachNoise = Noises.perlin2(ctx.seed.next(), 20, 1);
+        beachNoise = Noises.mul(beachNoise, ctx.levels.scale(5));
+        TerrainCeiling terrainCeiling = TerrainCeiling.isEnabled(preset)
+            ? TerrainCeiling.make(world.properties)
+            : null;
+        return new Heightmap(terrain, region, continent, climate, levels, controlPoints, terrainFrequency, beachNoise, terrainCeiling);
+	}
+
+    /** Legacy FTF land: terrain regions, region borders, mountain chains and their blend (no continent or water table). */
+    public record Land(CellPopulator region, CellPopulator land, float terrainFrequency) {}
+
+    /**
+     * Builds the legacy land composition exactly as {@link #make} always has. {@code seed} supplies the draws that
+     * advance (terrain regions and borders); offsets derive from its root. Legacy passes the context seed so the draw
+     * order is unchanged; Rolling Highlands passes a fresh seed so its land is independent of construction order.
+     */
+    public static Land makeLand(GeneratorContext ctx, Seed seed) {
+    	HolderGetter<Noise> noiseLookup = ctx.noiseLookup;
+    	
+        Preset preset = ctx.preset;
 
         TerrainSettings terrainSettings = preset.terrain();
         TerrainSettings.General general = terrainSettings.general;
         float globalVerticalScale = general.globalVerticalScale;
         
-        Seed regionWarp = ctx.seed.offset(8934);
+        Seed regionWarp = seed.offset(8934);
         int regionWarpScale = 400;
         int regionWarpStrength = 200;
         
         RegionConfig regionConfig = new RegionConfig(
-            Seed.toInt(ctx.seed.root() + 789124L),
+            Seed.toInt(seed.root() + 789124L),
             general.terrainRegionSize,
             Noises.simplex(regionWarp.next(), regionWarpScale, 1),
             Noises.simplex(regionWarp.next(), regionWarpScale, 1),
@@ -172,7 +230,7 @@ public record Heightmap(
         float terrainFrequency = 1.0F / terrainSettings.general.globalHorizontalScale;
         CellPopulator region = new RegionModule(regionConfig);
 
-        Seed mountainSeed = ctx.seed.offset(general.terrainSeedOffset);
+        Seed mountainSeed = seed.offset(general.terrainSeedOffset);
         Noise mountainShape = Noises.worleyEdge(mountainSeed.next(), general.legacyMountainScaling ? 1000 : Math.round(1000 * terrainSettings.mountains.horizontalScale * 2.25F), EdgeFunction.DISTANCE_2_ADD, DistanceFunction.EUCLIDEAN);
         mountainShape = Noises.warpPerlin(mountainShape, mountainSeed.next(), 333, 2, 250.0F);
         mountainShape = Noises.curve(mountainShape, Interpolation.CURVE3);
@@ -181,8 +239,8 @@ public record Heightmap(
 
         Noise ground = PresetNoiseData.getNoise(noiseLookup, PresetTerrainTypeNoise.GROUND);
         
-        CellPopulator terrainRegions = new RegionSelector(TerrainProvider.generateTerrain(ctx.seed, terrainSettings, regionConfig, levels, noiseLookup));
-        CellPopulator terrainRegionBorders = Populators.makeBorder(ctx.seed, ground, terrainSettings.plains, terrainSettings.steppe, globalVerticalScale);
+        CellPopulator terrainRegions = new RegionSelector(TerrainProvider.generateTerrain(seed, terrainSettings, regionConfig, levels, noiseLookup));
+        CellPopulator terrainRegionBorders = Populators.makeBorder(seed, ground, terrainSettings.plains, terrainSettings.steppe, globalVerticalScale);
         CellPopulator terrainBlend = new RegionLerper(terrainRegionBorders, terrainRegions);
         CellPopulator mountains;
         if (general.mountainVariety > 0.0F) {
@@ -222,48 +280,9 @@ public record Heightmap(
         } else {
         	mountains = Populators.makeMountainChain(mountainSeed, ground, terrainSettings.mountains, terrainSettings.general.legacyMountainScaling ? 1.0F : terrainSettings.mountains.horizontalScale * 2.25F, terrainSettings.general.legacyMountainScaling ? globalVerticalScale : globalVerticalScale * terrainSettings.mountains.verticalScale, general.fancyMountains, general.legacyMountainScaling);
         }
-        Continent continent = world.continent.continentType.create(ctx.seed, ctx);
-        Climate climate;
-		try {
-			climate = Climate.make(continent, ctx);
-		} catch (RuntimeException | Error failure) {
-			continent.close();
-			throw failure;
-		}
         CellPopulator land = new Blender(mountainShape, terrainBlend, mountains, 0.3F, 0.8F, 0.575F);
-        
-        // Keep existing terrain/noise seed draws unchanged.
-        ClimateParameterSampler oceanClimate = ClimateParameterSampler.make(
-            ctx.seed.offset(89031), preset.climate().biomeShape.biomeSize, general.globalHorizontalScale
-        );
-        CellPopulator deepOcean = Populators.makeDeepOcean(ctx.seed.next(), ctx.levels, world.properties.oceanDepth, oceanClimate);
-        CellPopulator shallowOcean = Populators.makeShallowOcean(ctx.levels, world.properties.oceanDepth, oceanClimate);
-        CellPopulator coast = Populators.makeCoast(ctx.levels, oceanClimate);
-
-        CellPopulator oceans = new ContinentLerper3(deepOcean, shallowOcean, coast, controlPoints.deepOcean, controlPoints.shallowOcean, controlPoints.coast);
-
-        CellPopulator terrain = new ContinentLerper2(oceans, (cell, x, z) -> {
-            land.apply(cell, x, z);
-            cell.globalContinentScale = world.continent.continentScale;
-            cell.height += (ContinentalHydrology.getComplexWaterHeight(
-                    cell.waterTable,
-                    cell.globalContinentScale,
-                    cell.continentSizeModifier)
-            );
-        }, controlPoints.shallowOcean, controlPoints.inland);
-        
-        // Wrap with archipelago layer if enabled
-        if (ctx.preset.island().spawnIslands) {
-            terrain = new IslandBlender(terrain, new ArchipelagoPopulator(ctx.preset.island(), ctx.levels, controlPoints, ctx.seed, world.properties.oceanDepth), ctx.levels);
-        }
-
-        Noise beachNoise = Noises.perlin2(ctx.seed.next(), 20, 1);
-        beachNoise = Noises.mul(beachNoise, ctx.levels.scale(5));
-        TerrainCeiling terrainCeiling = TerrainCeiling.isEnabled(preset)
-            ? TerrainCeiling.make(world.properties)
-            : null;
-        return new Heightmap(terrain, region, continent, climate, levels, controlPoints, terrainFrequency, beachNoise, terrainCeiling);
-	}
+        return new Land(region, land, terrainFrequency);
+    }
 
 	@Override
 	public void close() {

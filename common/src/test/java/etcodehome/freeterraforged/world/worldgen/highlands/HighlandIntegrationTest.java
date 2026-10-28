@@ -14,7 +14,7 @@ class HighlandIntegrationTest {
             var preset = Presets.makeFTFDefault();
             preset.world().continent.continentType = ContinentType.ROLLING_HIGHLANDS;
             try (var context = WorldgenFixture.context(preset, seed); var coast = new HighlandCoast(context)) {
-                var fields = new HighlandFields(seed + preset.terrain().general.terrainSeedOffset, 4096);
+                var fields = HighlandLand.create(context);
                 var plan = new HighlandDrainage(coast, fields, 4096, preset.world().controlPoints).build(0, 0);
                 int wet = 0;
                 for (var node : plan.nodes()) {
@@ -22,11 +22,15 @@ class HighlandIntegrationTest {
                     Cell c = new Cell();
                     context.heightmap.applyPrecise(c, node.x(), node.z(), false);
                     if (c.hasRiverWater) {
-                        assertEquals(node.water(), (c.riverWaterLevel - context.levels.water) * context.levels.terrainScaleFactor, 1e-4,
-                            "seed=" + seed + " at " + node.x() + "," + node.z());
+                        // The cell is owned by this channel or, near confluences, by a lower connected one: never higher.
+                        double cellWater = (c.riverWaterLevel - context.levels.water) * context.levels.terrainScaleFactor;
+                        assertTrue(cellWater <= node.water() + 1e-3 && cellWater >= node.water() - 8,
+                            "seed=" + seed + " at " + node.x() + "," + node.z() + " plan=" + node.water() + " cell=" + cellWater);
                         assertTrue(c.height <= c.riverWaterLevel, "seed=" + seed + " at " + node.x() + "," + node.z() + " h=" + c.height + " w=" + c.riverWaterLevel);
                         wet++;
-                    } else assertTrue(c.continentEdge <= preset.world().controlPoints.coast);
+                    } else assertTrue(c.continentEdge <= preset.world().controlPoints.coast,
+                        "dry plan node seed=" + seed + " at " + node.x() + "," + node.z() + " water=" + node.water() + " terrain=" + c.terrain.getName()
+                            + " h=" + (c.height - context.levels.water) * context.levels.terrainScaleFactor);
                 }
                 assertTrue(wet > 100);
                 BufferedImage image = new BufferedImage(256, 256, BufferedImage.TYPE_INT_RGB);

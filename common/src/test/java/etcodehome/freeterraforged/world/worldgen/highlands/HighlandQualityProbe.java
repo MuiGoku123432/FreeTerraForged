@@ -103,13 +103,14 @@ final class HighlandQualityProbe {
             }
             // 4-block window around the anchor.
             int ox = cx - WINDOW / 2, oz = cz - WINDOW / 2;
-            double[][] h = new double[SIZE][SIZE], w = new double[SIZE][SIZE];
+            double[][] h = new double[SIZE][SIZE], w = new double[SIZE][SIZE], uncarved = new double[SIZE][SIZE];
             boolean[][] wet = new boolean[SIZE][SIZE];
             long dry = 0, valley = 0, wetCount = 0, flowing = 0, channelCells = 0, wetland = 0;
             BufferedImage image = writeMap ? new BufferedImage(SIZE, SIZE, BufferedImage.TYPE_INT_RGB) : null;
             for (int z = 0; z < SIZE; z++) for (int x = 0; x < SIZE; x++) {
                 context.heightmap.apply(c.reset(), ox + x * RES, oz + z * RES, false);
                 h[x][z] = blocks(context, c.height); w[x][z] = blocks(context, c.riverWaterLevel); wet[x][z] = c.hasRiverWater;
+                uncarved[x][z] = continent.uncarvedLand(ox + x * RES, oz + z * RES);
                 if (c.terrain == TerrainType.WETLAND) wetland++;
                 if (c.hasRiverWater) {
                     wetCount++;
@@ -139,7 +140,9 @@ final class HighlandQualityProbe {
                     continue;
                 }
                 if (h[x][z] <= 0) continue;
-                if ((Math.abs(h[x + 1][z] - h[x][z]) > 12 && !wet[x + 1][z]) || (Math.abs(h[x][z + 1] - h[x][z]) > 12 && !wet[x][z + 1])) {
+                double ex = Math.abs(h[x + 1][z] - h[x][z]) - Math.abs(uncarved[x + 1][z] - uncarved[x][z]);
+                double ez = Math.abs(h[x][z + 1] - h[x][z]) - Math.abs(uncarved[x][z + 1] - uncarved[x][z]);
+                if ((ex > 12 && !wet[x + 1][z]) || (ez > 12 && !wet[x][z + 1])) {
                     seams++; if (image != null) image.setRGB(x, z, 0xff2020);
                 }
             }
@@ -148,16 +151,17 @@ final class HighlandQualityProbe {
             long jumps = 0; double worst = 0; int wx = 0, wz = 0;
             for (int row = 0; row < 12; row++) {
                 int z = oz + 128 + row * 240;
-                double previous = Double.NaN; boolean previousWet = true;
+                double previous = Double.NaN, previousLand = Double.NaN; boolean previousWet = true;
                 for (int x = ox; x < ox + WINDOW; x++) {
                     context.heightmap.apply(c.reset(), x, z, false);
-                    double hh = blocks(context, c.height);
+                    double hh = blocks(context, c.height), ground = continent.uncarvedLand(x, z);
                     if (!previousWet && !c.hasRiverWater && hh > 0 && !Double.isNaN(previous)) {
-                        double jump = Math.abs(hh - previous);
+                        // Only steps introduced by RH shaping count; legacy terrain (terraces, badlands) keeps its own.
+                        double jump = Math.max(0, Math.abs(hh - previous) - Math.abs(ground - previousLand));
                         if (jump > 3) jumps++;
                         if (jump > worst) { worst = jump; wx = x; wz = z; }
                     }
-                    previous = hh; previousWet = c.hasRiverWater;
+                    previous = hh; previousLand = ground; previousWet = c.hasRiverWater;
                 }
             }
 

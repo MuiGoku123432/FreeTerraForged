@@ -9,7 +9,7 @@ class HighlandPlannerTest {
         for (long seed : new long[]{0, 1, 42, 8675309, -314159}) {
             var preset = Presets.makeFTFDefault();
             try (var context = WorldgenFixture.context(preset, seed); var coast = new HighlandCoast(context)) {
-                var fields = new HighlandFields(seed, 4096);
+                var fields = HighlandLand.create(context);
                 var builder = new HighlandDrainage(coast, fields, 4096, preset.world().controlPoints);
                 for (int ownerX : new int[]{0, -1, 1}) {
                 var plan = builder.build(ownerX, 0);
@@ -41,7 +41,7 @@ class HighlandPlannerTest {
     @Test void riverlessFallbackPlanIsValidAndQuiet() {
         var preset = Presets.makeFTFDefault();
         try (var context = WorldgenFixture.context(preset, 0); var coast = new HighlandCoast(context)) {
-            var plan = new HighlandDrainage(coast, new HighlandFields(0, 4096), 4096, preset.world().controlPoints).emptyPlan(3, -2);
+            var plan = new HighlandDrainage(coast, HighlandLand.create(context), 4096, preset.world().controlPoints).emptyPlan(3, -2);
             var index = new HighlandPlanIndex(plan);
             assertEquals(0, index.near(12345, -6789).count);
             assertNull(index.lake(12345, -6789));

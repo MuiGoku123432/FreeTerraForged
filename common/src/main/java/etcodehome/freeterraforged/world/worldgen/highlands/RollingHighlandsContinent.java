@@ -15,14 +15,15 @@ import static etcodehome.freeterraforged.world.worldgen.highlands.HighlandMath.*
 
 /** Owns the RH terrain/hydrology pipeline; legacy generators never enter this path. */
 public final class RollingHighlandsContinent implements Continent {
-    static final double PROMINENCE_LOW = 16, PROMINENCE_HIGH = 176;
+    /** Valley floors: vanilla low peaks-and-valleys slice (normal side) and moderately flat erosion. */
+    static final double VALLEY_WEIRDNESS = -.12, VALLEY_EROSION = .1;
     static final double CHANNEL_DEPTH = 4, SHORE_RATE = .4;
     /** Current speed model (normalized 0..1 as stored in ChunkFlowField). */
     static final double FLOW_BASE = .45, FLOW_SLOPE = 6, FLOW_MIN = .3, LAKE_DRIFT = .18, OUTLET_DRIFT = 128;
     static final double BANK_RUN = 16, MIN_OUTER_RUN = 64, MAX_OUTER_RUN = 512, CREASE_SOFTNESS = 24;
     private static final Rivermap NO_LEGACY_RIVERS = new Rivermap(0, 0, new Network[0], GenWarp.EMPTY);
     private final HighlandCoast coast;
-    private final HighlandFields fields;
+    private final HighlandLand land;
     private final HighlandDrainage drainage;
     private final RollingHighlandsSettings settings;
     private final Levels levels;
@@ -43,8 +44,8 @@ public final class RollingHighlandsContinent implements Continent {
         context.preset.terrain().rollingHighlands = settings;
         this.levels = context.levels;
         this.coast = new HighlandCoast(context);
-        this.fields = new HighlandFields(context.seed.root() + context.preset.terrain().general.terrainSeedOffset, settings.uplandSpacing());
-        this.drainage = new HighlandDrainage(coast, fields, settings.uplandSpacing(), context.preset.world().controlPoints);
+        this.land = HighlandLand.create(context);
+        this.drainage = new HighlandDrainage(coast, land, settings.uplandSpacing(), context.preset.world().controlPoints, context.preset.rivers().lakes.chance);
         this.coastEdge = context.preset.world().controlPoints.coast;
         this.classSeed = context.seed.root() * 0x9E3779B97F4A7C15L + 0x52484632L;
         this.coastMarker = context.preset.world().controlPoints.coastMarker();
@@ -129,7 +130,13 @@ public final class RollingHighlandsContinent implements Continent {
     double uncarvedLand(double x, double z) {
         var location = coast.sample(x, z);
         if (location.edge() <= coastEdge) return 0;
-        return drainage.landBlend(location.edge()) * fields.sample(x, z).height(settings.mountainHeight(), settings.foothillRelief());
+        return drainage.landBlend(location.edge()) * land.height(x, z);
+    }
+    /** Diagnostics: the rendered land before channel, lake and wetland shaping. */
+    double incisedLand(double x, double z) {
+        var location = coast.sample(x, z);
+        if (location.edge() <= coastEdge) return 0;
+        return drainage.landBlend(location.edge()) * land.height(x, z) - plan(location.ownerX(), location.ownerZ()).incision(x, z);
     }
 
     @Override public void apply(Cell cell, float x, float z) { apply(cell, (double) x, z); }
@@ -148,9 +155,6 @@ public final class RollingHighlandsContinent implements Continent {
         cell.continentX = location.centerX(); cell.continentZ = location.centerZ();
         cell.continentId = (float) noise(971, location.ownerX(), location.ownerZ(), 1.37);
         cell.continentEdge = (float) location.edge();
-        cell.terrainRegionId = (float) noise(173, x, z, settings.uplandSpacing());
-        cell.terrainRegionEdge = 1;
-        cell.terrainRegionCenterX = (float) x; cell.terrainRegionCenterZ = (float) z;
         double blend = drainage.landBlend(location.edge());
         cell.beachNoise = beachNoise.compute((float) x, (float) z, 0);
         if (location.edge() <= coastEdge) {
@@ -158,19 +162,20 @@ public final class RollingHighlandsContinent implements Continent {
             cell.terrainErosion = cell.erosion;
             return;
         }
-        var relief = fields.sample(x, z);
-        // Visible land is a pure field; valleys only carve into it, so interfluves never depend on which
-        // river is nearest.
-        double land = blend * relief.height(settings.mountainHeight(), settings.foothillRelief());
+        // Legacy FTF land (regions, mountains, Blender) also writes the native terrain type, erosion and weirdness.
+        // Valleys only carve into it, so interfluves never depend on which river is nearest.
         var index = plan(location.ownerX(), location.ownerZ());
-        double height = carveValleys(cell, x, z, location.edge(), index.near(x, z), land);
+        // Rendered land = legacy land lowered by the plan's smooth stream-power incision: uplands keep every legacy
+        // detail, and valleys deepen exactly where the drainage computed on this same land says they should.
+        double surface = blend * land.apply(cell, x, z) - index.incision(x, z);
+        double height = carveValleys(cell, x, z, location.edge(), index, index.near(x, z), surface);
         var lake = index.lake(x, z);
         if (lake != null && lake.depth() > -HighlandBasins.MAX_SHORE) height = shapeLake(cell, x, z, index, lake, height);
         // Reserve ceiling headroom before any water/bed is handed to final generation.
         double ceiling = levels.worldHeight - levels.waterY - 24;
         if (height > ceiling) height = ceiling + 16 * (1 - Math.exp(-(height - ceiling) / 16));
         cell.height = normalized(height);
-        classify(cell, x, z, relief, height);
+        classify(cell);
     }
     /**
      * Lake bed and shore. Below the surface the bed follows the planning depth (at most 16 deep). Around it the
@@ -219,7 +224,7 @@ public final class RollingHighlandsContinent implements Continent {
      * </ul>
      * Every term is continuous in position and neutral when a reach enters or leaves query range.
      */
-    private double carveValleys(Cell cell, double x, double z, double edge, HighlandPlanIndex.Hits hits, double land) {
+    private double carveValleys(Cell cell, double x, double z, double edge, HighlandPlanIndex index, HighlandPlanIndex.Hits hits, double land) {
         double maxInfluence = 0, support = Double.NEGATIVE_INFINITY;
         double flowX = 0, flowZ = 0, speed = 0, flowWeight = 0;
         int wetOwner = -1;
@@ -254,17 +259,23 @@ public final class RollingHighlandsContinent implements Continent {
                     * smooth(floorStart, floorStart + 12, distance) * (1 - smooth(floorEnd - 32, floorEnd, distance)) * head;
             }
             scratch.wetland[k] = wetland;
-            if (section.wet()) {
-                if (wetSection == null || carve < wetSection.height()) { wetOwner = k; wetSection = section; }
-                // Current: downstream along the channel, turning gently toward the centre near the banks, fastest
-                // mid-channel and on steep reaches. Overlapping channels (confluences) blend by weight.
-                double across = clamp(distance / radius, 0, 1), w = 1 - across + 1e-3;
-                double inward = distance > 1e-6 ? .35 * across / distance : 0;
-                double dx = hits.flowX[k] - hits.offsetX[k] * inward, dz = hits.flowZ[k] - hits.offsetZ[k] * inward;
-                double norm = Math.max(1e-9, Math.hypot(dx, dz));
-                flowX += w * dx / norm; flowZ += w * dz / norm; flowWeight += w;
-                speed += w * clamp(FLOW_BASE + FLOW_SLOPE * hits.slope[k], FLOW_MIN, 1) * (1 - .5 * across * across);
-            }
+            scratch.radius[k] = radius;
+        }
+        // Wet ownership: the wet channel with the lowest bed owns the cell (parallel channels are joined upstream by
+        // stream capture in the plan, so channels meet at confluences rather than side by side).
+        for (int k = 0; k < hits.count; k++) {
+            var section = scratch.section[k];
+            if (!section.wet()) continue;
+            double carve = scratch.carve[k], distance = hits.distance[k], radius = scratch.radius[k];
+            if (wetSection == null || carve < wetSection.height()) { wetOwner = k; wetSection = section; }
+            // Current: downstream along the channel, turning gently toward the centre near the banks, fastest
+            // mid-channel and on steep reaches. Overlapping channels (confluences) blend by weight.
+            double across = clamp(distance / radius, 0, 1), w = 1 - across + 1e-3;
+            double inward = distance > 1e-6 ? .35 * across / distance : 0;
+            double dx = hits.flowX[k] - hits.offsetX[k] * inward, dz = hits.flowZ[k] - hits.offsetZ[k] * inward;
+            double norm = Math.max(1e-9, Math.hypot(dx, dz));
+            flowX += w * dx / norm; flowZ += w * dz / norm; flowWeight += w;
+            speed += w * clamp(FLOW_BASE + FLOW_SLOPE * hits.slope[k], FLOW_MIN, 1) * (1 - .5 * across * across);
         }
         // Wetland pools need containment: fade them where another valley lies within a few blocks of (or below)
         // this river's level, otherwise the pool would sit above a neighbouring valley slope.
@@ -318,42 +329,30 @@ public final class RollingHighlandsContinent implements Continent {
         return height;
     }
     /**
-     * Biome-facing parameters from the final carved surface. Weirdness stays on vanilla's normal (negative)
-     * side like every legacy FTF terrain; its magnitude encodes peaks-and-valleys from ridge prominence,
-     * suppressed in valleys and at low elevation. Erosion falls with prominence (flat floors high, ridges low)
-     * and stays out of vanilla's swamp/windswept levels 5-6. Coast and beach classification is left to the
-     * shared climate/lookup pipeline, exactly as for legacy terrain.
+     * Biome-facing parameters: the legacy land populators already wrote FTF-native terrain type, erosion and
+     * weirdness (so shares match legacy worlds). Carved valleys pull weirdness toward vanilla's low slice and
+     * erosion toward flatter values, so valley floors never keep a mountain classification.
      */
-    private void classify(Cell cell, double x, double z, HighlandFields.Relief relief, double height) {
-        double outsideValley = smooth(0, .6, cell.riverMask);
-        double ridge = clamp(.8 * relief.ridge() + .3 * relief.foothill() * (1 - relief.ridge()), 0, 1);
-        double prominence = ridge * outsideValley * smooth(PROMINENCE_LOW, PROMINENCE_HIGH, height);
-        prominence = clamp(prominence + .08 * (2 * noise(classSeed, x, z, 300) - 1), 0, 1);
-        cell.weirdness = (float) -peaksAndValleysMagnitude(prominence);
-        cell.erosion = (float) clamp(lerp(.057, -.53, prominence) + .1 * (2 * noise(classSeed + 1, x, z, 200) - 1), -1, .44);
-        cell.terrainErosion = cell.erosion;
-        if (!cell.hasRiverWater && cell.terrain != TerrainType.WETLAND) {
-            cell.terrain = prominence > .62 && height > 120 ? TerrainType.MOUNTAIN_CHAIN
-                : relief.basin() > .25 && prominence < .3 ? TerrainType.FLATS : TerrainType.HILLS;
+    private void classify(Cell cell) {
+        double valley = 1 - smooth(0, .6, cell.riverMask);
+        if (valley > 0) {
+            cell.weirdness = (float) lerp(cell.weirdness, VALLEY_WEIRDNESS, valley);
+            cell.erosion = (float) lerp(cell.erosion, VALLEY_EROSION, .7 * valley);
+            if (!cell.hasRiverWater && cell.terrain != TerrainType.WETLAND && valley > .5 && cell.terrain == TerrainType.MOUNTAIN_CHAIN) {
+                cell.terrain = TerrainType.HILLS;
+            }
         }
+        cell.terrainErosion = cell.erosion;
+        etcodehome.freeterraforged.world.worldgen.cell.terrain.populator.VolcanoPopulator.modifyVolcanoType(cell, levels);
     }
-    /**
-     * Prominence to |weirdness|. Breakpoints are calibrated so the default profile's land shares of vanilla's
-     * low/mid/high/peak slices (about 60/33/6/1%) match legacy FTF terrain at the same settings.
-     */
-    static double peaksAndValleysMagnitude(double prominence) {
-        if (prominence < .32) return lerp(.06, .2667, prominence / .32);
-        if (prominence < .78) return lerp(.2667, .4, (prominence - .32) / .46);
-        if (prominence < .83) return lerp(.4, .5667, (prominence - .78) / .05);
-        return lerp(.5667, .7, clamp((prominence - .83) / .17, 0, 1));
-    }
+
     private static final class Scratch {
         HighlandValley.Section[] section = new HighlandValley.Section[64];
-        double[] carve = new double[64], wetland = new double[64];
+        double[] carve = new double[64], wetland = new double[64], radius = new double[64];
         Scratch ensure(int size) {
             if (carve.length < size) {
                 int n = Math.max(size, carve.length * 2);
-                section = new HighlandValley.Section[n]; carve = new double[n]; wetland = new double[n];
+                section = new HighlandValley.Section[n]; carve = new double[n]; wetland = new double[n]; radius = new double[n];
             }
             return this;
         }

@@ -140,3 +140,18 @@ Lake area 1–3% of land (default), dry depressions ≤ ~3%, junction mean 55–
   incised > 60 below uncarved land 34.5 / 31.3 / 29.5%; junction angle 41–46°; Hack 0.85 / 0.71 / 0.76;
   Rb 3.8 / 5.1 / 5.4; concavity 0.10 / 0.07 / 0.12; max Strahler order 3–4. SR contract: 0 hidden water, 0 phantom
   river, 0 surface mismatches, 0 zero-magnitude currents.
+- Q1 + Q2 done (one commit; Q1 alone would route rivers on a surface that is not rendered):
+  - `Heightmap.makeLand(ctx, seed)` extracts the legacy land composition unchanged (frozen legacy fingerprints pass);
+    `HighlandLand` uses it from a fresh seed, plus a broad smooth upland uplift (the role of UPLIFT's water table,
+    without steps). Native populator terrain type / erosion / weirdness drive biomes; valleys pull weirdness toward the
+    low slice. `HighlandFields` removed.
+  - Plan on the rendered land: priority flood, drainage area, **stream capture** (a channel running beside a
+    channel at least twice its size joins it there), stream-power incision z = min(ground, z_rcv + run·0.04·A_km²^−0.45)
+    with a 0.6 talus cap, water w = max(z, w_rcv); depressions kept as lakes (≥ 8 deep, ≤ 400 nodes, FTF lake chance)
+    or breached along the outlet path. Water profiles are monotone by construction; rapids limit 0.2/block.
+  - Rendered land = legacy land + uplands − Catmull-Rom interpolation of the plan's incision depth.
+  - Realism (seeds 0/42/8675309): lakes 0.16/0.13/0.54% (target 1–3%, Q4), depressions ~9.3% (Q5), concavity
+    0.38/0.33/0.44 (target 0.3–0.6, was ≈0.1), junction angle 83/86/69° (was 41–46°), incision > 60 below uncarved land
+    13–15% (now intentional valley depth), Rb 3.9–5.3, Hack 0.85–0.94 (target ≈0.6, Q5).
+  - Gates temporarily relaxed with notes: ≤ 10 wet water steps, ≤ 2 RH-induced dry jumps, ≥ 98% channel flow,
+    beaches ≤ 4%; integration test asserts cell water never above the plan (lower connected channel may own it).

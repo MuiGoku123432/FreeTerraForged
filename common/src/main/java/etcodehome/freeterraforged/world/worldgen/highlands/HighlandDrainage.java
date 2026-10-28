@@ -8,11 +8,19 @@ import static etcodehome.freeterraforged.world.worldgen.highlands.HighlandMath.*
 public final class HighlandDrainage {
     public static final int MAX_NODES = 65_536;
     static final double COASTAL_RISE = .8;
-    /** Deepest saddle cut used to breach a non-lake fill; deeper fills keep the water up to fill minus this. */
-    static final double BREACH_CUT = 36;
+    /**
+     * Stream-power steady state (Flint's law): channel slope S = KS * (A / 1 km^2)^-THETA, capped by a talus slope.
+     * Concavity THETA is the global median of real landscapes (RESEARCH-RH3 §3).
+     */
+    static final double KS = .04, THETA = .45, SLOPE_MIN = .0005, SLOPE_MAX = .6;
+    /** Depressions left after incision become lakes only if at least this deep and no larger than MAX_LAKE_NODES. */
+    static final double LAKE_MIN_DEPTH = 8;
+    static final int MAX_LAKE_NODES = 400;
+    /** Steepest water-surface gradient between refined samples (rapids); keeps adjacent wet cells within a block. */
+    static final double MAX_WATER_SLOPE = .2;
     private final HighlandCoast coast;
-    private final HighlandFields fields;
-    private final double spacing, coastEdge, inlandEdge;
+    private final HighlandLand surface;
+    private final double spacing, coastEdge, inlandEdge, lakeChance;
     /** D8 neighbours; diagonals cost sqrt(2) in the flat-resolution distance and may not cross each other. */
     private static final int[] DX = {0, -1, 1, 0, -1, 1, -1, 1};
     private static final int[] DZ = {-1, 0, 0, 1, -1, 1, 1, -1};
@@ -25,8 +33,12 @@ public final class HighlandDrainage {
     /** Random lateral node offset as a fraction of a grid step; SNAP + JITTER < 0.5 keeps nodes in their cell. */
     static final double JITTER = .15;
 
-    public HighlandDrainage(HighlandCoast coast, HighlandFields fields, double spacing, WorldSettings.ControlPoints controls) {
-        this.coast = coast; this.fields = fields; this.spacing = spacing;
+    public HighlandDrainage(HighlandCoast coast, HighlandLand surface, double spacing, WorldSettings.ControlPoints controls) {
+        this(coast, surface, spacing, controls, .5);
+    }
+    /** @param lakeChance FTF river settings' lake chance: probability that an eligible depression is kept as a lake. */
+    public HighlandDrainage(HighlandCoast coast, HighlandLand surface, double spacing, WorldSettings.ControlPoints controls, double lakeChance) {
+        this.coast = coast; this.surface = surface; this.spacing = spacing; this.lakeChance = clamp(lakeChance, 0, 1);
         this.coastEdge = controls.coast; this.inlandEdge = controls.coast + Math.max(controls.inland - controls.coast, COASTAL_RISE * Math.max(1, 16000.0 / coast.tectonicScale));
         if (!(inlandEdge > coastEdge)) throw new IllegalArgumentException("Rolling Highlands needs inland > coast");
     }
@@ -36,18 +48,23 @@ public final class HighlandDrainage {
         return t * (2 - t);
     }
     public double planningHeight(double x, double z, double edge) {
-        return fields.sample(x, z).planningHeight() * landBlend(edge);
+        return surface.height(x, z) * landBlend(edge);
     }
     /** Refined channel sample. {@code head} ramps 0..1 over the first HEAD_TAPER blocks below a channel head. */
     public record Node(double x, double z, double ground, double water, double area, int parent, double head) {}
     public record Reach(int downstream, int first, int last) {}
-    public record Plan(int ownerX, int ownerZ, int gridStep, int gridNodes, int landNodes, List<Node> nodes, List<Reach> reaches, HighlandBasins basins, long buildNanos) {}
+    /**
+     * {@code incision} holds, per plan grid node (origin, width, gridStep), how far stream-power incision lowered the
+     * land; the rendered surface is the full-resolution land minus its smooth interpolation.
+     */
+    public record Plan(int ownerX, int ownerZ, int gridStep, int gridNodes, int landNodes, List<Node> nodes, List<Reach> reaches,
+                       HighlandBasins basins, long buildNanos, int originX, int originZ, int width, double[] incision) {}
     private record QueueNode(int index, double level, double distance) {}
 
     /** Deterministic river-less plan used when an owner's drainage cannot be built. */
     public Plan emptyPlan(int ownerX, int ownerZ) {
-        var basins = new HighlandBasins(fields.seed(), 0, 0, 1, 1, 64, new double[1], new double[1], new boolean[1], new boolean[1]);
-        return new Plan(ownerX, ownerZ, 64, 0, 0, List.of(), List.of(), basins, 0);
+        var basins = new HighlandBasins(surface.seed(), 0, 0, 1, 1, 64, new double[1], new double[1], new boolean[1], new boolean[1]);
+        return new Plan(ownerX, ownerZ, 64, 0, 0, List.of(), List.of(), basins, 0, 0, 0, 1, new double[1]);
     }
 
     public Plan build(int ownerX, int ownerZ) {
@@ -128,16 +145,116 @@ public final class HighlandDrainage {
                 }
             }
         }
-        boolean[] channel = new boolean[n];
-        double threshold = Math.max(3.0 * step * step, .03 * spacing * spacing);
+        // Drainage area (flood order is outlet-first, so reverse order visits children before parents).
+        double[] cellArea = area.clone();
         for (int k = count - 1; k >= 0; k--) {
             int i = order[k];
-            channel[i] |= area[i] >= threshold;
-            if (parent[i] >= 0) {
-                area[parent[i]] += area[i];
-                channel[parent[i]] |= channel[i];
+            if (parent[i] >= 0) area[parent[i]] += area[i];
+        }
+        // Stream capture: a channel that runs alongside a larger channel (orthogonal neighbours, not already joined)
+        // joins it there instead of flowing in parallel to a later confluence. Only downhill-consistent captures that
+        // cannot form a cycle are taken; the drainage tree is then re-ordered and areas recomputed.
+        double captureArea = Math.max(3.0 * step * step, .03 * spacing * spacing);
+        boolean captured = false;
+        for (int k = 0; k < count; k++) {
+            int i = order[k];
+            if (!land[i] || area[i] < captureArea || parent[i] < 0) continue;
+            int ix = i % width, iz = i / width, best = -1;
+            for (int d = 0; d < 4; d++) {
+                int nx = ix + DX[d], nz = iz + DZ[d];
+                if (nx < 0 || nz < 0 || nx >= width || nz >= depth) continue;
+                int j = nz * width + nx;
+                if (j == parent[i] || parent[j] == i || !land[j] || area[j] < 2 * area[i] || filled[j] > filled[i]) continue;
+                if (best < 0 || area[j] > area[best]) best = j;
+            }
+            if (best < 0) continue;
+            boolean cycle = false;
+            for (int v = best, hops = 0; v >= 0 && hops < n; v = parent[v], hops++) if (v == i) { cycle = true; break; }
+            if (cycle) continue;
+            parent[i] = best;
+            captured = true;
+        }
+        if (captured) {
+            // Re-order outlet-first (breadth-first from the roots) and recompute drainage areas.
+            int[] childCount = new int[n];
+            for (int i = 0; i < n; i++) if (parent[i] >= 0) childCount[parent[i]]++;
+            int[] offset = new int[n + 1];
+            for (int i = 0; i < n; i++) offset[i + 1] = offset[i] + childCount[i];
+            int[] children = new int[offset[n]], fill = offset.clone();
+            for (int i = 0; i < n; i++) if (parent[i] >= 0) children[fill[parent[i]]++] = i;
+            int head = 0, tail = 0;
+            for (int k = 0; k < count; k++) if (parent[order[k]] < 0) order[tail++] = order[k];
+            while (head < tail) {
+                int v = order[head++];
+                for (int c = offset[v]; c < offset[v + 1]; c++) order[tail++] = children[c];
+            }
+            count = tail;
+            System.arraycopy(cellArea, 0, area, 0, n);
+            for (int k = count - 1; k >= 0; k--) {
+                int i = order[k];
+                if (parent[i] >= 0) area[parent[i]] += area[i];
             }
         }
+        // Stream-power incision of the rendered land: z = min(ground, z_receiver + run * S(A)), outlet-first. Valleys
+        // deepen where land stands high above its outlet; divides stay at the land surface.
+        double[] run = new double[n], cap = new double[n], incised = new double[n], water = new double[n];
+        Arrays.fill(cap, Double.POSITIVE_INFINITY);
+        for (int i = 0; i < n; i++) {
+            int p = parent[i];
+            if (p < 0) continue;
+            run[i] = step * Math.hypot(i % width - p % width, i / width - p / width);
+        }
+        boolean[] keep = new boolean[n];
+        for (int round = 0; ; round++) {
+            for (int k = 0; k < count; k++) {
+                int i = order[k], p = parent[i];
+                if (!land[i]) { incised[i] = 0; water[i] = 0; continue; }
+                double slope = clamp(KS * Math.pow(area[i] / 1e6, -THETA), SLOPE_MIN, SLOPE_MAX);
+                incised[i] = Math.min(Math.min(ground[i], cap[i]), p < 0 ? ground[i] : incised[p] + run[i] * slope);
+                water[i] = p < 0 ? incised[i] : Math.max(incised[i], water[p]);
+            }
+            // Depressions that survive incision: keep as lakes (deep enough, not too large, chosen by the lake chance)
+            // or breach them by lowering the outlet path below the depression bottom.
+            boolean breached = false;
+            boolean[] visited = new boolean[n];
+            int[] queueBuffer = new int[n];
+            for (int k = 0; k < count; k++) {
+                int start = order[k];
+                if (visited[start] || !land[start] || keep[start] || water[start] - incised[start] <= .5) continue;
+                int head = 0, tail = 1, bottom = start; queueBuffer[0] = start; visited[start] = true;
+                while (head < tail) {
+                    int v = queueBuffer[head++];
+                    if (incised[v] < incised[bottom] || incised[v] == incised[bottom] && v < bottom) bottom = v;
+                    int vx = v % width, vz = v / width;
+                    for (int d = 0; d < DX.length; d++) {
+                        int nx = vx + DX[d], nz = vz + DZ[d];
+                        if (nx < 0 || nz < 0 || nx >= width || nz >= depth) continue;
+                        int j = nz * width + nx;
+                        if (!visited[j] && land[j] && water[j] == water[start] && water[j] - incised[j] > .5) { visited[j] = true; queueBuffer[tail++] = j; }
+                    }
+                }
+                double hash = (mix(surface.seed() * 31 + bottom) >>> 11) * 0x1.0p-53;
+                boolean lake = round == 0 && water[start] - incised[bottom] >= LAKE_MIN_DEPTH && tail <= MAX_LAKE_NODES && hash < lakeChance;
+                if (lake) { for (int q = 0; q < tail; q++) keep[queueBuffer[q]] = true; continue; }
+                double limit = incised[bottom];
+                for (int v = parent[bottom]; v >= 0 && land[v]; v = parent[v]) {
+                    limit -= .01 * run[v];
+                    if (incised[v] <= limit) break;
+                    cap[v] = Math.min(cap[v], Math.max(0, limit));
+                }
+                breached = true;
+            }
+            if (!breached || round == 3) break;
+        }
+        boolean[] channel = new boolean[n];
+        double threshold = Math.max(3.0 * step * step, .03 * spacing * spacing);
+        for (int i = 0; i < n; i++) channel[i] = land[i] && area[i] >= threshold;
+        for (int k = count - 1; k >= 0; k--) {
+            int i = order[k];
+            if (channel[i] && parent[i] >= 0) channel[parent[i]] = true;
+        }
+        double[] incision = new double[n];
+        for (int i = 0; i < n; i++) incision[i] = land[i] ? Math.max(0, ground[i] - incised[i]) : 0;
         int[] tributaries = new int[n], mainChild = new int[n];
         Arrays.fill(mainChild, -1);
         for (int i = 0; i < n; i++) {
@@ -146,7 +263,7 @@ public final class HighlandDrainage {
             tributaries[p]++;
             if (mainChild[p] < 0 || area[i] > area[mainChild[p]] || area[i] == area[mainChild[p]] && i < mainChild[p]) mainChild[p] = i;
         }
-        HighlandBasins basins = new HighlandBasins(fields.seed() + 52361, originX, originZ, width, depth, step, ground, filled, land, channel);
+        HighlandBasins basins = new HighlandBasins(surface.seed() + 52361, originX, originZ, width, depth, step, incised, water, land, channel);
         // Snap channel nodes toward the local low point of the planning surface so rivers follow real hollows
         // between grid nodes. Nodes stay inside their own cell, so the D8 no-crossing guarantee survives.
         double[] pathX = new double[n], pathZ = new double[n];
@@ -163,13 +280,13 @@ public final class HighlandDrainage {
                 if (h < best) { best = h; bestX = sx; bestZ = sz; }
             }
             // Deterministic jitter breaks long collinear chains on uniform slopes (stays within the node's cell).
-            long hash = mix(fields.seed() ^ (i * 0x9E3779B97F4A7C15L));
+            long hash = mix(surface.seed() ^ (i * 0x9E3779B97F4A7C15L));
             pathX[i] = bestX + JITTER * step * (((hash & 0xFFFF) / 65535.0) * 2 - 1);
             pathZ[i] = bestZ + JITTER * step * ((((hash >>> 16) & 0xFFFF) / 65535.0) * 2 - 1);
         }
         List<Node> samples = new ArrayList<>();
         List<Reach> reaches = new ArrayList<>();
-        List<Double> upper = new ArrayList<>(), lower = new ArrayList<>(), drops = new ArrayList<>(), targets = new ArrayList<>();
+        List<Double> levels = new ArrayList<>();
         List<Integer> lakeOf = new ArrayList<>();
         int[] endpoint = new int[n]; Arrays.fill(endpoint, -1);
         double[] curveX = new double[17], curveZ = new double[17];
@@ -181,7 +298,7 @@ public final class HighlandDrainage {
             if (p < 0) {
                 endpoint[i] = samples.size();
                 samples.add(new Node(x, z, 0, 0, area[i], -1, 1));
-                lower.add(0.0); upper.add(0.0); drops.add(0.0); targets.add(0.0); lakeOf.add(-1);
+                levels.add(0.0); lakeOf.add(-1);
                 continue;
             }
             double px = pathX[p], pz = pathZ[p];
@@ -195,9 +312,9 @@ public final class HighlandDrainage {
             double before = Math.max(1e-6, Math.hypot(px - qx, pz - qz)), after = Math.max(1e-6, Math.hypot(rx - x, rz - z));
             double m1x = (x - qx) * chord / (before + chord), m1z = (z - qz) * chord / (before + chord);
             double m2x = (rx - px) * chord / (chord + after), m2z = (rz - pz) * chord / (chord + after);
-            double coarseSlope = Math.max(Math.abs(ground[i] - ground[p]), Math.abs(filled[i] - filled[p])) / chord;
+            double coarseSlope = Math.abs(water[i] - water[p]) / chord;
             double meander = MEANDER * chord * (1 - smooth(.02, .1, coarseSlope))
-                * (2 * noise(fields.seed() + 6143, (x + px) * .5, (z + pz) * .5, 300) - 1);
+                * (2 * noise(surface.seed() + 6143, (x + px) * .5, (z + pz) * .5, 300) - 1);
             double nx = -(z - pz) / chord, nz = (x - px) / chord;
             double length = 0;
             for (int c = 0; c <= 16; c++) {
@@ -209,7 +326,6 @@ public final class HighlandDrainage {
                 if (c > 0) length += Math.hypot(curveX[c] - curveX[c - 1], curveZ[c] - curveZ[c - 1]);
             }
             int pieces = Math.max(1, (int) Math.ceil(length / 16.0));
-            double slope = coarseSlope > .08 ? .35 : .12;
             boolean headReach = tributaries[i] == 0;
             for (int piece = 1; piece <= pieces; piece++) {
                 if (samples.size() >= MAX_NODES) throw new IllegalStateException("RH profile refinement budget exceeded");
@@ -218,27 +334,16 @@ public final class HighlandDrainage {
                 double sx = lerp(curveX[c], curveX[c + 1], f - c), sz = lerp(curveZ[c], curveZ[c + 1], f - c);
                 var location = coast.sample(sx, sz);
                 double h = planningHeight(sx, sz, location.edge());
-                double lo = Math.max(0, h - 44);
-                // Shallow priority fills are breached: the preferred surface follows the ground, and the lower
-                // bound allows a bounded cut through the outlet saddle. Only real lakes hold a raised level.
-                double fill = lerp(filled[p], filled[i], t);
-                double desired = Math.max(0, h - 2);
+                double level = lerp(water[p], water[i], t);
                 var lake = basins.sample(sx, sz);
-                // Around lakes the water may stand at the lake's fill level; elsewhere fills are breached.
-                double hi = Math.max(desired, fill - 2 - (lake != null ? 0 : BREACH_CUT));
-                // A bounded local bank regrade accommodates sub-grid outlet shoulders and flat junction cores.
-                // The preferred profile stays at ground minus two; this is not a raised regional surface.
-                hi += 8;
                 boolean flooded = lake != null && lake.depth() > 0;
-                if (flooded) lo = hi = lake.water();
+                if (flooded) level = lake.water();
+                if (location.edge() <= coastEdge) level = 0;
                 lakeOf.add(flooded ? lake.lake() : -1);
-                if (location.edge() <= coastEdge) lo = hi = 0;
+                levels.add(level);
                 int next = samples.size();
                 double head = headReach ? smooth(0, HEAD_TAPER, (1 - t) * length) : 1;
                 samples.add(new Node(sx, sz, h, 0, lerp(area[p], area[i], t), previous, head));
-                lower.add(lo); upper.add(hi); targets.add(clamp(desired, lo, hi));
-                // Level wet cores around coarse junctions/bends connect branch cross-sections.
-                drops.add(((piece <= 1 && tributaries[p] >= 2) || (piece == pieces && tributaries[i] >= 2)) ? 0.0 : slope * length / pieces);
                 previous = next;
             }
             endpoint[i] = previous;
@@ -246,34 +351,20 @@ public final class HighlandDrainage {
         }
         int refined = samples.size();
         int[] parents = new int[refined];
-        double[] low = new double[refined], high = new double[refined], target = new double[refined], minDrop = new double[refined], maxDrop = new double[refined];
-        for (int j = 0; j < refined; j++) {
-            parents[j] = samples.get(j).parent(); low[j] = lower.get(j); high[j] = upper.get(j);
-            target[j] = targets.get(j); maxDrop[j] = drops.get(j);
-        }
-        // Feasibility repair, deterministic and bounded:
-        // 1. Rapids: where an upstream bound (e.g. a lake outlet) cannot descend within the slope limit to its
-        //    downstream reach, that one edge may drop faster. P5 renders these as rapids/waterfalls.
+        double[] profile = new double[refined];
+        for (int j = 0; j < refined; j++) { parents[j] = samples.get(j).parent(); profile[j] = levels.get(j); }
+        // Water never rises downstream: a lake outlet or a confluence lowers everything below it to its level.
         for (int j = refined - 1; j >= 0; j--) {
             int p = parents[j];
-            if (p < 0) continue;
-            if (low[j] - maxDrop[j] > high[p]) maxDrop[j] = low[j] - high[p];
-            low[p] = Math.max(low[p], low[j] - maxDrop[j]);
+            if (p >= 0 && profile[p] > profile[j]) profile[p] = profile[j];
         }
-        // 2. Backwater: a reach upstream of a fixed level never sits below it; floods sub-grid hollows only.
-        double[] reachable = new double[refined];
+        // Rapids, not walls: outside lakes, water climbs at most MAX_WATER_SLOPE per block upstream of its parent, so a
+        // tributary entering a lowered trunk descends over its last reach instead of stepping at the junction.
         for (int j = 0; j < refined; j++) {
             int p = parents[j];
-            reachable[j] = p < 0 ? low[j] : Math.max(low[j], reachable[p] + minDrop[j]);
-            if (high[j] < reachable[j]) high[j] = reachable[j];
-            target[j] = clamp(target[j], low[j], high[j]);
-        }
-        double[] water;
-        try { water = TreeProfileSolver.solve(parents, low, high, target, minDrop, maxDrop); }
-        catch (TreeProfileSolver.Infeasible failure) {
-            var point = samples.get(failure.node);
-            throw new IllegalStateException("RH profile failed in owner " + ownerX + "," + ownerZ
-                + " at " + point.x() + "," + point.z() + " (ground=" + point.ground() + ")", failure);
+            if (p < 0 || lakeOf.get(j) >= 0) continue;
+            var a = samples.get(j); var b = samples.get(p);
+            profile[j] = Math.min(profile[j], profile[p] + MAX_WATER_SLOPE * Math.hypot(a.x() - b.x(), a.z() - b.z()));
         }
         // Lake outlets: the first channel sample downstream of a flooded sample of that lake.
         for (int j = 0; j < refined; j++) {
@@ -283,8 +374,8 @@ public final class HighlandDrainage {
         List<Node> nodes = new ArrayList<>(refined);
         for (int j = 0; j < refined; j++) {
             var point = samples.get(j);
-            nodes.add(new Node(point.x(), point.z(), point.ground(), water[j], point.area(), point.parent(), point.head()));
+            nodes.add(new Node(point.x(), point.z(), point.ground(), profile[j], point.area(), point.parent(), point.head()));
         }
-        return new Plan(ownerX, ownerZ, step, n, landCount, List.copyOf(nodes), List.copyOf(reaches), basins, System.nanoTime() - started);
+        return new Plan(ownerX, ownerZ, step, n, landCount, List.copyOf(nodes), List.copyOf(reaches), basins, System.nanoTime() - started, originX, originZ, width, incision);
     }
 }
