@@ -124,6 +124,13 @@ public final class RollingHighlandsContinent implements Continent {
     /** Test/diagnostic access to the owner plan containing a block position. */
     HighlandPlanIndex planAt(double x, double z) { var s = coast.sample(x, z); return plan(s.ownerX(), s.ownerZ()); }
     HighlandCoast coast() { return coast; }
+    HighlandPlanIndex planOf(int ownerX, int ownerZ) { return plan(ownerX, ownerZ); }
+    /** Diagnostics: the land surface before any valley, lake or wetland shaping, in blocks above sea level. */
+    double uncarvedLand(double x, double z) {
+        var location = coast.sample(x, z);
+        if (location.edge() <= coastEdge) return 0;
+        return drainage.landBlend(location.edge()) * fields.sample(x, z).height(settings.mountainHeight(), settings.foothillRelief());
+    }
 
     @Override public void apply(Cell cell, float x, float z) { apply(cell, (double) x, z); }
 

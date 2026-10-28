@@ -133,3 +133,10 @@ Lake area 1–3% of land (default), dry depressions ≤ ~3%, junction mean 55–
 
 ## 6. Progress log
 
+- Q0 done: `HighlandRealismProbe` (continent hillshade `build/rolling-highlands/continent-<seed>.png`, lake/wet/
+  depression fractions, slope histogram, incision below uncarved land, junction angles, Hack exponent, Strahler Rb,
+  concavity) and `HighlandStreamsContractTest` (cells read exactly as Streams Reflowing does). RH2 baseline
+  (seeds 0 / 42 / 8675309): lakes 4.3 / 8.1 / 6.1%; depressions 2.1 / 1.7 / 1.9%; mean slope 13.6–14.4°;
+  incised > 60 below uncarved land 34.5 / 31.3 / 29.5%; junction angle 41–46°; Hack 0.85 / 0.71 / 0.76;
+  Rb 3.8 / 5.1 / 5.4; concavity 0.10 / 0.07 / 0.12; max Strahler order 3–4. SR contract: 0 hidden water, 0 phantom
+  river, 0 surface mismatches, 0 zero-magnitude currents.

@@ -42,6 +42,11 @@ class HighlandQualityTest {
         assertTrue(failures.isEmpty(), String.join("\n", failures));
     }
 
+    /** Continent-scale realism (PLAN-RH3 Q0). Gates are added as RH3 phases land; RH2 baseline in PLAN-RH3 §6. */
+    @Test void continentRealism() throws Exception {
+        for (long seed : new long[]{0, 42, 8675309}) System.out.println(HighlandRealismProbe.measure(seed, true).summary());
+    }
+
     private static void check(java.util.List<String> failures, HighlandQualityProbe.Metrics m, boolean ok, String gate) {
         if (!ok) failures.add("seed=" + m.seed() + " failed " + gate + ": " + m.summary());
     }
