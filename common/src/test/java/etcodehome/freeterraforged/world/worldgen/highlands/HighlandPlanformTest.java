@@ -9,7 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * River planform (PLAN-RH4). Reports sinuosity, routing direction bias, junction angles, confluence tongue width and
  * channel crossings for the default preset (seeds 0, 42, 8675309) and the user's Test-America-v3 world, and renders
  * hillshades (build/rolling-highlands/planform-*.png). Gates are added as RH4 phases land (R3: belt containment,
- * sinuosity, anisotropy, oxbows present).
+ * sinuosity, anisotropy, oxbows present; R4: junction angles, no crossings).
  */
 class HighlandPlanformTest {
     @Test void planform() throws Exception {
@@ -30,6 +30,10 @@ class HighlandPlanformTest {
             if (m.outsideBelt() > 0) failures.add("channel outside its meander belt: " + m.summary());
             if (m.sinuosity() < 1.15 || m.sinuosity() > 1.65) failures.add("sinuosity outside 1.15-1.65: " + m.summary());
             if (m.anisotropy() > .08) failures.add("direction anisotropy > 8%: " + m.summary());
+            // R4: tributaries meet their main channel at natural angles, and no two channels cross.
+            if (m.junctionAngle() < 60 || m.junctionAngle() > 80) failures.add("junction angle mean outside 60-80 deg: " + m.summary());
+            if (m.acuteShare() > .1) failures.add("more than 10% of junctions under 25 deg: " + m.summary());
+            if (m.crossings() > 0) failures.add("channels cross: " + m.summary());
         }
         if (results.stream().mapToInt(HighlandPlanformProbe.Metrics::oxbows).sum() == 0) failures.add("no oxbows in any test continent");
         assertTrue(failures.isEmpty(), String.join("\n", failures));

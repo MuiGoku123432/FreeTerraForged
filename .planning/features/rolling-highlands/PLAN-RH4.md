@@ -249,3 +249,24 @@ the centre and wetland margins — yes. **O3** knight-move neighbours — evalua
   that start with large drainage area end in a square head against a wall; streams on narrow spurs between two lower
   valleys; two near-parallel rivers converging into a lake junction. Polyline support cones can show 16-block facets
   where a channel stands on a terrace (mitigated by the slope fade; a smooth channel distance field is a follow-up).
+- R4 done (`HighlandMeanders.buildMouth`): channel positions are emitted first, then a tributary's last stretch
+  (6 parent widths, 96–256 blocks, at most 85% of a short stem) is rebuilt as a Hermite from its own channel into a
+  straight final run (2 parent widths, 24–64 blocks) that meets a parent channel node at θ: Howard
+  cos θ = S_parent / S_trib clamped to 35–90°, pulled 55–85% toward the humid mean 72° by noise, measured against the
+  parent's arrival over its last 48 blocks (the same scale as the metric). Candidate junction nodes within 3 parent
+  widths downstream / 1.5 upstream of the routed junction (doubled at a penalty) are scored by clearance shortfall from
+  the parent channel, crossings of any non-incident parent segment or of another tributary's mouth on the same parent
+  (+1000 each), looping (> 150° turning, +1000) and turning beyond 90° (0.2 per degree); both arrival sides are tried,
+  junctions within 1.5 × (both widths) of an existing junction and a direct (chord) arrival cost +200 / +100. The old
+  junction blend (tributary dragged onto the nearest parent node over 48–256 blocks) is gone.
+
+  | | junction R3 → R4 | < 25° | tip (sharp < 5) | crossings R3 → R4 | build |
+  |---|---|---|---|---|---|
+  | seed 0 | 93.4 → 73.3° | 0% | 8 (17%) | 0 → 0 | 415 ms |
+  | seed 42 | 79.0 → 70.5° | 7 → 0% | 6 (16%) | 0 → 0 | 448 ms |
+  | seed 8675309 | 79.3 → 74.3° | 0% | 8 (16%) | 2 → 0 | 365 ms |
+  | user | 75.0 → 72.3° | 10 → 0% | 7 (20%) | 2 → 0 | 691 ms |
+
+  Gates added: junction mean 60–80°, ≤ 10% under 25°, 0 crossings. Sinuosity/anisotropy/oxbows unchanged; quality
+  gates pass (sunken 0/766/1253/238/315). Tip sharpness (R5 target ≤ 5% < 5) is unchanged by design. Noted for the
+  grid-pattern follow-up: faint straight axis-aligned lines in some 1:1 hillshades (user world near 4680, 9860).
