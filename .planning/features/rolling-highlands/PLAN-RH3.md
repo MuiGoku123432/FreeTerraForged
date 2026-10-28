@@ -181,3 +181,6 @@ Lake area 1–3% of land (default), dry depressions ≤ ~3%, junction mean 55–
   RH3 honours: river count (drainage density), flow toggles, main-river bed depth / bank heights / bank width, lake
   chance and depth, wetland chance. FTF's Phacelle erosion filter already runs with RH's channel protection. Build
   1.0.0014-rh3. Waterfall averaging stays off: RH profiles are limited to 0.2/block rapids and level junction cores.
+- Q8 done: lake rims (ground near a shoreline held ≥ 1 block above the lake, since rendered land carries legacy detail
+  the plan grid cannot see); full build on both loaders; FULL-chunk validation passes on Fabric (confluence, dam-lake
+  outlet) and NeoForge (confluence); docs in IMPLEMENTATION.md / VALIDATION.md; deployed to the F&F Terra instance.

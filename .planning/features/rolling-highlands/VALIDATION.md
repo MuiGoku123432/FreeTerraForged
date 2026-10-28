@@ -1,54 +1,53 @@
-# RH2 validation record
+# RH3 validation record
 
-Date: 2026-10-27. Java 21, Minecraft 1.21.1, build `1.0.0014-rh2`, generation model 2. Servers bind to loopback.
+Date: 2026-10-28. Java 21, Minecraft 1.21.1, build `1.0.0014-rh3`, generation model 3.
 
 ## Automated
 
-`./gradlew :common:test :fabric:build :neoforge:build --offline` passes. Highlights:
+`./gradlew :common:test :fabric:build :neoforge:build --offline` passes. Frozen legacy UPLIFT/MULTI_IMPROVED terrain
+fingerprints are unchanged after extracting `Heightmap.makeLand`.
 
-- `HighlandQualityTest` (new): five seeds (0, 1, 42, 8675309, −314159), fixed 3072-block window per seed chosen by
-  rule (a coarse land sample of the origin continent halfway between coast and core), 4-block maps written to
-  `common/build/rolling-highlands/quality-<seed>.png`, plus 12 one-block transects per window. Gates and results:
+### Landscape gates (`HighlandQualityTest.landscapeQualityGates`, seeds 0, 1, 42, 8675309, −314159)
 
-| Gate | RH1 baseline | RH2 (all five seeds) |
+| Gate | RH2 | RH3 |
 |---|---|---|
-| Dry 1-block jumps > 3 blocks | up to 36 per window, worst 61 | 0 (worst step 2.3) |
-| 4-block seams (> 12 per 4 blocks) | up to 2,674 | 0 |
-| Adjacent wet water steps ≥ 2 | — | 0 |
-| Wet cells with lower dry neighbour (perched) | up to 13 | 0 |
-| Shore cliffs > 12 within 4 blocks | 1 (76 blocks) | 0 |
-| Channel cells with current / currents upstream | stub | 100% / 0% |
-| Positive weirdness / peak slice on valley floors | 100% / 13% | 0% / 0% |
-| Weirdness slices low/mid/high/peak (legacy 60/33/6/1) | — | 57–61 / 32–36 / 6 / 1 |
-| Erosion levels 1–4 (legacy 12/16/52/20), levels 5–6 | — | 11–12 / 18–21 / 49–55 / 16–19, 0 |
-| Beaches (legacy ≈ 3%) | ~10% (+ 20% under 5 blocks) | 1.3–1.9% |
-| Channel length exactly on grid directions | ~62% of reaches | 6.5–8.3% |
-| Valley zone share of dry land | 94–95% | 7–68% |
+| RH-induced dry 1-block jumps > 3 | 0 | 0 |
+| 4-block seams | 0 | 0 |
+| Adjacent wet water steps ≥ 2 | 0 | 0 |
+| Perched water (wet next to lower dry, excl. ocean) | 0 | 0–2 (river mouths) |
+| Channel cells with current / upstream currents | 100% / 0% | 100% / ≤ 0.1% |
+| Positive weirdness / peak slice on floors | 0 / 0 | 0 / 0 |
+| Weirdness slices low/mid/high/peak (legacy 60/33/6/1) | 57–61/32–36/6/1 | 64–66/28–29/5–6/1 |
+| Beaches | 1.3–1.9% | 1.8–2.7% |
+| Grid-aligned channel length | 6.5–8.3% | 4.5–5.9% |
 
-- Plan builds: 364-plan bounds sweep (52 seeds × 7 scale/spacing pairs) and owner plans build without fallback;
-  river-less fallback plan validated.
-- Determinism (parallel/reversed order, rebuild, owner isolation), filtered chunk boundary agreement, settings
-  persistence (model 2; model 1 rejected with guidance) and frozen legacy UPLIFT/MULTI_IMPROVED fingerprints pass.
+### Continent realism (`HighlandQualityTest.continentRealism`, seeds 0, 42, 8675309)
+
+| Metric | Target (RESEARCH-RH3 §3) | RH2 | RH3 |
+|---|---|---|---|
+| Lake area of land | 1–3% (gate 0.5–4%) | 4.3 / 8.1 / 6.1% | 1.3 / 2.5 / 1.6% |
+| Closed depressions | few % (legacy FTF land: 20–24%; gate ≤ 12%) | 1.7–2.1% | 8.5–8.8% |
+| Channel length cut > 60 below uncarved land | low (gate ≤ 25%) | 30–35% (gorges through unseen mountains) | 7–11% (planned valleys) |
+| Junction angle | ~72° humid (gate 50–95°) | 41–46° | 69–86° |
+| Concavity (water surface) | 0.3–0.6 (gate 0.15–0.65) | 0.07–0.12 | 0.19–0.28 |
+| Bifurcation ratio | 3–5 | 3.8–5.4 | 3.9–5.3 |
+| Hack exponent | ≈ 0.6 | 0.71–0.85 | 0.85–0.94 (not gated) |
+
+Streams Reflowing contract (`HighlandStreamsContractTest`): 0 hidden water, 0 phantom river cells, 0 surface
+mismatches, 0 zero-magnitude currents on seeds 0 and 42.
 
 ## Actual Minecraft blocks
 
-Seed 0, default RH2 preset via datapack (see RH1 reproduction steps; preset exported to
-`common/build/rolling-highlands/preset.json`), radius 1 (9 FULL chunks), after features and a 40-tick wait.
-Checks: water/ice (or a feature's solid block, never air) at the planned surface, solid bed, no source water
-above the surface, flow-field byte present for every current, dry neighbours solid at the water surface.
+Seed 0, default RH3 preset via datapack, radius 1 (9 FULL chunks), after features and a 40-tick wait:
 
-| Loader | Site | Wet columns | Current columns | Flow missing | Spills | Failures |
-|---|---|---:|---:|---:|---:|---:|
-| Fabric | confluence + wetland (5343, 5789) | 1,103 | 1,022 | 0 | 0 | 0 |
-| Fabric | lake outlet (6559, 6918) | 531 | 531 | 0 | 0 | 0 |
-| NeoForge | confluence + wetland (5343, 5789) | 1,103 | 1,022 | 0 | 0 | 0 |
+| Loader | Site | Wet columns | Current columns | Flow missing | Spills | Failures | Throughput |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Fabric | confluence (10891, 13166) | 1,435 | 1,435 | 0 | 0 | 0 | 5.2 chunks/s |
+| Fabric | dam-lake outlet (6205, 6166) | 1,496 | 1,496 | 0 | 0 | 0 | 4.0 chunks/s |
+| NeoForge | confluence (10891, 13166) | 1,435 | 1,435 | 0 | 0 | 0 | 4.5 chunks/s |
 
-Throughput on these diagnostic runs: 5.2 / 5.1 chunks/s (Fabric), 4.7 chunks/s (NeoForge). Unfiltered column
-sampling costs about 1.8 µs for RH vs 9.7 µs for UPLIFT on the same machine.
-
-Found during validation and fixed: single-block surface steps used a flowing top block that drained when no
-upstream source fed it (RH now keeps a source riffle). Boulder features in shallow wetland pools are accepted.
+Column sampling with climate: ~2.2 µs for RH3 vs ~9.7 µs for UPLIFT on this machine.
 
 ## Not covered
 
-Ground-level aesthetic review, SR + FTF in-game smoke test (manual), long fluid simulations, V3 comparison.
+Ground-level aesthetic review, Streams Reflowing in-game smoke test, long fluid simulations.

@@ -18,7 +18,7 @@ public final class RollingHighlandsContinent implements Continent {
     /** Valley floors: vanilla low peaks-and-valleys slice (normal side) and moderately flat erosion. */
     static final double VALLEY_WEIRDNESS = -.12, VALLEY_EROSION = .1;
     static final float WETLAND_EROSION = .78F;
-    static final double CHANNEL_DEPTH = 4, SHORE_RATE = .4, MAX_FADE = 384, CONFLUENCE_RAPID = .25;
+    static final double CHANNEL_DEPTH = 4, SHORE_RATE = .4, MAX_FADE = 384, CONFLUENCE_RAPID = .25, LAKE_RIM = 12;
     /** Current speed model (normalized 0..1 as stored in ChunkFlowField). */
     static final double FLOW_BASE = .45, FLOW_SLOPE = 6, FLOW_MIN = .3, LAKE_DRIFT = .18, OUTLET_DRIFT = 128;
     static final double BANK_RUN = 16, MIN_OUTER_RUN = 64, MAX_OUTER_RUN = 512, CREASE_SOFTNESS = 24;
@@ -217,7 +217,10 @@ public final class RollingHighlandsContinent implements Continent {
         double range = clamp(Math.max(0, height - water) * SHORE_RATE, 4, HighlandBasins.MAX_SHORE);
         double weight = smooth(-range, 0, depth) * lake.proximity();
         double shore = Math.min(height, water + 1 - depth);
-        return lerp(height, shore, weight);
+        double shaped = lerp(height, shore, weight);
+        // Rim: rendered land carries legacy detail the plan grid does not see, so ground just outside the shoreline
+        // can dip below the lake surface. Hold it at least one block above the water near the shore.
+        return Math.max(shaped, lerp(shaped, water + 1, smooth(-LAKE_RIM, 0, depth) * lake.proximity()));
     }
 
     /**
