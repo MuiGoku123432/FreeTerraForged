@@ -105,6 +105,25 @@ public final class HighlandPlanIndex {
         }
         return Math.max(0, sum);
     }
+    /**
+     * Base level at a position: smoothstep-weighted bilinear interpolation of the per-node water levels. Bounded by
+     * the four surrounding nodes (no overshoot) and C1. Land is never rendered below it, so legacy land detail minus
+     * a smooth incision cannot leave dry pits below the rivers that drain them.
+     */
+    public double waterFloor(double x, double z) {
+        double[] grid = plan.water();
+        int width = plan.width(), depth = grid.length / Math.max(1, width), step = plan.gridStep();
+        double gx = (x - plan.originX()) / step, gz = (z - plan.originZ()) / step;
+        int ix = (int) Math.floor(gx), iz = (int) Math.floor(gz);
+        double tx = gx - ix, tz = gz - iz;
+        tx = tx * tx * (3 - 2 * tx); tz = tz * tz * (3 - 2 * tz);
+        double a = node(grid, width, depth, ix, iz), b = node(grid, width, depth, ix + 1, iz);
+        double c = node(grid, width, depth, ix, iz + 1), d = node(grid, width, depth, ix + 1, iz + 1);
+        return (a + (b - a) * tx) + ((c + (d - c) * tx) - (a + (b - a) * tx)) * tz;
+    }
+    private static double node(double[] grid, int width, int depth, int x, int z) {
+        return x < 0 || z < 0 || x >= width || z >= depth ? 0 : grid[z * width + x];
+    }
     private static double catmullRom(int offset, double t) {
         double t2 = t * t, t3 = t2 * t;
         return switch (offset) {

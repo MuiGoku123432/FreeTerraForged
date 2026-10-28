@@ -25,16 +25,16 @@ final class HighlandQualityProbe {
                    long shoreCliffs, double flowCoverage, double flowUpstream,
                    double positiveWeirdness, double peakSlice, double peakOnFloor,
                    double beach, double lowLand, double oceanFloorMin, double gridAligned,
-                   double[] weirdnessSlices, double[] erosionLevels, double wetland) {
+                   double[] weirdnessSlices, double[] erosionLevels, double wetland, long sunken, long belowSea) {
         String summary() {
             return String.format(java.util.Locale.ROOT,
                 "RHQ seed=%d center=%d,%d dryJumps>3=%d worstJump=%.1f@%d,%d seams=%d valleyZone=%.1f%% wet=%.1f%% "
                     + "waterSteps=%d perched=%d shoreCliffs=%d channelFlow=%.1f%% flowUpstream=%.1f%% weirdness+=%.1f%% "
-                    + "peakSlice=%.1f%% peakOnFloor=%.1f%% beach=%.1f%% low<5=%.1f%% oceanFloorMin=%.1f gridAligned=%.1f%% slices(low/mid/high/peak)=%s erosionLevels=%s wetland=%.2f%%",
+                    + "peakSlice=%.1f%% peakOnFloor=%.1f%% beach=%.1f%% low<5=%.1f%% oceanFloorMin=%.1f gridAligned=%.1f%% slices(low/mid/high/peak)=%s erosionLevels=%s wetland=%.2f%% sunken=%d belowSea=%d",
                 seed, centerX, centerZ, dryJumps, worstJump, worstX, worstZ, seamPixels, 100 * valleyZone, 100 * wetFraction,
                 waterSteps, perched, shoreCliffs, 100 * flowCoverage, 100 * flowUpstream, 100 * positiveWeirdness,
                 100 * peakSlice, 100 * peakOnFloor, 100 * beach, 100 * lowLand, oceanFloorMin, 100 * gridAligned,
-                percent(weirdnessSlices), percent(erosionLevels), 100 * wetland);
+                percent(weirdnessSlices), percent(erosionLevels), 100 * wetland, sunken, belowSea);
         }
         private static String percent(double[] values) {
             StringBuilder out = new StringBuilder();
@@ -126,6 +126,18 @@ final class HighlandQualityProbe {
                     image.setRGB(x, z, color);
                 }
             }
+            // Pits: dry land more than 3 blocks below the lowest water within 24 blocks (it would hold standing water — sea-level fill or a
+            // Streams Reflowing lake — beside the river), and inland dry land below sea level.
+            long sunken = 0, belowSea = 0;
+            boolean[][] landMask = new boolean[SIZE][SIZE];
+            for (int z = 0; z < SIZE; z++) for (int x = 0; x < SIZE; x++) landMask[x][z] = continent.getEdgeValue(ox + x * RES, oz + z * RES) > coastEdge;
+            for (int z = 6; z < SIZE - 6; z++) for (int x = 6; x < SIZE - 6; x++) {
+                if (wet[x][z] || !landMask[x][z]) continue;
+                if (h[x][z] < -.5) { belowSea++; if (image != null) image.setRGB(x, z, 0xff0000); }
+                double lowest = Double.POSITIVE_INFINITY;
+                for (int dz = -6; dz <= 6; dz++) for (int dx = -6; dx <= 6; dx++) if (wet[x + dx][z + dz]) lowest = Math.min(lowest, w[x + dx][z + dz]);
+                if (lowest < Double.POSITIVE_INFINITY && h[x][z] < lowest - 3) { sunken++; if (image != null) image.setRGB(x, z, 0xff00ff); }
+            }
             long seams = 0, steps = 0, perched = 0, shore = 0;
             for (int z = 1; z < SIZE - 1; z++) for (int x = 1; x < SIZE - 1; x++) {
                 if (wet[x][z]) {
@@ -205,7 +217,7 @@ final class HighlandQualityProbe {
             return new Metrics(seed, cx, cz, jumps, worst, wx, wz, seams, ratio(valley, dry), ratio(wetCount, wetCount + dry),
                 steps, perched, shore, channelCells == 0 ? 1 : ratio(flowing, channelCells), ratio(upstream, checked),
                 ratio(positive, land), ratio(peak, land), ratio(peakFloor, floor), ratio(beach, land), ratio(low, land),
-                oceanMin, total > 0 ? aligned / total : 0, scale(slices, land), scale(erosion, land), ratio(wetland, wetCount + dry));
+                oceanMin, total > 0 ? aligned / total : 0, scale(slices, land), scale(erosion, land), ratio(wetland, wetCount + dry), sunken, belowSea);
         }
     }
 

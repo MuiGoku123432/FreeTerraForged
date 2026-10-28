@@ -38,6 +38,10 @@ class HighlandQualityTest {
             // RH3: erosion comes natively from the legacy populators (hills/dales legitimately reach level 5).
             check(failures, m, m.beach() <= .04, "P4 beaches <= 4% of land (legacy-native land is low near coasts)");
             check(failures, m, m.oceanFloorMin() >= -256, "P4 ocean floor within legacy depth");
+            // In-game feedback 2026-10-28: dry pits below the adjacent river filled with standing water (sea-level
+            // fill / Streams Reflowing lakes) beside rivers on 45-degree embankments. Land stays above the base level.
+            check(failures, m, m.belowSea() == 0, "P3 no inland dry land below sea level");
+            check(failures, m, m.sunken() <= 3000, "P3 <= 3000 samples (~0.5%) more than 3 blocks below all water within 24 blocks");
         }
         assertTrue(failures.isEmpty(), String.join("\n", failures));
     }
@@ -48,9 +52,10 @@ class HighlandQualityTest {
         for (long seed : new long[]{0, 42, 8675309}) {
             var m = HighlandRealismProbe.measure(seed, true);
             System.out.println(m.summary());
-            // RESEARCH-RH3 §3 targets. Legacy FTF land has 20-24% closed depressions; RH3 must stay well below that.
+            // RESEARCH-RH3 §3 targets. Legacy FTF land has 20-24% closed depressions; RH3 measures 2.5-2.9% with the base-level floor
+            // (8.5% before it; those pits held standing water beside rivers in game).
             if (m.lakeFraction() < .005 || m.lakeFraction() > .04) failures.add("seed " + seed + " lake area outside 0.5-4%: " + m.summary());
-            if (m.depressionFraction() > .12) failures.add("seed " + seed + " depressions > 12%: " + m.summary());
+            if (m.depressionFraction() > .06) failures.add("seed " + seed + " depressions > 6%: " + m.summary());
             // Measured on water surfaces, which dam-lake backwater flattens; the incision itself uses theta = 0.45.
             if (m.concavity() < .15 || m.concavity() > .65) failures.add("seed " + seed + " concavity outside 0.15-0.65: " + m.summary());
             if (m.meanJunctionAngle() < 50 || m.meanJunctionAngle() > 95) failures.add("seed " + seed + " junction angle outside 50-95: " + m.summary());

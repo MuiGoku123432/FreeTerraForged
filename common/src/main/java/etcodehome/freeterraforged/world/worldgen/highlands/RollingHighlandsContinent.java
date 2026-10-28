@@ -18,7 +18,7 @@ public final class RollingHighlandsContinent implements Continent {
     /** Valley floors: vanilla low peaks-and-valleys slice (normal side) and moderately flat erosion. */
     static final double VALLEY_WEIRDNESS = -.12, VALLEY_EROSION = .1;
     static final float WETLAND_EROSION = .78F;
-    static final double CHANNEL_DEPTH = 4, SHORE_RATE = .4, MAX_FADE = 384, CONFLUENCE_RAPID = .25, LAKE_RIM = 12;
+    static final double CHANNEL_DEPTH = 4, SHORE_RATE = .4, MAX_FADE = 384, CONFLUENCE_RAPID = .25, LAKE_RIM = 12, FLOOR_MARGIN = 1.5, FLOOR_SOFTNESS = 4, FLOOR_COAST_RAMP = 6, SUPPORT_SLOPE = .5;
     /** Current speed model (normalized 0..1 as stored in ChunkFlowField). */
     static final double FLOW_BASE = .45, FLOW_SLOPE = 6, FLOW_MIN = .3, LAKE_DRIFT = .18, OUTLET_DRIFT = 128;
     static final double BANK_RUN = 16, MIN_OUTER_RUN = 64, MAX_OUTER_RUN = 512, CREASE_SOFTNESS = 24;
@@ -144,7 +144,20 @@ public final class RollingHighlandsContinent implements Continent {
     double incisedLand(double x, double z) {
         var location = coast.sample(x, z);
         if (location.edge() <= coastEdge) return 0;
-        return drainage.landBlend(location.edge()) * land.height(x, z) - plan(location.ownerX(), location.ownerZ()).incision(x, z);
+        var index = plan(location.ownerX(), location.ownerZ());
+        double blend = drainage.landBlend(location.edge());
+        return floored(index, x, z, blend, blend * land.height(x, z) - index.incision(x, z));
+    }
+    /**
+     * Dry ground stays at least FLOOR_MARGIN above the plan's base level (smooth maximum). The plan grid cannot see
+     * legacy land detail between its nodes, so land minus a smooth incision would otherwise leave pits below the
+     * adjacent river: rivers would stand on levees and the pits fill with standing water (sea-level fill below sea
+     * level, Streams Reflowing lakes above it). The floor fades in over the first part of the coastal land blend, so shores still meet the sea.
+     */
+    private static double floored(HighlandPlanIndex index, double x, double z, double blend, double surface) {
+        double floor = Math.min(1, FLOOR_COAST_RAMP * blend) * (index.waterFloor(x, z) + FLOOR_MARGIN);
+        double h = Math.max(FLOOR_SOFTNESS - Math.abs(surface - floor), 0) / FLOOR_SOFTNESS;
+        return Math.max(surface, floor) + h * h * FLOOR_SOFTNESS * .25;
     }
 
     @Override public void apply(Cell cell, float x, float z) { apply(cell, (double) x, z); }
@@ -175,7 +188,7 @@ public final class RollingHighlandsContinent implements Continent {
         var index = plan(location.ownerX(), location.ownerZ());
         // Rendered land = legacy land lowered by the plan's smooth stream-power incision: uplands keep every legacy
         // detail, and valleys deepen exactly where the drainage computed on this same land says they should.
-        double surface = blend * land.apply(cell, x, z) - index.incision(x, z);
+        double surface = floored(index, x, z, blend, blend * land.apply(cell, x, z) - index.incision(x, z));
         double height = carveValleys(cell, x, z, location.edge(), index, index.near(x, z), surface);
         var lake = index.lake(x, z);
         if (lake != null && lake.depth() > -HighlandBasins.MAX_SHORE) height = shapeLake(cell, x, z, index, lake, height);
@@ -230,7 +243,7 @@ public final class RollingHighlandsContinent implements Continent {
      * never erased by a neighbouring valley floor.</li>
      * <li>Dry: the two lowest candidates (including the land) are joined with a smooth minimum only where both lie
      * on outer valley slopes and below the land, then lifted onto the support cone of every channel (one block
-     * above its water at the bank, falling one block per block). Channels at different levels therefore sit on
+     * above its water at the bank, falling half a block per block). Channels at different levels therefore sit on
      * terraces instead of being cut away, and dry ground never lies below adjacent channel water.</li>
      * </ul>
      * Every term is continuous in position and neutral when a reach enters or leaves query range.
@@ -272,7 +285,7 @@ public final class RollingHighlandsContinent implements Continent {
                 terrace, drainage);
             var section = FtfValley.sample(distance, land, water, shape);
             maxInfluence = Math.max(maxInfluence, section.influence());
-            support = Math.max(support, water + 1 - Math.max(0, distance - shape.bankEnd()));
+            support = Math.max(support, water + 1 - SUPPORT_SLOPE * Math.max(0, distance - shape.bankEnd()));
             double carve = section.height();
             scratch.section[k] = section;
             scratch.carve[k] = carve;

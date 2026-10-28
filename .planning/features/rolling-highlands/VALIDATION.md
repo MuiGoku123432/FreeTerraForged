@@ -20,13 +20,15 @@ fingerprints are unchanged after extracting `Heightmap.makeLand`.
 | Weirdness slices low/mid/high/peak (legacy 60/33/6/1) | 57–61/32–36/6/1 | 64–66/28–29/5–6/1 |
 | Beaches | 1.3–1.9% | 1.8–2.7% |
 | Grid-aligned channel length | 6.5–8.3% | 4.5–5.9% |
+| Inland dry land below sea level | — | 0 |
+| Samples > 3 blocks below all water within 24 blocks | — | 105–1,518 (gate ≤ 3,000) |
 
 ### Continent realism (`HighlandQualityTest.continentRealism`, seeds 0, 42, 8675309)
 
 | Metric | Target (RESEARCH-RH3 §3) | RH2 | RH3 |
 |---|---|---|---|
 | Lake area of land | 1–3% (gate 0.5–4%) | 4.3 / 8.1 / 6.1% | 0.6 / 1.0 / 1.7% |
-| Closed depressions | few % (legacy FTF land: 20–24%; gate ≤ 12%) | 1.7–2.1% | 8.5–8.8% |
+| Closed depressions | few % (legacy FTF land: 20–24%; gate ≤ 6%) | 1.7–2.1% | 2.5–2.9% |
 | Channel length cut > 60 below uncarved land | low (gate ≤ 25%) | 30–35% (gorges through unseen mountains) | 7–11% (planned valleys) |
 | Junction angle | ~72° humid (gate 50–95°) | 41–46° | 69–86° |
 | Concavity (water surface) | 0.3–0.6 (gate 0.15–0.65) | 0.07–0.12 | 0.19–0.28 |
@@ -47,6 +49,14 @@ Seed 0, default RH3 preset via datapack, radius 1 (9 FULL chunks), after feature
 | NeoForge | confluence (10891, 13166) | 1,435 | 1,435 | 0 | 0 | 0 | 4.5 chunks/s |
 
 Column sampling with climate: ~2.2 µs for RH3 vs ~9.7 µs for UPLIFT on this machine.
+
+## User world check (2026-10-28)
+
+Seed −6240223350076425471 with the user's exported Test-America-v3 noise settings (sea level 62, y −128..768;
+surface rule swapped for the default one because the pack references modded blocks), Fabric, 7×7 FULL chunks at
+(3888, 9377): water-topped columns 11,591 before the base-level floor, 1,372 after (1,369 planned river columns).
+99 river columns fail the "bed sealed" check both before and after: vanilla carvers cut under sea-level rivers and
+fill with water below sea level (base FTF does the same).
 
 ## Not covered
 

@@ -189,3 +189,14 @@ Lake area 1–3% of land (default), dry depressions ≤ ~3%, junction mean 55–
   and stop 2.8 km from the dam; nodes < 3 blocks above a lake's level enclosed by ≥ 3 flooded neighbours are filled;
   routing wanders ±6 blocks (700-block noise) so uniform slopes don't route along one grid row. Lakes now
   0.6–1.7% (defaults) and 0.7–1.1% (user preset).
+- In-game feedback 2026-10-28 (world seed -6240223350076425471, Test-America-v3 preset, SR 2.15.2): ponds beside
+  rivers and rivers on 45-degree stone embankments. Cause: legacy land minus the smooth plan incision went below the
+  water level of the adjacent river (often below sea level, well inland), and the bank support cone held only a 1:1
+  levee. The pits filled with standing water (vanilla sea-level fill; SR lakes above sea level). SR itself was
+  integrating correctly (bridge active, reads FTF heights/rivers/flow). Fix: dry land is floored (smooth max) at
+  the plan's per-node water level + 1.5 (smoothstep-bilinear, faded in at the coast), and the support cone falls
+  0.5 block per block. Measured: closed depressions 8.5% -> 2.5-2.9% (gate tightened to 6%), inland land below sea
+  level 0-161 samples -> 0 (new gate), pits >3 blocks below all water within 24 blocks 2.4k-9.7k -> 0.1k-1.5k (gate
+  3000). Real blocks at the reported site (3888,9377, 7x7 chunks): water-topped columns 11,591 -> 1,372 (the 1,369
+  planned river columns). Remaining validation failures there (riverbed not sealed, 99 columns) are vanilla carvers
+  under sea-level rivers and are identical before the fix.
