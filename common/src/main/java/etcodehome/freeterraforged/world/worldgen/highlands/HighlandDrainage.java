@@ -38,14 +38,20 @@ public final class HighlandDrainage {
     /** D8 neighbours; diagonals cost sqrt(2) in the flat-resolution distance and may not cross each other. */
     private static final int[] DX = {0, -1, 1, 0, -1, 1, -1, 1};
     private static final int[] DZ = {-1, 0, 0, 1, -1, 1, 1, -1};
+    /** Routing neighbourhood: the 8 lattice neighbours plus the 8 knight moves (26.6/63.4 degree directions). */
+    static final boolean KNIGHT_MOVES = false;
+    private static final int[] RX = KNIGHT_MOVES ? new int[]{0, -1, 1, 0, -1, 1, -1, 1, 1, 2, 2, 1, -1, -2, -2, -1} : DX;
+    private static final int[] RZ = KNIGHT_MOVES ? new int[]{-1, 0, 0, 1, -1, 1, 1, -1, 2, 1, -1, -2, -2, -1, 1, 2} : DZ;
     /** Subtle meander: peak lateral offset as a fraction of reach length on flat reaches. */
     static final double MEANDER = .12;
     /** Channel heads taper from a narrow stream to full width over this length (blocks). */
     static final double HEAD_TAPER = 160;
-    /** Fraction of a grid step a channel node may move toward the local low point. */
-    static final double SNAP = .3;
-    /** Random lateral node offset as a fraction of a grid step; SNAP + JITTER < 0.5 keeps nodes in their cell. */
-    static final double JITTER = .15;
+    /**
+     * Routing-node jitter per axis as a fraction of a grid step (RH4 R2). Every lattice node is sampled and routed at
+     * its jittered position, so flow directions are not limited to the 8 lattice axes. Below 0.25 every lattice quad
+     * stays convex: links never cross and node fields rasterise back onto the lattice by barycentric interpolation.
+     */
+    static final double NODE_JITTER = .24;
 
     public HighlandDrainage(HighlandCoast coast, HighlandLand surface, double spacing, WorldSettings.ControlPoints controls) {
         this(coast, surface, spacing, controls, .5, 10, 100, 10);
@@ -167,8 +173,67 @@ public final class HighlandDrainage {
 
     /** Deterministic river-less plan used when an owner's drainage cannot be built. */
     public Plan emptyPlan(int ownerX, int ownerZ) {
-        var basins = new HighlandBasins(surface.seed(), 0, 0, 1, 1, 64, new double[1], new double[1], new boolean[1], new boolean[1]);
+        var basins = new HighlandBasins(surface.seed(), 0, 0, 1, 1, 64, new double[1], new double[1], new boolean[1], new boolean[1], new double[1], new double[1]);
         return new Plan(ownerX, ownerZ, 64, 0, 0, List.of(), List.of(), basins, 0, 0, 0, 1, new double[1], new double[1]);
+    }
+
+    /**
+     * Resamples node values (at jittered positions) onto the regular lattice: each lattice point lies within
+     * NODE_JITTER of its own node, hence inside one of the four convex quads around that node; barycentric
+     * interpolation over the containing triangle (nearest node as a guard) gives a continuous, overshoot-free field.
+     */
+    /**
+     * Whether the link i→j would properly cross an existing receiver link. Links are at most a knight move long, so
+     * every link that can cross one has an endpoint within two lattice steps of i or j.
+     */
+    static boolean crosses(int i, int j, int[] parent, double[] nodeX, double[] nodeZ, int width, int depth) {
+        int ix = i % width, iz = i / width, jx = j % width, jz = j / width;
+        int x0 = Math.max(0, Math.min(ix, jx) - 2), x1 = Math.min(width - 1, Math.max(ix, jx) + 2);
+        int z0 = Math.max(0, Math.min(iz, jz) - 2), z1 = Math.min(depth - 1, Math.max(iz, jz) + 2);
+        double ax = nodeX[i], az = nodeZ[i], bx = nodeX[j], bz = nodeZ[j];
+        for (int z = z0; z <= z1; z++) for (int x = x0; x <= x1; x++) {
+            int k = z * width + x, p = parent[k];
+            if (p < 0 || k == i || k == j || p == i || p == j) continue;
+            double cx = nodeX[k], cz = nodeZ[k], dx = nodeX[p], dz = nodeZ[p];
+            double d1 = (dx - cx) * (az - cz) - (dz - cz) * (ax - cx), d2 = (dx - cx) * (bz - cz) - (dz - cz) * (bx - cx);
+            double d3 = (bx - ax) * (cz - az) - (bz - az) * (cx - ax), d4 = (bx - ax) * (dz - az) - (bz - az) * (dx - ax);
+            if (d1 * d2 < 0 && d3 * d4 < 0) return true;
+        }
+        return false;
+    }
+
+    static double[] rasterise(double[] values, double[] nodeX, double[] nodeZ, int width, int depth, int originX, int originZ, int step) {
+        double[] out = values.clone();
+        double[] weights = new double[3];
+        for (int iz = 1; iz < depth - 1; iz++) for (int ix = 1; ix < width - 1; ix++) {
+            int[] t = containing(ix, iz, nodeX, nodeZ, width, originX, originZ, step, weights);
+            if (t != null) out[iz * width + ix] = weights[0] * values[t[0]] + weights[1] * values[t[1]] + weights[2] * values[t[2]];
+        }
+        return out;
+    }
+
+    /**
+     * The jittered-node triangle containing lattice point (ix, iz) and its barycentric weights, or null if none (the
+     * caller keeps the point's own node value). The point lies within NODE_JITTER of its own node, hence inside one
+     * of the four convex quads around it.
+     */
+    static int[] containing(int ix, int iz, double[] nodeX, double[] nodeZ, int width, int originX, int originZ, int step, double[] weights) {
+        double px = originX + ix * step, pz = originZ + iz * step;
+        for (int qz = iz - 1; qz <= iz; qz++) for (int qx = ix - 1; qx <= ix; qx++) {
+            int a = qz * width + qx, b = a + 1, c = a + width, d = c + 1;
+            for (int[] t : new int[][]{{a, b, d}, {a, d, c}}) {
+                double x0 = nodeX[t[0]], z0 = nodeZ[t[0]], x1 = nodeX[t[1]], z1 = nodeZ[t[1]], x2 = nodeX[t[2]], z2 = nodeZ[t[2]];
+                double det = (z1 - z2) * (x0 - x2) + (x2 - x1) * (z0 - z2);
+                if (Math.abs(det) < 1e-9) continue;
+                double l0 = ((z1 - z2) * (px - x2) + (x2 - x1) * (pz - z2)) / det;
+                double l1 = ((z2 - z0) * (px - x2) + (x0 - x2) * (pz - z2)) / det;
+                double l2 = 1 - l0 - l1;
+                if (l0 < -1e-9 || l1 < -1e-9 || l2 < -1e-9) continue;
+                weights[0] = l0; weights[1] = l1; weights[2] = l2;
+                return t;
+            }
+        }
+        return null;
     }
 
     public Plan build(int ownerX, int ownerZ) {
@@ -191,6 +256,13 @@ public final class HighlandDrainage {
         boolean[] owned = new boolean[n], land = new boolean[n], seen = new boolean[n];
         Arrays.fill(parent, -1);
         double[] routed = new double[n];
+        double[] nodeX = new double[n], nodeZ = new double[n];
+        for (int i = 0; i < n; i++) {
+            long hash = mix(surface.seed() * 0x9E3779B97F4A7C15L + i * 0xC2B2AE3D27D4EB4FL + 7919);
+            nodeX[i] = originX + i % width * step + NODE_JITTER * step * (((hash & 0xFFFF) / 65535.0) * 2 - 1);
+            nodeZ[i] = originZ + i / width * step + NODE_JITTER * step * ((((hash >>> 16) & 0xFFFF) / 65535.0) * 2 - 1);
+        }
+        boolean[] done = new boolean[n], stalled = new boolean[n];
         // Equal levels (flats and filled depressions) resolve by geometric distance from the outlet, not by
         // array order, so flat drainage spreads radially instead of in parallel grid lines.
         PriorityQueue<QueueNode> queue = new PriorityQueue<>(Comparator.comparingDouble(QueueNode::level)
@@ -199,7 +271,7 @@ public final class HighlandDrainage {
             if (Thread.currentThread().isInterrupted()) throw new java.util.concurrent.CancellationException("RH domain interrupted");
             for (int ix = 0; ix < width; ix++) {
                 int i = iz * width + ix;
-                double x = originX + ix * step, z = originZ + iz * step;
+                double x = nodeX[i], z = nodeZ[i];
                 var s = coast.sample(x, z);
                 owned[i] = s.ownerX() == ownerX && s.ownerZ() == ownerZ;
                 if (!owned[i]) continue;
@@ -218,36 +290,62 @@ public final class HighlandDrainage {
         while (!queue.isEmpty()) {
             var entry = queue.remove();
             int i = entry.index, ix = i % width, iz = i / width;
+            if (done[i]) continue;
+            // Receiver: the steepest descent (by real jittered distance) among already-resolved neighbours; on flats
+            // and filled depressions (zero drop) the one closest to the outlet along the routed path.
+            if (land[i]) {
+                int best = -1; double bestRouted = Double.POSITIVE_INFINITY;
+                boolean[] excluded = new boolean[RX.length];
+                while (true) {
+                    int pick = -1, pickDir = -1; double pickSlope = Double.NEGATIVE_INFINITY, pickVia = Double.POSITIVE_INFINITY;
+                    for (int d = 0; d < RX.length; d++) {
+                        if (excluded[d]) continue;
+                        int nx = ix + RX[d], nz = iz + RZ[d];
+                        if (nx < 0 || nz < 0 || nx >= width || nz >= depth) continue;
+                        int j = nz * width + nx;
+                        if (!done[j]) continue;
+                        double dist = Math.hypot(nodeX[i] - nodeX[j], nodeZ[i] - nodeZ[j]);
+                        double slope = Math.max(0, filled[i] - filled[j]) / dist;
+                        double via = routed[j] + dist / step;
+                        if (slope > pickSlope + 1e-12 || Math.abs(slope - pickSlope) <= 1e-12 && via < pickVia) {
+                            pick = j; pickDir = d; pickSlope = slope; pickVia = via;
+                        }
+                    }
+                    if (pick < 0) break;
+                    if (!crosses(i, pick, parent, nodeX, nodeZ, width, depth)) { best = pick; bestRouted = pickVia; break; }
+                    excluded[pickDir] = true;
+                }
+                if (best < 0) { stalled[i] = true; continue; } // only crossing links so far; re-queued by the next neighbour
+                parent[i] = best; routed[i] = bestRouted;
+            }
+            done[i] = true;
             order[count++] = i;
-            for (int d = 0; d < DX.length; d++) {
-                int nx = ix + DX[d], nz = iz + DZ[d];
+            for (int d = 0; d < RX.length; d++) {
+                int nx = ix + RX[d], nz = iz + RZ[d];
                 if (nx < 0 || nz < 0 || nx >= width || nz >= depth) continue;
                 int j = nz * width + nx;
-                if (!owned[j] || seen[j]) continue;
-                boolean diagonal = DX[d] != 0 && DZ[d] != 0;
-                if (diagonal) {
-                    int a = iz * width + nx, b = nz * width + ix;
-                    if (parent[a] == b || parent[b] == a) continue;
-                }
-                seen[j] = true; parent[j] = i;
-                // Routing only: a low-amplitude wander field breaks long straight flow paths on uniform slopes (a
-                // regular grid otherwise routes them along one row or column). Incision always uses the true ground.
-                double wander = ROUTE_WANDER * (2 * noise(surface.seed() + 9371, originX + nx * step, originZ + nz * step, ROUTE_WAVELENGTH) - 1);
-                filled[j] = Math.max(entry.level, ground[j] + wander);
-                routed[j] = entry.distance + (diagonal ? Math.sqrt(2) : 1);
-                queue.add(new QueueNode(j, filled[j], routed[j]));
+                if (!owned[j] || done[j]) continue;
+                // Routing only: a low-amplitude wander field breaks long straight flow paths on uniform slopes.
+                // Incision always uses the true ground.
+                double wander = ROUTE_WANDER * (2 * noise(surface.seed() + 9371, nodeX[j], nodeZ[j], ROUTE_WAVELENGTH) - 1);
+                double level = Math.max(filled[i], ground[j] + wander);
+                if (seen[j] && !stalled[j] && level >= filled[j]) continue;
+                if (seen[j]) level = Math.min(level, filled[j]);
+                seen[j] = true; stalled[j] = false;
+                filled[j] = level;
+                queue.add(new QueueNode(j, level, routed[i] + Math.hypot(nodeX[i] - nodeX[j], nodeZ[i] - nodeZ[j]) / step));
             }
         }
         for (int i = 0; i < n; i++) {
             if (!land[i]) continue;
-            if (!seen[i]) throw new IllegalStateException("RH land component has no verified ocean outlet at " + ownerX + "," + ownerZ);
+            if (!done[i]) throw new IllegalStateException("RH land component has no verified ocean outlet at " + ownerX + "," + ownerZ);
             int ix = i % width, iz = i / width;
             for (int d = 0; d < DX.length; d++) {
                 int nx = ix + DX[d], nz = iz + DZ[d];
                 if (nx < 0 || nz < 0 || nx >= width || nz >= depth) continue;
                 int j = nz * width + nx;
                 if (!owned[j]) {
-                    var adjacent = coast.sample(originX + nx * step, originZ + nz * step);
+                    var adjacent = coast.sample(nodeX[j], nodeZ[j]);
                     if (adjacent.edge() > coastEdge) throw new IllegalStateException("RH land bridge requires shared ports at " + ownerX + "," + ownerZ);
                 }
             }
@@ -272,6 +370,7 @@ public final class HighlandDrainage {
                 if (nx < 0 || nz < 0 || nx >= width || nz >= depth) continue;
                 int j = nz * width + nx;
                 if (j == parent[i] || parent[j] == i || !land[j] || area[j] < 2 * area[i] || filled[j] > filled[i]) continue;
+                if (crosses(i, j, parent, nodeX, nodeZ, width, depth)) continue;
                 if (best < 0 || area[j] > area[best]) best = j;
             }
             if (best < 0) continue;
@@ -309,7 +408,7 @@ public final class HighlandDrainage {
         for (int i = 0; i < n; i++) {
             int p = parent[i];
             if (p < 0) continue;
-            run[i] = step * Math.hypot(i % width - p % width, i / width - p / width);
+            run[i] = Math.hypot(nodeX[i] - nodeX[p], nodeZ[i] - nodeZ[p]);
         }
         boolean[] keep = new boolean[n];
         for (int round = 0; ; round++) {
@@ -367,6 +466,9 @@ public final class HighlandDrainage {
         // Per-node water level (base level): dry ground is never rendered below it (see HighlandPlanIndex.waterFloor).
         double[] waterGrid = new double[n];
         for (int i = 0; i < n; i++) waterGrid[i] = land[i] ? water[i] : 0;
+        // Node values live at jittered positions; the field interpolators work on the regular lattice.
+        incision = rasterise(incision, nodeX, nodeZ, width, depth, originX, originZ, step);
+        waterGrid = rasterise(waterGrid, nodeX, nodeZ, width, depth, originX, originZ, step);
         int[] tributaries = new int[n], mainChild = new int[n];
         Arrays.fill(mainChild, -1);
         for (int i = 0; i < n; i++) {
@@ -375,27 +477,9 @@ public final class HighlandDrainage {
             tributaries[p]++;
             if (mainChild[p] < 0 || area[i] > area[mainChild[p]] || area[i] == area[mainChild[p]] && i < mainChild[p]) mainChild[p] = i;
         }
-        HighlandBasins basins = new HighlandBasins(surface.seed() + 52361, originX, originZ, width, depth, step, incised, water, land, channel);
-        // Snap channel nodes toward the local low point of the planning surface so rivers follow real hollows
-        // between grid nodes. Nodes stay inside their own cell, so the D8 no-crossing guarantee survives.
-        double[] pathX = new double[n], pathZ = new double[n];
-        for (int i = 0; i < n; i++) {
-            pathX[i] = originX + i % width * step; pathZ[i] = originZ + i / width * step;
-            if (!channel[i] || !land[i]) continue;
-            double bestX = pathX[i], bestZ = pathZ[i], best = ground[i];
-            for (int oz = -1; oz <= 1; oz++) for (int ox = -1; ox <= 1; ox++) {
-                if (ox == 0 && oz == 0) continue;
-                double sx = pathX[i] + ox * SNAP * step, sz = pathZ[i] + oz * SNAP * step;
-                var site = coast.sample(sx, sz);
-                if (site.edge() <= coastEdge) continue;
-                double h = planningHeight(sx, sz, site.edge()) + .5 * Math.hypot(ox, oz);
-                if (h < best) { best = h; bestX = sx; bestZ = sz; }
-            }
-            // Deterministic jitter breaks long collinear chains on uniform slopes (stays within the node's cell).
-            long hash = mix(surface.seed() ^ (i * 0x9E3779B97F4A7C15L));
-            pathX[i] = bestX + JITTER * step * (((hash & 0xFFFF) / 65535.0) * 2 - 1);
-            pathZ[i] = bestZ + JITTER * step * ((((hash >>> 16) & 0xFFFF) / 65535.0) * 2 - 1);
-        }
+        HighlandBasins basins = new HighlandBasins(surface.seed() + 52361, originX, originZ, width, depth, step, incised, water, land, channel, nodeX, nodeZ);
+        // Channels run through the routing nodes' own (jittered) positions.
+        double[] pathX = nodeX, pathZ = nodeZ;
         List<Node> samples = new ArrayList<>();
         List<Reach> reaches = new ArrayList<>();
         List<Double> levels = new ArrayList<>();

@@ -25,14 +25,14 @@ final class HighlandPlanformProbe {
 
     record Metrics(String label, int gridStep, int gridNodes, int landNodes, int refinedNodes, double buildMs,
                    double sinuosity, double straightShare, double meanderShare, int sinuosityWindows,
-                   double directionBias, int directionWindows, double junctionAngle, double acuteShare, int junctions,
+                   double directionBias, double knightBias, double anisotropy, int directionWindows, double junctionAngle, double acuteShare, int junctions,
                    double tongueMedian, double narrowTongueShare, int tongues, long crossings) {
         String summary() {
             return String.format(Locale.ROOT,
                 "RHP %s grid=%d nodes=%d land=%d refined=%d build=%.0fms sinuosity=%.3f straight<1.1=%.0f%% meander>1.5=%.0f%% (n=%d) "
-                    + "directionBias=%.1f%% (n=%d, uniform 22.2%%) junction=%.1fdeg acute<25=%.0f%% (n=%d) tipWidth=%.1f sharp<5=%.0f%% (n=%d) crossings=%d",
+                    + "directionBias=%.1f%% knightBias=%.1f%% anisotropy=%.1f%% (n=%d, uniform 22.2%%) junction=%.1fdeg acute<25=%.0f%% (n=%d) tipWidth=%.1f sharp<5=%.0f%% (n=%d) crossings=%d",
                 label, gridStep, gridNodes, landNodes, refinedNodes, buildMs, sinuosity, 100 * straightShare, 100 * meanderShare,
-                sinuosityWindows, 100 * directionBias, directionWindows, junctionAngle, 100 * acuteShare, junctions, tongueMedian,
+                sinuosityWindows, 100 * directionBias, 100 * knightBias, 100 * anisotropy, directionWindows, junctionAngle, 100 * acuteShare, junctions, tongueMedian,
                 100 * narrowTongueShare, tongues, crossings);
         }
     }
@@ -72,7 +72,8 @@ final class HighlandPlanformProbe {
         // Sinuosity: 1 km windows walked downstream from channel samples on rivers > 4 km2, away from lakes.
         double sinSum = 0; int windows = 0, straight = 0, meander = 0;
         // Direction bias: 512-block chords on rivers > 1 km2.
-        int biased = 0, chords = 0;
+        int biased = 0, knight = 0, chords = 0;
+        double[] sector = new double[9];
         for (int i = 0; i < n; i++) {
             var start = nodes.get(i);
             if (start.parent() < 0 || lake[i]) continue;
@@ -91,6 +92,9 @@ final class HighlandPlanformProbe {
                     double angle = Math.toDegrees(Math.atan2(w[2] - start.z(), w[1] - start.x()));
                     double m = ((angle % 45) + 45) % 45;
                     if (Math.min(m, 45 - m) <= 5) biased++;
+                    // Knight-move axes (26.57 and 63.43 degrees, i.e. 26.57 or 18.43 within each 45-degree sector).
+                    if (Math.abs(m - 26.565) <= 5 || Math.abs(m - 18.435) <= 5) knight++;
+                    sector[(int) Math.min(8, Math.min(m, 45 - m) / 2.5)]++;
                     chords++;
                 }
             }
@@ -139,7 +143,7 @@ final class HighlandPlanformProbe {
 
         return new Metrics(label, plan.gridStep(), plan.gridNodes(), plan.landNodes(), n, plan.buildNanos() / 1e6,
             windows == 0 ? Double.NaN : sinSum / windows, ratio(straight, windows), ratio(meander, windows), windows,
-            ratio(biased, chords), chords, junctions == 0 ? Double.NaN : angleSum / junctions, ratio(acute, junctions), junctions,
+            ratio(biased, chords), ratio(knight, chords), anisotropy(sector, chords), chords, junctions == 0 ? Double.NaN : angleSum / junctions, ratio(acute, junctions), junctions,
             tongues.isEmpty() ? Double.NaN : tongues.get(tongues.size() / 2), ratio(narrow, tongues.size()), tongues.size(),
             crossings(nodes));
     }
@@ -239,6 +243,15 @@ final class HighlandPlanformProbe {
         }
         Files.createDirectories(out.getParent());
         ImageIO.write(image, "png", out.toFile());
+    }
+
+    /** Total-variation distance of the folded chord-direction histogram (offset from the nearest 45-degree axis,
+     *  0-22.5 degrees in 2.5-degree bins) from uniform: 0 = isotropic. */
+    private static double anisotropy(double[] bins, int total) {
+        if (total == 0) return 0;
+        double tv = 0;
+        for (double b : bins) tv += Math.abs(b / total - 1.0 / bins.length);
+        return tv / 2;
     }
 
     private static double ratio(long a, long b) { return b == 0 ? 0 : (double) a / b; }

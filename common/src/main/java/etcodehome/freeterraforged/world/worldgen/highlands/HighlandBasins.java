@@ -35,7 +35,7 @@ public final class HighlandBasins {
     public record Sample(int lake, double water, double depth, double proximity) {}
 
     HighlandBasins(long seed, int originX, int originZ, int width, int depth, int step, double[] ground,
-                   double[] filled, boolean[] land, boolean[] channel) {
+                   double[] filled, boolean[] land, boolean[] channel, double[] nodeX, double[] nodeZ) {
         this.seed = seed;
         this.originX = originX; this.originZ = originZ; this.width = width; this.depth = depth; this.step = step;
         int n = ground.length;
@@ -118,6 +118,24 @@ public final class HighlandBasins {
             }
             System.arraycopy(next, 0, depthField, 0, n);
         }
+        // Node values belong to jittered node positions; resample onto the lattice the sampler interpolates over.
+        // Each lattice point keeps its own node's lake; nodes of other lakes count as outside (dry, out of reach).
+        double[] depthOut = depthField.clone(), reachOut = reach.clone(), weights = new double[3];
+        for (int iz = 1; iz < depth - 1; iz++) for (int ix = 1; ix < width - 1; ix++) {
+            int i = iz * width + ix, id = basin[i];
+            if (id < 0) continue;
+            int[] t = HighlandDrainage.containing(ix, iz, nodeX, nodeZ, width, originX, originZ, step, weights);
+            if (t == null) continue;
+            double d = 0, r = 0;
+            for (int k = 0; k < 3; k++) {
+                boolean member = basin[t[k]] == id;
+                d += weights[k] * (member ? depthField[t[k]] : -REGION_DEPTH);
+                r += weights[k] * (member ? reach[t[k]] : SHORE_REACH);
+            }
+            depthOut[i] = d; reachOut[i] = r;
+        }
+        System.arraycopy(depthOut, 0, depthField, 0, n);
+        System.arraycopy(reachOut, 0, reach, 0, n);
     }
 
     public int count() { return levels.length; }

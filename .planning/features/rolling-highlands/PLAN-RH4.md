@@ -183,3 +183,22 @@ the centre and wetland margins — yes. **O3** knight-move neighbours — evalua
   user continent now routes at 128 (71,446 grid / 19,051 land nodes, build 539 ms; default seeds unchanged at 128,
   205–265 ms). User metrics: sinuosity 1.18, junction 79°, tip width 14, but direction bias rises 30.3% → 38.1% —
   four lattice steps per 512-block chord expose the D8 axes more than two smoothed 256 steps did (R2 target).
+- R2 done: every lattice node routed and sampled at a jittered position (±0.24 step per axis, quads stay convex);
+  receivers by steepest real-distance descent with a link-crossing check (replaces SNAP/JITTER); incision, base
+  level and lake depth/reach resampled onto the field lattice by barycentric interpolation over the jittered
+  triangles (without the lake resample, node-offset lake depths drew straight-edged wedges beside backwater lakes).
+  New metric `anisotropy` (total-variation distance of chord directions from uniform).
+
+  | | dir. bias R1 → R2 | anisotropy R1 → R2 | sinuosity | junction | <25° | build |
+  |---|---|---|---|---|---|---|
+  | seed 0 | 28.6 → 26.1% | 9.1 → 6.6% | 1.27 | 93° | 0% | 161 ms |
+  | seed 42 | 27.6 → 25.4% | 6.9 → 7.4% | 1.19 | 80° | 7% | 180 ms |
+  | seed 8675309 | 30.7 → 20.6% | 10.0 → 4.0% | 1.18 | 81° | 0% | 137 ms |
+  | user | 38.1 → 28.0% | 18.1 → 6.4% | 1.21 | 72° | 7% | 313 ms |
+
+  O3 knight moves (16 neighbours) evaluated: 45°-axis bias falls further (18.5–24.6%) but chords pile onto the
+  knight axes instead (44–47% within ±5° of 26.6/63.4° vs ~40% with 8 neighbours, 22% uniform), anisotropy is
+  not better (5.4–8.4%), junctions get sharper (user 57°, 24% < 25°) and sinuosity drops. Not adopted
+  (`KNIGHT_MOVES = false`). Residual bias is expected to fall further once R3 meanders the channel; R6 decides.
+  Lakes 0.73–0.85%, depressions 2.2–2.4%, all gates pass. The blocky grid-scale pattern visible on upland hillshades
+  predates R2 (present at R1/128 and RH3/256) — tracked as a follow-up, not part of the routing change.
