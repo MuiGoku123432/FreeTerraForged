@@ -96,9 +96,9 @@ cheap fallback, not a target.
 | Metric | RH3 (user world) | Target | Basis |
 |---|---|---|---|
 | Sinuosity, 1 km windows on rivers > 4 km² | 1.17 mean | mean 1.25–1.6; ≥ 20% of windows < 1.1 **and** ≥ 15% > 1.5 | §3 mixed regimes; user decision "balance with straighter sections" |
-| Direction bias: 512-block chord directions within ±5° of a 45° axis | measure in M0 | ≤ 30% (uniform = 22.2%) | §4 |
+| Direction bias: 512-block chord directions within ±5° of a 45° axis | 27.6–30.7% | ≤ 26% (uniform = 22.2%) | §4 |
 | Junction angle mean / share < 25° | 65° / ~27% < 30° | 60–80° / ≤ 10% | §5 |
-| Confluence tongue: dry width 8 blocks behind the tip | knife edge (measure in M0) | ≥ 6 blocks | §5 rounded apex |
+| Confluence tip: dry width 2 blocks behind the tip | 9–11 median, up to 27% < 5 | median ≥ 8, ≤ 5% < 5 | §5 rounded apex |
 | Channel cells outside own valley floor + banks | n/a | 0 | §3 confinement |
 | Channel self/mutual crossings | n/a | 0 | — |
 | Plan build (user continent) | 206–260 ms at 256 | ≤ 1 s | budget |

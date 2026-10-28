@@ -114,7 +114,7 @@ One commit per phase; each runs the full `:common:test` suite, the RH4 metrics a
 - Gates: tongue width ≥ 6 blocks; FULL-chunk validation at confluences (both loaders).
 
 ### R6 — C2b (conditional): irregular routing graph
-- Only if direction bias > 30% after R5.
+- Only if direction bias > 26% after R5 (RH3 baseline 27.6–30.7%, uniform 22.2%).
 - Poisson-disc nodes + Delaunay neighbours; Priority-Flood and stream power on the graph; fields rasterised as in R2.
 
 ### R7 — Settings and model 4
@@ -134,7 +134,7 @@ One commit per phase; each runs the full `:common:test` suite, the RH4 metrics a
 
 See RESEARCH-RH4 §6. Summary: sinuosity mean 1.25–1.6 with ≥ 20% straight (< 1.1) and ≥ 15% meandering (> 1.5)
 windows; direction bias ≤ 30%; junction mean 60–80°, < 25° ≤ 10%; tongue ≥ 6 blocks; 0 channels outside their floor;
-0 crossings; plan build ≤ 1 s on the user continent; sampling ≤ +25%; all RH3 gates.
+0 crossings; tip width median ≥ 8 with ≤ 5% < 5; direction bias ≤ 26%; plan build ≤ 1 s on the user continent; sampling ≤ +25%; all RH3 gates.
 
 ## 5. Decisions
 
@@ -151,10 +151,8 @@ Design (proposed, for review):
 
 ## 6. Open questions
 
-- **O1** Expose a "Meanders" slider (0–200%) on the River page, or keep it internal for now?
-- **O2** Oxbows as still-water lakes (SR treats them as lakes) or as wetland (swamp biome, shallow pools)? Proposed:
-  water in the centre, wetland margins.
-- **O3** Knight-move neighbours in C2a: adopt only if the R0/R2 metrics show a clear gain (proposed).
+Resolved 2026-10-28 (user): **O1** Meanders slider 0–200% on the River page — yes. **O2** oxbows with still water in
+the centre and wetland margins — yes. **O3** knight-move neighbours — evaluate in R2, adopt only with a clear gain.
 
 ## 7. Risks
 
@@ -168,3 +166,16 @@ Design (proposed, for review):
 
 - 2026-10-28: research and plan written (baselines from the user world: grid step 256, sinuosity 1.17, junction mean
   65° with ~27% below 30°, plan build 206–260 ms).
+- R0 done: `HighlandPlanformProbe` / `HighlandPlanformTest` (sinuosity, direction bias, junction angle, tip width 2
+  blocks behind the dry confluence tip, channel crossings, plan cost; hillshades `planform-user*.png`), user preset
+  fixture `test-america-v3.json`. Baseline (RH3):
+
+  | | grid | build | sinuosity | <1.1 / >1.5 | dir. bias | junction | <25° | tip width / <5 | crossings |
+  |---|---|---|---|---|---|---|---|---|---|
+  | seed 0 | 128 | 181 ms | 1.21 | 23% / 7% | 28.6% | 92° | 3% | 10 / 0% | 2 |
+  | seed 42 | 128 | 202 ms | 1.31 | 5% / 11% | 27.6% | 85° | 11% | 11 / 20% | 0 |
+  | seed 8675309 | 128 | 215 ms | 1.24 | 20% / 8% | 30.7% | 72° | 22% | 10 / 19% | 2 |
+  | user | 256 | 186 ms | 1.17 | 53% / 7% | 30.3% | 65° | 22% | 9 / 27% | 4 |
+
+  Crossings are tributary Hermite curves hooking back over the main stem near junctions (visible as hooks in the
+  render) — R4 removes them. Tip-width target revised to ≥ 5 blocks 2 behind the tip (knife edge ≈ 3).
