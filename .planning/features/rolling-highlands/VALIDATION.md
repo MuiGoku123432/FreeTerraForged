@@ -25,7 +25,7 @@ fingerprints are unchanged after extracting `Heightmap.makeLand`.
 
 | Metric | Target (RESEARCH-RH3 §3) | RH2 | RH3 |
 |---|---|---|---|
-| Lake area of land | 1–3% (gate 0.5–4%) | 4.3 / 8.1 / 6.1% | 1.3 / 2.5 / 1.6% |
+| Lake area of land | 1–3% (gate 0.5–4%) | 4.3 / 8.1 / 6.1% | 0.6 / 1.0 / 1.7% |
 | Closed depressions | few % (legacy FTF land: 20–24%; gate ≤ 12%) | 1.7–2.1% | 8.5–8.8% |
 | Channel length cut > 60 below uncarved land | low (gate ≤ 25%) | 30–35% (gorges through unseen mountains) | 7–11% (planned valleys) |
 | Junction angle | ~72° humid (gate 50–95°) | 41–46° | 69–86° |

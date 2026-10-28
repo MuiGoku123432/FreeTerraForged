@@ -22,6 +22,9 @@ public final class HighlandBasins {
     static final double REGION_DEPTH = 96;
     /** Horizontal reach (blocks) of a lake's shore influence from its flooded nodes. */
     static final double SHORE_REACH = 384;
+    private static final int[] CARDINAL = {1, 3, 4, 6};
+    /** Nodes more than this above their lake's level stay as islands. */
+    static final double ISLAND_MIN = 3;
     private static final int[] RX = {-1, 0, 1, -1, 1, -1, 0, 1}, RZ = {-1, -1, -1, 0, 0, 1, 1, 1};
     private final int originX, originZ, width, depth, step;
     private final long seed;
@@ -96,6 +99,24 @@ public final class HighlandBasins {
         this.depthField = new double[n];
         for (int i = 0; i < n; i++) {
             depthField[i] = basin[i] < 0 ? -REGION_DEPTH : flooded[i] ? levels[basin[i]] - ground[i] : Math.min(-1, levels[basin[i]] - ground[i]);
+        }
+        // Fill shallow pinholes: a node barely above its lake's level but enclosed by flooded nodes would surface as
+        // one of a lattice of identical islands at grid spacing. Real islands (more than ISLAND_MIN above) stay.
+        for (int pass = 0; pass < 2; pass++) {
+            double[] next = depthField.clone();
+            for (int i = 0; i < n; i++) {
+                if (basin[i] < 0 || depthField[i] > 0 || depthField[i] < -ISLAND_MIN) continue;
+                int x = i % width, z = i / width, wet = 0;
+                double sum = 0;
+                for (int dir : CARDINAL) {
+                    int nx = x + RX[dir], nz = z + RZ[dir];
+                    if (nx < 0 || nz < 0 || nx >= width || nz >= depth) continue;
+                    int j = nz * width + nx;
+                    if (basin[j] == basin[i] && depthField[j] > 0) { wet++; sum += depthField[j]; }
+                }
+                if (wet >= 3) next[i] = Math.max(.5, .5 * sum / wet);
+            }
+            System.arraycopy(next, 0, depthField, 0, n);
         }
     }
 

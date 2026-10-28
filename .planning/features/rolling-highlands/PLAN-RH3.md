@@ -184,3 +184,8 @@ Lake area 1–3% of land (default), dry depressions ≤ ~3%, junction mean 55–
 - Q8 done: lake rims (ground near a shoreline held ≥ 1 block above the lake, since rendered land carries legacy detail
   the plan grid cannot see); full build on both loaders; FULL-chunk validation passes on Fabric (confluence, dam-lake
   outlet) and NeoForge (confluence); docs in IMPLEMENTATION.md / VALIDATION.md; deployed to the F&F Terra instance.
+- Post-Q8 (user preview feedback, Test-America-v3 preset): dam lakes drowned whole trunk valleys (one 10 km
+  lake) and shallow lakes showed a lattice of grid-spaced pinhole islands. Fixes: dam lakes retry at 70%/50% height
+  and stop 2.8 km from the dam; nodes < 3 blocks above a lake's level enclosed by ≥ 3 flooded neighbours are filled;
+  routing wanders ±6 blocks (700-block noise) so uniform slopes don't route along one grid row. Lakes now
+  0.6–1.7% (defaults) and 0.7–1.1% (user preset).

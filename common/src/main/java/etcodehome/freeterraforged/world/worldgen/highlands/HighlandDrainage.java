@@ -18,6 +18,10 @@ public final class HighlandDrainage {
     static final int MAX_LAKE_NODES = 600;
     /** Single-node pits read as square ponds at plan resolution; such depressions are breached instead. */
     static final int MIN_DEPRESSION_LAKE_NODES = 3;
+    /** Routing wander amplitude (blocks) and wavelength (blocks). */
+    static final double ROUTE_WANDER = 6, ROUTE_WAVELENGTH = 700;
+    /** Dam lakes never extend further than this from their dam (keeps them from drowning a whole trunk valley). */
+    static final double LAKE_MAX_REACH = 2800;
     /** Dam-lake sites: channel gradient limit, share of eligible sites used at lake chance 1, minimum spacing. */
     static final double LAKE_SITE_SLOPE = .015, LAKE_SITE_DENSITY = 1, LAKE_SPACING = 1000;
     /** Steepest water-surface gradient between refined samples (rapids); keeps adjacent wet cells within a block. */
@@ -105,31 +109,42 @@ public final class HighlandDrainage {
             boolean spaced = true;
             for (int[] site : sites) if (Math.hypot(site[0] - d % width, site[1] - d / width) * step < LAKE_SPACING) { spaced = false; break; }
             if (!spaced) continue;
-            double damHeight = Math.max(4, lakeDepth * (.6 + .8 * ((mix(surface.seed() * 137 + d) >>> 11) * 0x1.0p-53)));
-            double level = water[d] + damHeight;
-            // Mark the dam's drainage basin (its subtree), then flood the connected upstream nodes below the level.
+            double fullHeight = Math.max(4, lakeDepth * (.6 + .8 * ((mix(surface.seed() * 137 + d) >>> 11) * 0x1.0p-53)));
+            // Mark the dam's drainage basin (its subtree).
             stamp++;
             int head = 0, tail = 0;
             queue[tail++] = d;
             while (head < tail) { int v = queue[head++]; mark[v] = stamp; for (int c = offset[v]; c < offset[v + 1]; c++) queue[tail++] = children[c]; }
-            stamp++;
-            int basinStamp = stamp - 1;
-            head = 0; tail = 0;
-            for (int c = offset[d]; c < offset[d + 1]; c++) if (incised[children[c]] < level) { queue[tail++] = children[c]; mark[children[c]] = stamp; }
-            boolean leaks = false;
-            while (head < tail && !leaks) {
-                int v = queue[head++], vx = v % width, vz = v / width;
-                for (int dir = 0; dir < DX.length; dir++) {
-                    int nx = vx + DX[dir], nz = vz + DZ[dir];
-                    if (nx < 0 || nz < 0 || nx >= width || nz >= depth) continue;
-                    int j = nz * width + nx;
-                    if (j == d || mark[j] == stamp || incised[j] >= level) continue;
-                    if (!land[j] || mark[j] != basinStamp) { leaks = true; break; }
-                    mark[j] = stamp; queue[tail++] = j;
-                    if (tail > MAX_LAKE_NODES) { leaks = true; break; }
+            int basinStamp = stamp;
+            double level = 0;
+            boolean placed = false;
+            // Try the full dam height, then lower ones, until the flood stays inside the basin, the size limit and
+            // the reach from the dam.
+            for (double fraction : new double[]{1, .7, .5}) {
+                level = water[d] + Math.max(3, fullHeight * fraction);
+                stamp++;
+                head = 0; tail = 0;
+                for (int c = offset[d]; c < offset[d + 1]; c++) if (incised[children[c]] < level) { queue[tail++] = children[c]; mark[children[c]] = stamp; }
+                boolean leaks = false;
+                while (head < tail && !leaks) {
+                    int v = queue[head++], vx = v % width, vz = v / width;
+                    if (Math.hypot(vx - d % width, vz - d / width) * step > LAKE_MAX_REACH) { leaks = true; break; }
+                    for (int dir = 0; dir < DX.length; dir++) {
+                        int nx = vx + DX[dir], nz = vz + DZ[dir];
+                        if (nx < 0 || nz < 0 || nx >= width || nz >= depth) continue;
+                        int j = nz * width + nx;
+                        if (j == d || mark[j] == stamp || incised[j] >= level) continue;
+                        if (!land[j] || mark[j] != basinStamp) { leaks = true; break; }
+                        mark[j] = stamp; queue[tail++] = j;
+                        if (tail > MAX_LAKE_NODES) { leaks = true; break; }
+                    }
                 }
+                // Restore basin marks of nodes not flooded in this attempt for the next attempt.
+                if (leaks) { for (int q = 0; q < tail; q++) mark[queue[q]] = basinStamp; continue; }
+                placed = tail >= 2;
+                break;
             }
-            if (leaks || tail < 2) continue;
+            if (!placed) continue;
             for (int q = 0; q < tail; q++) water[queue[q]] = level;
             incised[d] = Math.max(incised[d], level + 1);
             water[d] = Math.max(water[d], incised[d]);
@@ -208,7 +223,10 @@ public final class HighlandDrainage {
                     if (parent[a] == b || parent[b] == a) continue;
                 }
                 seen[j] = true; parent[j] = i;
-                filled[j] = Math.max(entry.level, ground[j]);
+                // Routing only: a low-amplitude wander field breaks long straight flow paths on uniform slopes (a
+                // regular grid otherwise routes them along one row or column). Incision always uses the true ground.
+                double wander = ROUTE_WANDER * (2 * noise(surface.seed() + 9371, originX + nx * step, originZ + nz * step, ROUTE_WAVELENGTH) - 1);
+                filled[j] = Math.max(entry.level, ground[j] + wander);
                 routed[j] = entry.distance + (diagonal ? Math.sqrt(2) : 1);
                 queue.add(new QueueNode(j, filled[j], routed[j]));
             }
