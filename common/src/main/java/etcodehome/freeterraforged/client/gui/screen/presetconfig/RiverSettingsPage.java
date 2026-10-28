@@ -218,6 +218,12 @@ class RiverSettingsPage extends PresetEditorPage {
 			// Rolling Highlands routes rivers from the terrain; these FTF settings shape what it builds.
 			this.left.addWidget(PresetWidgets.createLabel("gui.ftf.highlands.rivers"));
 			this.left.addWidget(this.riverCount);
+			var terrain = preset.terrain();
+			this.left.addWidget(PresetWidgets.createIntSlider(terrain.highlands().meanders(), 0, 200, "gui.ftf.highlands.meanders", (slider, value) -> {
+				terrain.rollingHighlands = terrain.highlands().withMeanders((int) slider.scaleValue(value));
+				this.regenerate();
+				return value;
+			}));
 			this.left.addWidget(PresetWidgets.createLabel(FTFTranslationKeys.GUI_LABEL_RIVER_FLOW_DYNAMICS));
 			this.left.addWidget(this.toggleFlowParticles);
 			this.left.addWidget(this.toggleBoatFlowDynamics);

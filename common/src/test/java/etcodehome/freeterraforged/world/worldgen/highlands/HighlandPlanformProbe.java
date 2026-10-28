@@ -148,6 +148,21 @@ final class HighlandPlanformProbe {
             crossings(nodes), plan.oxbows().size(), outsideBelt(plan));
     }
 
+    /** Total channel length over total valley-axis length (axis samples are ≤ 16 blocks apart; larger gaps are stem jumps). */
+    static double channelToAxis(HighlandDrainage.Plan plan) {
+        double channel = 0, axis = 0;
+        for (var node : plan.nodes()) if (node.parent() >= 0) {
+            var p = plan.nodes().get(node.parent());
+            channel += Math.hypot(node.x() - p.x(), node.z() - p.z());
+        }
+        for (int i = 1; i < plan.axis().size(); i++) {
+            var a = plan.axis().get(i - 1); var b = plan.axis().get(i);
+            double d = Math.hypot(a.x() - b.x(), a.z() - b.z());
+            if (d < 40) axis += d;
+        }
+        return axis > 0 ? channel / axis : Double.NaN;
+    }
+
     /** Channel nodes farther from their own reach's valley axis than the meander belt there (+1 block). */
     static long outsideBelt(HighlandDrainage.Plan plan) {
         long outside = 0;

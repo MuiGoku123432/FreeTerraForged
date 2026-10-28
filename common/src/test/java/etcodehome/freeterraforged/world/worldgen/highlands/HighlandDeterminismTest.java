@@ -52,10 +52,30 @@ class HighlandDeterminismTest {
             }
         }
     }
+    /**
+     * The Meanders setting scales how far channels wind around their valley axes (channel length over axis length):
+     * 0 keeps them on the axis without oxbows; 200 stays crossing-free and inside the belt.
+     */
+    @Test void meanderStrengthControlsChannelLength() {
+        double[] ratio = new double[3];
+        int[] strengths = {0, 100, 200};
+        for (int i = 0; i < 3; i++) {
+            try (var context = WorldgenFixture.context(preset(RollingHighlandsSettings.DEFAULT.withMeanders(strengths[i])), 0)) {
+                var plan = ((RollingHighlandsContinent) context.heightmap.continent()).planOf(0, 0).plan();
+                ratio[i] = HighlandPlanformProbe.channelToAxis(plan);
+                if (i == 0) assertEquals(0, plan.oxbows().size());
+                if (i == 2) {
+                    assertEquals(0, HighlandPlanformProbe.crossings(plan.nodes()));
+                    assertEquals(0, HighlandPlanformProbe.outsideBelt(plan));
+                }
+            }
+        }
+        assertTrue(ratio[0] < 1.01 && ratio[0] < ratio[1] - .005 && ratio[1] < ratio[2] - .01, java.util.Arrays.toString(ratio));
+    }
     /** Valley width only reshapes floors: the drainage plan and water profile are unchanged. */
     @Test void valleyWidthKeepsTheChannelProfile() {
         var settings = new RollingHighlandsSettings[]{RollingHighlandsSettings.DEFAULT,
-            new RollingHighlandsSettings(3, 4096, 80, 100, 64), new RollingHighlandsSettings(3, 4096, 80, 100, 512)};
+            new RollingHighlandsSettings(RollingHighlandsSettings.MODEL_VERSION, 4096, 80, 100, 64), new RollingHighlandsSettings(RollingHighlandsSettings.MODEL_VERSION, 4096, 80, 100, 512)};
         double siteX, siteZ;
         try (var context = WorldgenFixture.context(preset(RollingHighlandsSettings.DEFAULT), 0)) {
             var plan = ((RollingHighlandsContinent) context.heightmap.continent()).planOf(0, 0).plan();

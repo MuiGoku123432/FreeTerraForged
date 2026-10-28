@@ -414,7 +414,7 @@ public class TerrainSettingsPage extends PresetEditorPage {
             int blocks = (int) slider.scaleValue(value);
             terrain.rollingHighlands = new RollingHighlandsSettings(RollingHighlandsSettings.MODEL_VERSION,
                 field == 0 ? blocks : old.uplandSpacing(), field == 1 ? blocks : old.uplandHeight(),
-                field == 2 ? blocks : old.valleyDepth(), field == 3 ? blocks : old.valleyWidth());
+                field == 2 ? blocks : old.valleyDepth(), field == 3 ? blocks : old.valleyWidth(), old.meanders());
             this.regenerate();
             return value;
         }));

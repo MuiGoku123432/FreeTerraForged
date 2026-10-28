@@ -73,8 +73,11 @@ final class HighlandMeanders {
 
     private static final int TABLE = 220;
     private static final double TABLE_MAX = 2.2;
-    /** Peak lateral offset as a fraction of the arc wavelength, and sinuosity 1/J0(ω), per ω. */
-    private static final double[] AMPLITUDE = new double[TABLE + 1], SINUOSITY = new double[TABLE + 1];
+    /**
+     * Peak lateral offset as a fraction of the arc wavelength, sinuosity 1/J0(ω), and the peak offset as a fraction of
+     * the valley (straight-line) wavelength (AMPLITUDE × SINUOSITY), per ω.
+     */
+    private static final double[] AMPLITUDE = new double[TABLE + 1], SINUOSITY = new double[TABLE + 1], VALLEY_AMPLITUDE = new double[TABLE + 1];
     static {
         for (int i = 0; i <= TABLE; i++) {
             double omega = i * TABLE_MAX / TABLE, amp = 0, j0 = 0;
@@ -84,7 +87,7 @@ final class HighlandMeanders {
                 amp += Math.sin(omega * Math.sin(2 * Math.PI * t * .25)) * .25 / steps;
                 j0 += Math.cos(omega * Math.sin(Math.PI * t)) / steps;
             }
-            AMPLITUDE[i] = amp; SINUOSITY[i] = 1 / Math.max(.05, j0);
+            AMPLITUDE[i] = amp; SINUOSITY[i] = 1 / Math.max(.05, j0); VALLEY_AMPLITUDE[i] = AMPLITUDE[i] * SINUOSITY[i];
         }
     }
     static double amplitude(double omega) { return table(AMPLITUDE, omega); }
@@ -95,12 +98,15 @@ final class HighlandMeanders {
         return lerp(t[i], t[i + 1], f - i);
     }
     /** Largest ω whose peak offset is at most {@code fraction} of the arc wavelength. */
-    static double omegaFor(double fraction) {
+    static double omegaFor(double fraction) { return inverse(AMPLITUDE, fraction); }
+    /** Largest ω whose peak offset is at most {@code fraction} of the valley wavelength (its arc wavelength grows with ω). */
+    static double omegaForValley(double fraction) { return inverse(VALLEY_AMPLITUDE, fraction); }
+    private static double inverse(double[] table, double fraction) {
         if (fraction <= 0) return 0;
-        if (fraction >= AMPLITUDE[TABLE]) return TABLE_MAX;
+        if (fraction >= table[TABLE]) return TABLE_MAX;
         int lo = 0, hi = TABLE;
-        while (hi - lo > 1) { int mid = (lo + hi) >>> 1; if (AMPLITUDE[mid] > fraction) hi = mid; else lo = mid; }
-        double t = (fraction - AMPLITUDE[lo]) / Math.max(1e-12, AMPLITUDE[hi] - AMPLITUDE[lo]);
+        while (hi - lo > 1) { int mid = (lo + hi) >>> 1; if (table[mid] > fraction) hi = mid; else lo = mid; }
+        double t = (fraction - table[lo]) / Math.max(1e-12, table[hi] - table[lo]);
         return (lo + t) * TABLE_MAX / TABLE;
     }
 
@@ -757,13 +763,18 @@ final class HighlandMeanders {
             // Loops on steep reaches would put neighbouring loops of one channel blocks apart in level (terraces).
             flat[q] = 1 - smooth(FLAT_SLOPE, STEEP_SLOPE, slope[q]);
             double confined = smooth(.03, .25, groundSlope[q]);
-            double target = strength * OMEGA_MAX * regime * (.1 + .9 * flat[q]) * (1 - .75 * confined);
+            // Strength up to 1 scales the bend amplitude; beyond 1 more of the network meanders (straighter and steeper
+            // stretches join in) and the strongest bends grow toward the ceiling.
+            double extent = 1 / Math.max(1, strength);
+            double target = Math.min(1, strength) * (1 + .25 * Math.max(0, strength - 1)) * OMEGA_MAX
+                * Math.pow(regime, extent) * Math.pow(.1 + .9 * flat[q], extent) * (1 - .75 * confined);
             double lambda = lerp(WAVELENGTH_MIN, WAVELENGTH_MAX, noise(seed + 12, px[q], pz[q], 900)) * w;
+            target = Math.min(target, OMEGA_LIMIT);
             double m = lambda * sinuosity(target);
             double taper = smooth(.1 * m, .6 * m, u[q]) * smooth(.1 * m, .5 * m, toFeature[q]) * ax.head[j];
             double limit = Math.min(Math.min(BELT_MAX, .6 * bend[q]), clear[Math.max(q, Math.min(1, k - 1))]);
             limit = Math.max(0, limit) * taper;
-            double w2 = Math.min(target * taper, omegaFor(limit / Math.max(1, m)));
+            double w2 = Math.min(target * taper, omegaForValley(limit / Math.max(1, lambda)));
             omega[q] = w2;
             wave[q] = lambda * sinuosity(w2);
             skew[q] = SKEW * (2 * noise(seed + 13, px[q], pz[q], 1500) - 1);

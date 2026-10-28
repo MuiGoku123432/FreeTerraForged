@@ -291,3 +291,15 @@ the centre and wetland margins — yes. **O3** knight-move neighbours — evalua
   Gate added: tip median ≥ 8 and ≤ 5% under 5. Junction angles, crossings, sinuosity unchanged; all quality/realism
   gates pass. Sampling cost (user world): R2 21.2 → R4 25.4 → R5 25.8 µs (+22%, within the +25% budget). FULL-chunk
   confluence validation on both loaders is part of R8.
+- R6 skipped: direction anisotropy after R5 is 1.7–5.9% (trigger > 8%), so the jittered lattice stays.
+- R7 done: `RollingHighlandsSettings` model 4 with `meanders` (0–200, default 100; optional in the codec so a model-4
+  preset without it reads as 100). Models 1–3 are rejected with "create a new world". The Meanders slider is on the
+  River page (Rolling Highlands section) with en_us label and tooltip; the continent passes meanders / 100 to the
+  drainage. Strength ≤ 1 scales the bend amplitude; above 1 more of the network meanders (regime and flatness factors
+  raised to 1/strength) and the strongest bends grow up to the 1.9 ceiling. The belt cap now solves for the bend
+  amplitude whose loop at its own arc wavelength fits the belt (previously the cap used the target's wavelength,
+  which made 200% straighter than 100%). The validation grid-step check mirrors the R1 budget (131 072 nodes).
+  Channel length / axis length on seed 0: 1.004 (0%), 1.008 (50%), 1.014 (100%), 1.021 (150%), 1.031 (200%) — seed 0's
+  network is mostly steep; the user world winds more (sinuosity 1.34, 6 oxbows). Test: meanders 0 → no oxbows and
+  ratio < 1.01, increasing with strength, 200% crossing-free and inside the belt. All windows at 100%: mean 1.29,
+  18.1% < 1.1, 15.2% > 1.5 (targets 20% / 15%); default kept at 100.

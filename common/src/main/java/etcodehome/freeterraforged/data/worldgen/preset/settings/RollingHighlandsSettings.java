@@ -13,18 +13,32 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
  * @param uplandHeight  extra height of the uplands above the basins (blocks)
  * @param valleyDepth   stream-power incision strength (percent; 100 = calibrated default)
  * @param valleyWidth   reference flat valley-floor width (blocks)
+ * @param meanders      meander strength (percent; 0 = channels follow their valley axis, 100 = default, 200 = maximum)
  */
-public record RollingHighlandsSettings(int modelVersion, int uplandSpacing, int uplandHeight, int valleyDepth, int valleyWidth) {
-    /** Generation model. 3 = RH3 (legacy FTF land, stream-power drainage, FTF river profile, dam lakes). */
-    public static final int MODEL_VERSION = 3;
-    public static final RollingHighlandsSettings DEFAULT = new RollingHighlandsSettings(MODEL_VERSION, 4096, 80, 100, 256);
+public record RollingHighlandsSettings(int modelVersion, int uplandSpacing, int uplandHeight, int valleyDepth, int valleyWidth, int meanders) {
+    /**
+     * Generation model. 3 = RH3 (legacy FTF land, stream-power drainage, FTF river profile, dam lakes); 4 = RH4
+     * (jittered-lattice routing, meandering channels with oxbows, natural tributary mouths, rounded confluences).
+     */
+    public static final int MODEL_VERSION = 4;
+    public static final int DEFAULT_MEANDERS = 100;
+    public static final RollingHighlandsSettings DEFAULT = new RollingHighlandsSettings(MODEL_VERSION, 4096, 80, 100, 256, DEFAULT_MEANDERS);
+
+    /** Profile with the default meander strength. */
+    public RollingHighlandsSettings(int modelVersion, int uplandSpacing, int uplandHeight, int valleyDepth, int valleyWidth) {
+        this(modelVersion, uplandSpacing, uplandHeight, valleyDepth, valleyWidth, DEFAULT_MEANDERS);
+    }
+    public RollingHighlandsSettings withMeanders(int value) {
+        return new RollingHighlandsSettings(modelVersion, uplandSpacing, uplandHeight, valleyDepth, valleyWidth, value);
+    }
     public static final Codec<RollingHighlandsSettings> CODEC = RecordCodecBuilder.<RollingHighlandsSettings>create(i -> i.group(
         integer(1, Integer.MAX_VALUE).fieldOf("modelVersion").forGetter(RollingHighlandsSettings::modelVersion),
         integer(4096, 8192).fieldOf("uplandSpacing").forGetter(RollingHighlandsSettings::uplandSpacing),
         // Optional so that older model presets reach the version check and get its actionable message.
         integer(0, 160).optionalFieldOf("uplandHeight", 80).forGetter(RollingHighlandsSettings::uplandHeight),
         integer(25, 200).optionalFieldOf("valleyDepth", 100).forGetter(RollingHighlandsSettings::valleyDepth),
-        integer(64, 512).fieldOf("valleyWidth").forGetter(RollingHighlandsSettings::valleyWidth)
+        integer(64, 512).fieldOf("valleyWidth").forGetter(RollingHighlandsSettings::valleyWidth),
+        integer(0, 200).optionalFieldOf("meanders", DEFAULT_MEANDERS).forGetter(RollingHighlandsSettings::meanders)
     ).apply(i, RollingHighlandsSettings::new)).validate(s -> s.modelVersion == MODEL_VERSION
         ? DataResult.success(s) : DataResult.error(() -> unsupported(s.modelVersion)));
 
@@ -42,15 +56,16 @@ public record RollingHighlandsSettings(int modelVersion, int uplandSpacing, int 
     public void validate(WorldSettings world) {
         if (modelVersion != MODEL_VERSION) throw new IllegalArgumentException(unsupported(modelVersion));
         if (uplandSpacing < 4096 || uplandSpacing > 8192 || uplandHeight < 0 || uplandHeight > 160
-            || valleyDepth < 25 || valleyDepth > 200 || valleyWidth < 64 || valleyWidth > 512) {
+            || valleyDepth < 25 || valleyDepth > 200 || valleyWidth < 64 || valleyWidth > 512 || meanders < 0 || meanders > 200) {
             throw new IllegalArgumentException("Unsupported Rolling Highlands profile; check model version and control ranges");
         }
         if (world.continent.continentScale < 1000 || world.continent.continentScale > 5000) {
             throw new IllegalArgumentException("Experimental Rolling Highlands supports continent scale 1000..5000");
         }
         double span = world.continent.continentScale * 4 * 3.33 + 4;
+        // Mirrors the routing grid budget (HighlandDrainage.MAX_GRID_NODES).
         int step = 64;
-        while (Math.pow(Math.ceil(span / step) + 3, 2) > 65536) step *= 2;
+        while (Math.pow(Math.ceil(span / step) + 3, 2) > 131_072) step *= 2;
         if (uplandSpacing < step * 8) throw new IllegalArgumentException("This continent scale needs upland spacing >= " + step * 8);
         if (world.properties.worldHeight - world.properties.seaLevel < 320) {
             throw new IllegalArgumentException("Rolling Highlands needs at least 320 blocks of height above sea level");

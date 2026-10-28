@@ -16,7 +16,7 @@ class HighlandSettingsTest {
         var decoded = Preset.DIRECT_CODEC.parse(JsonOps.INSTANCE, encoded).getOrThrow();
         assertEquals(RollingHighlandsSettings.DEFAULT, decoded.terrain().rollingHighlands);
         Preset copy = decoded.copy();
-        copy.terrain().rollingHighlands = new RollingHighlandsSettings(3, 4096, 120, 100, 256);
+        copy.terrain().rollingHighlands = new RollingHighlandsSettings(RollingHighlandsSettings.MODEL_VERSION, 4096, 120, 100, 256);
         assertEquals(80, decoded.terrain().highlands().uplandHeight());
         java.nio.file.Files.createDirectories(java.nio.file.Path.of("build/rolling-highlands"));
         java.nio.file.Files.writeString(java.nio.file.Path.of("build/rolling-highlands/preset.json"),
@@ -34,14 +34,25 @@ class HighlandSettingsTest {
         json.addProperty("modelVersion", 2);
         var rh2 = RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).error();
         assertTrue(rh2.isPresent() && rh2.get().message().contains("create a new world"));
-        json.addProperty("modelVersion", 3); json.addProperty("uplandHeight", Double.NaN);
+        // RH3 (model 3) likewise: RH4 routes and shapes rivers differently.
+        json.addProperty("modelVersion", 3);
+        var rh3 = RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).error();
+        assertTrue(rh3.isPresent() && rh3.get().message().contains("create a new world"));
+        // Meanders is optional (default 100) and bounded.
+        json.addProperty("modelVersion", RollingHighlandsSettings.MODEL_VERSION); json.remove("meanders");
+        assertEquals(100, RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).getOrThrow().meanders());
+        json.addProperty("meanders", 201);
+        assertTrue(RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).error().isPresent());
+        json.addProperty("meanders", 0);
+        assertEquals(0, RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).getOrThrow().meanders());
+        json.addProperty("uplandHeight", Double.NaN);
         assertTrue(RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).error().isPresent());
         json.addProperty("uplandHeight", 80); json.addProperty("valleyDepth", Double.NaN);
         assertTrue(RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).error().isPresent());
         json.addProperty("valleyDepth", .5);
         assertTrue(RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).error().isPresent());
         var world = WorldSettings.makeDefault(); world.continent.continentScale = 5000;
-        assertThrows(IllegalArgumentException.class, () -> new RollingHighlandsSettings(3, 2048, 80, 100, 256).validate(world));
+        assertThrows(IllegalArgumentException.class, () -> new RollingHighlandsSettings(RollingHighlandsSettings.MODEL_VERSION, 2048, 80, 100, 256).validate(world));
     }
     @Test void legacyEnumOrdinalsRemainStable() {
         assertEquals(0, ContinentType.MULTI.ordinal());

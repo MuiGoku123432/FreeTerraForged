@@ -57,7 +57,7 @@ public final class RollingHighlandsContinent implements Continent {
         this.coast = new HighlandCoast(context);
         this.land = HighlandLand.create(context);
         this.drainage = new HighlandDrainage(coast, land, settings.uplandSpacing(), context.preset.world().controlPoints, context.preset.rivers().lakes.chance, context.preset.rivers().lakes.depth,
-            settings.valleyDepth(), context.preset.rivers().riverCount);
+            settings.valleyDepth(), context.preset.rivers().riverCount, settings.meanders() / 100.0);
         this.coastEdge = context.preset.world().controlPoints.coast;
         this.classSeed = context.seed.root() * 0x9E3779B97F4A7C15L + 0x52484632L;
         this.coastMarker = context.preset.world().controlPoints.coastMarker();
