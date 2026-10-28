@@ -37,6 +37,18 @@ public final class HighlandPlanIndex {
     private static final ThreadLocal<Hits> HITS = ThreadLocal.withInitial(Hits::new);
     /** Oxbow query result: distance to the arc, open-water half width there, and the still-water level. */
     public record OxbowSample(double distance, double halfWidth, double water) {}
+    /**
+     * Confluences (refined nodes with two upstream channels, outside lakes): position, parent flow direction
+     * (downstream), unit vector toward the tributary's side, drainage areas of the main and tributary branches and the
+     * angle between the two upstream branches (degrees, over JUNCTION_REFERENCE blocks).
+     */
+    public record Junction(int node, double x, double z, double flowX, double flowZ, double sideX, double sideZ,
+                           double mainArea, double tributaryArea, double angle) {}
+    /** Junction influence radius bound (blocks). */
+    public static final double JUNCTION_REACH = 96;
+    static final double JUNCTION_REFERENCE = 48;
+    private final List<Junction> junctions;
+    private final Map<Long, int[]> junctionBuckets;
     /** Oxbow arcs by bucket (indices into plan.oxbows()). */
     private final Map<Long, int[]> oxbowBuckets;
 
@@ -85,6 +97,38 @@ public final class HighlandPlanIndex {
         long estimatedBytes = entries * 4 + building.size() * 96L + nodes.size() * 100L + plan.axis().size() * 40L + boxes.length * 8L
             + plan.gridNodes() * 12L + plan.reaches().size() * 32L;
         if (estimatedBytes > 8L * 1024 * 1024) throw new IllegalStateException("RH retained plan exceeds 8 MiB budget");
+        // Confluences.
+        List<List<Integer>> children = new ArrayList<>(nodes.size());
+        for (int i = 0; i < nodes.size(); i++) children.add(new ArrayList<>(2));
+        for (int i = 0; i < nodes.size(); i++) if (nodes.get(i).parent() >= 0) children.get(nodes.get(i).parent()).add(i);
+        List<Junction> found = new ArrayList<>();
+        Map<Long, List<Integer>> junctionBuilding = new HashMap<>();
+        for (int j = 0; j < nodes.size(); j++) {
+            var kids = children.get(j);
+            var node = nodes.get(j);
+            if (kids.size() != 2 || node.parent() < 0) continue;
+            var lake = plan.basins().sample(node.x(), node.z());
+            if (lake != null && lake.depth() > 0) continue;
+            int main = nodes.get(kids.get(0)).area() >= nodes.get(kids.get(1)).area() ? kids.get(0) : kids.get(1);
+            int trib = main == kids.get(0) ? kids.get(1) : kids.get(0);
+            double[] mu = upstream(nodes, children, j, main), tu = upstream(nodes, children, j, trib);
+            var down = nodes.get(node.parent());
+            double fx = down.x() - node.x(), fz = down.z() - node.z(), fl = Math.hypot(fx, fz);
+            if (fl < 1e-9 || mu == null || tu == null) continue;
+            fx /= fl; fz /= fl;
+            double lx = -fz, lz = fx, side = Math.signum(tu[0] * lx + tu[1] * lz);
+            if (side == 0) side = 1;
+            double angle = Math.toDegrees(Math.acos(clamp(mu[0] * tu[0] + mu[1] * tu[1], -1, 1)));
+            int index = found.size();
+            found.add(new Junction(j, node.x(), node.z(), fx, fz, side * lx, side * lz, nodes.get(main).area(), nodes.get(trib).area(), angle));
+            for (int z = bucket(node.z() - JUNCTION_REACH); z <= bucket(node.z() + JUNCTION_REACH); z++)
+                for (int x = bucket(node.x() - JUNCTION_REACH); x <= bucket(node.x() + JUNCTION_REACH); x++)
+                    junctionBuilding.computeIfAbsent(key(x, z), k -> new ArrayList<>()).add(index);
+        }
+        this.junctions = List.copyOf(found);
+        Map<Long, int[]> junctionFinished = new HashMap<>();
+        junctionBuilding.forEach((k, v) -> junctionFinished.put(k, v.stream().mapToInt(Integer::intValue).toArray()));
+        this.junctionBuckets = Map.copyOf(junctionFinished);
         Map<Long, List<Integer>> oxbowBuilding = new HashMap<>();
         for (int i = 0; i < plan.oxbows().size(); i++) {
             var oxbow = plan.oxbows().get(i);
@@ -163,6 +207,35 @@ public final class HighlandPlanIndex {
     double basinsOutletX(int lake) { return plan.basins().outletX(lake); }
     double basinsOutletZ(int lake) { return plan.basins().outletZ(lake); }
     public HighlandBasins.Sample lake(double x, double z) { return plan.basins().sample(x, z); }
+
+    /** Unit direction from junction node j up the branch starting at child c, over JUNCTION_REFERENCE blocks. */
+    private static double[] upstream(List<HighlandDrainage.Node> nodes, List<List<Integer>> children, int j, int c) {
+        var start = nodes.get(j);
+        int v = c;
+        double travelled = 0;
+        var prev = start;
+        while (true) {
+            var node = nodes.get(v);
+            travelled += Math.hypot(node.x() - prev.x(), node.z() - prev.z());
+            prev = node;
+            if (travelled >= JUNCTION_REFERENCE || children.get(v).size() != 1) break;
+            v = children.get(v).get(0);
+        }
+        double dx = prev.x() - start.x(), dz = prev.z() - start.z(), l = Math.hypot(dx, dz);
+        return l < 1e-9 ? null : new double[]{dx / l, dz / l};
+    }
+
+    private static final int[] NONE = new int[0];
+    /** Indices of confluences whose JUNCTION_REACH may contain (x, z) (a superset; check the distance). */
+    public int[] junctionCandidates(double x, double z) {
+        int[] candidates = junctionBuckets.get(key(bucket(x), bucket(z)));
+        return candidates == null ? NONE : candidates;
+    }
+    public Junction junction(int index) { return junctions.get(index); }
+    /** True when reach r ends at (flows into) junction node j or contains it. */
+    public boolean touches(int reach, int node) {
+        return plan.reaches().get(reach).downstream() == node || nodeReach[node] == reach;
+    }
 
     /** Nearest oxbow arc within OXBOW_REACH, or null. */
     public OxbowSample oxbow(double x, double z) {

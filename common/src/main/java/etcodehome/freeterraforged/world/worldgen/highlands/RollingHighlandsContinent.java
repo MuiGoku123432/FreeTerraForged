@@ -21,6 +21,8 @@ public final class RollingHighlandsContinent implements Continent {
     static final double CHANNEL_DEPTH = 4, SHORE_RATE = .4, MAX_FADE = 384, CONFLUENCE_RAPID = .25, LAKE_RIM = 12, FLOOR_MARGIN = 1.5, FLOOR_SOFTNESS = 4, FLOOR_COAST_RAMP = 6, SUPPORT_SLOPE = .5;
     /** Current speed model (normalized 0..1 as stored in ChunkFlowField). */
     static final double FLOW_BASE = .45, FLOW_SLOPE = 6, FLOW_MIN = .3, LAKE_DRIFT = .18, OUTLET_DRIFT = 128;
+    /** Confluence apex rounding (fillet radius in channel half widths) and the largest scour (fraction of bed depth). */
+    static final double FILLET = 1.2, SCOUR = .8;
     /** Distance range (blocks) from a higher channel over which a floodplain's meander-belt widening fades in. */
     static final double BELT_YIELD_NEAR = 24, BELT_YIELD_FAR = 120;
     /** Oxbow open-water depth at the centre and wetland margin width (blocks). */
@@ -348,6 +350,43 @@ public final class RollingHighlandsContinent implements Continent {
             }
             scratch.wetland[k] = wetland;
         }
+        // Confluence form (RH4 R5), within each junction's radius and fading to nothing at its edge:
+        // - rounded tongue: the wet test uses a smooth union of the two touching channels' wet fields, so the dry apex
+        //   between them is rounded instead of a knife edge;
+        // - scour pool: the bed deepens toward the junction, more for wide angles and large tributaries (Best 1988);
+        // - bar: a shallow submerged bar just downstream of the mouth on the tributary side.
+        double fillet = Double.POSITIVE_INFINITY, scour = 0, bar = 0;
+        int filletOwner = -1;
+        for (int candidate : index.junctionCandidates(x, z)) {
+            var junction = index.junction(candidate);
+            double jx = x - junction.x(), jz = z - junction.z();
+            if (jx * jx + jz * jz >= HighlandPlanIndex.JUNCTION_REACH * HighlandPlanIndex.JUNCTION_REACH) continue;
+            double dj = Math.sqrt(jx * jx + jz * jz);
+            double mainWidth = 2 * clamp(16 * Math.pow(Math.max(.01, junction.mainArea() / area2), .35), 4, 12);
+            double reach = clamp(3 * mainWidth, 24, HighlandPlanIndex.JUNCTION_REACH);
+            if (dj >= reach) continue;
+            double fade = 1 - smooth(.5 * reach, reach, dj);
+            int a = -1, b = -1;
+            for (int k = 0; k < hits.count; k++) {
+                if (!index.touches(hits.reach[k], junction.node())) continue;
+                double e = hits.distance[k] - scratch.radius[k];
+                if (a < 0 || e < hits.distance[a] - scratch.radius[a]) { b = a; a = k; }
+                else if (b < 0 || e < hits.distance[b] - scratch.radius[b]) b = k;
+            }
+            if (a >= 0 && b >= 0) {
+                double k = FILLET * Math.min(scratch.radius[a], scratch.radius[b]) * fade;
+                double e = smin(hits.distance[a] - scratch.radius[a], hits.distance[b] - scratch.radius[b], k);
+                if (e < fillet) { fillet = e; filletOwner = a; }
+            }
+            double ratio = clamp(junction.tributaryArea() / Math.max(1, junction.mainArea()), 0, 1);
+            double strength = SCOUR * lerp(.4, 1, smooth(30, 90, junction.angle())) * lerp(.3, 1, smooth(.05, .5, ratio));
+            scour = Math.max(scour, strength * (1 - smooth(0, 1.5 * mainWidth, dj)));
+            double bx = junction.x() + junction.flowX() * 1.5 * mainWidth + junction.sideX() * .3 * mainWidth;
+            double bz = junction.z() + junction.flowZ() * 1.5 * mainWidth + junction.sideZ() * .3 * mainWidth;
+            double along = ((x - bx) * junction.flowX() + (z - bz) * junction.flowZ()) / (1.2 * mainWidth);
+            double across = ((x - bx) * junction.sideX() + (z - bz) * junction.sideZ()) / (.3 * mainWidth);
+            bar = Math.max(bar, (1 - smooth(.5, 1, Math.hypot(along, across))) * smooth(.05, .3, ratio) * fade);
+        }
         // Wet ownership: the wet channel with the lowest bed owns the cell (parallel channels are joined upstream by
         // stream capture in the plan, so channels meet at confluences rather than side by side).
         for (int k = 0; k < hits.count; k++) {
@@ -387,6 +426,11 @@ public final class RollingHighlandsContinent implements Continent {
             else if (carve < c2) { c2 = carve; o2 = outerness; }
         }
         cell.riverMask = (float) (1 - maxInfluence);
+        boolean filled = false;
+        if (wetOwner < 0 && fillet < 0 && filletOwner >= 0) {
+            // Inside the rounded confluence apex: shallow water of the nearer channel.
+            wetOwner = filletOwner; wetSection = scratch.section[filletOwner]; filled = true;
+        }
         if (wetOwner >= 0) {
             // Near a lower connected channel (a confluence), the higher channel's surface descends toward it at a
             // rapid's gradient, so the two waters meet without a step.
@@ -398,8 +442,12 @@ public final class RollingHighlandsContinent implements Continent {
             cell.riverWaterLevel = normalized(water);
             cell.riverZone = RiverZone.Riverbed;
             cell.hasRiverWater = true; cell.terrain = TerrainType.RIVER;
-            setFlow(cell, speed / flowWeight, flowX, flowZ);
-            return Math.min(wetSection.height(), water - 1);
+            if (flowWeight > 0) setFlow(cell, speed / flowWeight, flowX, flowZ);
+            else setFlow(cell, FLOW_MIN, hits.flowX[wetOwner], hits.flowZ[wetOwner]);
+            double bed = filled ? water - 1 - Math.min(2, -.5 * fillet) : Math.min(wetSection.height(), water - 1);
+            // Scour deepens the bed in proportion to its depth; the bar lifts it toward one block below the water.
+            bed = water - (water - bed) * (1 + scour);
+            return Math.max(bed, lerp(bed, water - 1, bar));
         }
         double softness = CREASE_SOFTNESS * Math.min(o1, o2) * smooth(0, 8, land - c2);
         double height = Math.max(smin(c1, c2, softness), support);

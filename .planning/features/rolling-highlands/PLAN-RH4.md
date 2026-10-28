@@ -270,3 +270,24 @@ the centre and wetland margins — yes. **O3** knight-move neighbours — evalua
   Gates added: junction mean 60–80°, ≤ 10% under 25°, 0 crossings. Sinuosity/anisotropy/oxbows unchanged; quality
   gates pass (sunken 0/766/1253/238/315). Tip sharpness (R5 target ≤ 5% < 5) is unchanged by design. Noted for the
   grid-pattern follow-up: faint straight axis-aligned lines in some 1:1 hillshades (user world near 4680, 9860).
+- R5 done: `HighlandPlanIndex` lists confluences (refined nodes with two upstream channels, outside lakes) with the
+  parent flow direction, the tributary's side, both drainage areas and the angle between the upstream branches (48
+  blocks); `carveValleys` applies, within 3 parent widths (24–96 blocks) of each, fading over the outer half:
+  - rounded tongue: the wet test uses a polynomial smooth union (fillet 1.2 × the smaller bed radius) of the wet fields
+    of the two nearest channels touching the junction; cells inside the fillet hold shallow water of the nearer channel
+    (bed 1–3 blocks below it, damped flow along it);
+  - scour pool: bed depth × (1 + up to 0.8), scaled by junction angle (30–90°) and discharge ratio, within 1.5 parent
+    widths of the junction (Best 1988);
+  - bar: an ellipse 1.5 parent widths downstream of the mouth on the tributary side (1.2 × 0.3 widths) lifts the bed
+    toward one block below the water (submerged; no new dry land or water steps).
+
+  | | tip width median R4 → R5 | sharp < 5 R4 → R5 |
+  |---|---|---|
+  | seed 0 | 8 → 13 | 17% → 0% |
+  | seed 42 | 6 → 11 | 16% → 0% |
+  | seed 8675309 | 8 → 12 | 16% → 0% |
+  | user | 7 → 13 | 20% → 0% |
+
+  Gate added: tip median ≥ 8 and ≤ 5% under 5. Junction angles, crossings, sinuosity unchanged; all quality/realism
+  gates pass. Sampling cost (user world): R2 21.2 → R4 25.4 → R5 25.8 µs (+22%, within the +25% budget). FULL-chunk
+  confluence validation on both loaders is part of R8.
