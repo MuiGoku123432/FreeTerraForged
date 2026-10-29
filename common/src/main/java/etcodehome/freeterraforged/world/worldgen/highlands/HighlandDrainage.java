@@ -268,6 +268,43 @@ public final class HighlandDrainage {
         }
     }
 
+    /**
+     * Hollows (RH5 H): filled depressions away from the structural network. Before RH5 these were neither lakes (a lake
+     * needed a channel) nor drained, so the base-level floor turned them into dead-flat dry basins that Streams
+     * Reflowing filled with straight-edged lakes. Now a hollow kept by the lake decision (deep enough, chosen by the
+     * lake chance) becomes a tarn: an RH lake without a drawn outlet (it drains through the ground). Every other such
+     * hollow loses its fill level, so the floor follows the incised surface: a gently dished hollow instead of a flat.
+     * Mutates {@code water}; returns the lake eligibility mask for the basins (structural network plus tarns).
+     */
+    private static boolean[] hollows(int width, int depth, int n, boolean[] land, boolean[] lakeChannel, boolean[] keep,
+                                     double[] incised, double[] water) {
+        boolean[] mask = lakeChannel.clone(), visited = new boolean[n];
+        int[] queue = new int[n];
+        for (int start = 0; start < n; start++) {
+            if (visited[start] || !land[start] || water[start] - incised[start] <= .5) continue;
+            int head = 0, tail = 1;
+            queue[0] = start; visited[start] = true;
+            boolean connected = false, kept = true;
+            while (head < tail) {
+                int v = queue[head++], vx = v % width, vz = v / width;
+                connected |= lakeChannel[v];
+                kept &= keep[v];
+                for (int d = 0; d < DX.length; d++) {
+                    int nx = vx + DX[d], nz = vz + DZ[d];
+                    if (nx < 0 || nz < 0 || nx >= width || nz >= depth) continue;
+                    int j = nz * width + nx;
+                    if (!visited[j] && land[j] && water[j] == water[start] && water[j] - incised[j] > .5) { visited[j] = true; queue[tail++] = j; }
+                }
+            }
+            if (connected) continue;
+            for (int q = 0; q < tail; q++) {
+                int v = queue[q];
+                if (kept) mask[v] = true; else water[v] = incised[v];
+            }
+        }
+        return mask;
+    }
+
     /** Deterministic river-less plan used when an owner's drainage cannot be built. */
     public Plan emptyPlan(int ownerX, int ownerZ) {
         var basins = new HighlandBasins(surface.seed(), 0, 0, 1, 1, 64, new double[1], new double[1], new boolean[1], new boolean[1], new double[1], new double[1]);
@@ -576,8 +613,9 @@ public final class HighlandDrainage {
         // Lakes form on the structural network (independent of River Count); the drawn network is every channel
         // above the creek threshold plus the outlet of every lake, so a lake never sits in a dry valley.
         boolean[] lakeChannel = new boolean[n], channel = new boolean[n];
+        for (int i = 0; i < n; i++) lakeChannel[i] = land[i] && area[i] >= structural;
+        boolean[] lakeMask = hollows(width, depth, n, land, lakeChannel, keep, incised, water);
         for (int i = 0; i < n; i++) {
-            lakeChannel[i] = land[i] && area[i] >= structural;
             channel[i] = land[i] && (area[i] >= threshold || lakeChannel[i] && water[i] - incised[i] > .5);
         }
         for (int k = count - 1; k >= 0; k--) {
@@ -607,7 +645,7 @@ public final class HighlandDrainage {
             tributaries[p]++;
             if (mainChild[p] < 0 || area[i] > area[mainChild[p]] || area[i] == area[mainChild[p]] && i < mainChild[p]) mainChild[p] = i;
         }
-        HighlandBasins basins = new HighlandBasins(surface.seed() + 52361, originX, originZ, width, depth, step, incised, water, land, lakeChannel, nodeX, nodeZ);
+        HighlandBasins basins = new HighlandBasins(surface.seed() + 52361, originX, originZ, width, depth, step, incised, water, land, lakeMask, nodeX, nodeZ);
         // Channels run through the routing nodes' own (jittered) positions.
         double[] pathX = nodeX, pathZ = nodeZ;
         // Valley axis (RH3 centreline): tangent-continuous Hermite per grid link, 16-block samples.
