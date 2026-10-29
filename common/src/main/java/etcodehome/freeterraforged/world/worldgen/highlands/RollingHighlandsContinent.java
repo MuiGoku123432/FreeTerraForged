@@ -31,6 +31,10 @@ public final class RollingHighlandsContinent implements Continent {
     static final double CREEK_FLOOR = .3, CREEK_BED = 1.6;
     /** Narrowest channel half width (blocks): a creek is never less than two blocks of water across. */
     static final double MIN_RADIUS = 1;
+    /** Lake shoreline (RH5 S): how far (depth units) the real ground contour may pull the planned shoreline inward. */
+    static final double SHORE_BLEND = 12, SHORE_ADVANCE = 10, SHORE_CHANNEL_NEAR = 24, SHORE_CHANNEL_FAR = 64;
+    /** Planning depth range over which the base-level floor beside a lake falls to the lake level (RH5 S). */
+    static final double LAKE_FLOOR_FAR = -36, LAKE_FLOOR_NEAR = -16;
     static final double BANK_RUN = 16, MIN_OUTER_RUN = 64, MAX_OUTER_RUN = 512, CREASE_SOFTNESS = 24;
     private static final Rivermap NO_LEGACY_RIVERS = new Rivermap(0, 0, new Network[0], GenWarp.EMPTY);
     private final HighlandCoast coast;
@@ -157,7 +161,7 @@ public final class RollingHighlandsContinent implements Continent {
         if (location.edge() <= coastEdge) return 0;
         var index = plan(location.ownerX(), location.ownerZ());
         double blend = drainage.landBlend(location.edge());
-        return floored(index, x, z, blend, blend * land.height(x, z) - index.incision(x, z));
+        return floored(index, x, z, blend, blend * land.height(x, z) - index.incision(x, z), index.lake(x, z));
     }
     /**
      * Dry ground stays at least FLOOR_MARGIN above the plan's base level (smooth maximum). The plan grid cannot see
@@ -165,8 +169,12 @@ public final class RollingHighlandsContinent implements Continent {
      * adjacent river: rivers would stand on levees and the pits fill with standing water (sea-level fill below sea
      * level, Streams Reflowing lakes above it). The floor fades in over the first part of the coastal land blend, so shores still meet the sea.
      */
-    private static double floored(HighlandPlanIndex index, double x, double z, double blend, double surface) {
-        double floor = Math.min(1, FLOOR_COAST_RAMP * blend) * (index.waterFloor(x, z) + FLOOR_MARGIN);
+    private static double floored(HighlandPlanIndex index, double x, double z, double blend, double surface, HighlandBasins.Sample lake) {
+        double base = index.waterFloor(x, z);
+        // RH5 S: beside a lake the floor only has to keep land above that lake, not above the planning grid's node
+        // levels; lowering it there lets the real ground shape the shore and lets the water follow its contours.
+        if (lake != null) base = lerp(base, Math.min(base, lake.water()), lake.proximity() * smooth(LAKE_FLOOR_FAR, LAKE_FLOOR_NEAR, lake.depth()));
+        double floor = Math.min(1, FLOOR_COAST_RAMP * blend) * (base + FLOOR_MARGIN);
         double h = Math.max(FLOOR_SOFTNESS - Math.abs(surface - floor), 0) / FLOOR_SOFTNESS;
         return Math.max(surface, floor) + h * h * FLOOR_SOFTNESS * .25;
     }
@@ -200,14 +208,20 @@ public final class RollingHighlandsContinent implements Continent {
         var index = plan(location.ownerX(), location.ownerZ());
         // Rendered land = legacy land lowered by the plan's smooth stream-power incision: uplands keep every legacy
         // detail, and valleys deepen exactly where the drainage computed on this same land says they should.
-        double surface = floored(index, x, z, blend, blend * land.apply(cell, x, z) - index.incision(x, z));
-        double height = carveValleys(cell, x, z, location.edge(), index, index.near(x, z), surface);
+        double raw = blend * land.apply(cell, x, z) - index.incision(x, z);
+        var lake = index.lake(x, z);
+        double surface = floored(index, x, z, blend, raw, lake);
+        var hits = index.near(x, z);
+        double height = carveValleys(cell, x, z, location.edge(), index, hits, surface);
         if (!cell.hasRiverWater) {
             var oxbow = index.oxbow(x, z);
             if (oxbow != null) height = shapeOxbow(cell, x, z, oxbow, height);
         }
-        var lake = index.lake(x, z);
-        if (lake != null && lake.depth() > -HighlandBasins.MAX_SHORE) height = shapeLake(cell, x, z, index, lake, height);
+        if (lake != null && lake.depth() > -HighlandBasins.MAX_SHORE - SHORE_ADVANCE) {
+            double channelDistance = Double.POSITIVE_INFINITY;
+            for (int k = 0; k < hits.count; k++) channelDistance = Math.min(channelDistance, hits.distance[k]);
+            height = shapeLake(cell, x, z, index, lake, height, raw, channelDistance);
+        }
         // Reserve ceiling headroom before any water/bed is handed to final generation.
         double ceiling = levels.worldHeight - levels.waterY - 24;
         if (height > ceiling) height = ceiling + 16 * (1 - Math.exp(-(height - ceiling) / 16));
@@ -221,8 +235,20 @@ public final class RollingHighlandsContinent implements Continent {
      * descend, so high surroundings get wider shores. The range stays inside the basin's shore region (REGION_DEPTH), so
      * the effect is zero where lake sampling stops.
      */
-    private double shapeLake(Cell cell, double x, double z, HighlandPlanIndex plan, HighlandBasins.Sample lake, double height) {
+    private double shapeLake(Cell cell, double x, double z, HighlandPlanIndex plan, HighlandBasins.Sample lake, double height, double raw,
+                             double channelDistance) {
         double water = lake.water(), depth = lake.depth();
+        // RH5 S: off the channels, the shoreline follows the real ground (unfloored land) at the lake's level: it
+        // retreats up to SHORE_BLEND depth units inside the planning field where the ground rises (bays, points,
+        // islands) and advances up to SHORE_ADVANCE where it is low (the floor beside lakes is the lake level, see
+        // floored), so outlines trace terrain contours instead of the planning grid's lines. Near channels (inlets,
+        // outlets) it does not advance, so lake water never reaches a channel running below the lake level.
+        // Continuous: fades with the lake's proximity and the channel distance.
+        if (!cell.hasRiverWater) {
+            double proximity = lake.proximity();
+            double advance = SHORE_ADVANCE * proximity * smooth(SHORE_CHANNEL_NEAR, SHORE_CHANNEL_FAR, channelDistance);
+            depth = clamp(water - raw, depth - SHORE_BLEND * proximity, depth + advance);
+        }
         if (depth > 0) {
             boolean channel = cell.hasFlow;
             cell.riverWaterLevel = normalized(water); cell.hasRiverWater = true;

@@ -148,24 +148,35 @@ public final class HighlandBasins {
     public double outletX(int lake) { return outletX[lake]; }
     public double outletZ(int lake) { return outletZ[lake]; }
 
-    /** Lake surface and signed depth below it, or null away from every lake's shore region. Never throws. */
+    /**
+     * Lake surface and signed depth below it, or null away from every lake's shore region. Never throws.
+     * <p>
+     * RH5 S: corner weights are smoothstep-bilinear (C1 across grid lines, so shore shaping leaves no creases along
+     * them), and where corners belong to different lakes each lake's field is evaluated on its own and the highest
+     * (wettest) one wins: the result is continuous where ownership changes instead of switching at grid mid-lines.
+     */
     public Sample sample(double x, double z) {
         double gx = (x - originX) / step, gz = (z - originZ) / step;
         int ix = (int) Math.floor(gx), iz = (int) Math.floor(gz);
         if (ix < 0 || iz < 0 || ix >= width - 1 || iz >= depth - 1) return null;
         double tx = gx - ix, tz = gz - iz;
-        int[] corners = {iz * width + ix, iz * width + ix + 1, (iz + 1) * width + ix, (iz + 1) * width + ix + 1};
-        double[] weights = {(1 - tx) * (1 - tz), tx * (1 - tz), (1 - tx) * tz, tx * tz};
-        int id = -1; double best = 0;
+        tx = tx * tx * (3 - 2 * tx); tz = tz * tz * (3 - 2 * tz);
+        int c0 = iz * width + ix, c1 = c0 + 1, c2 = c0 + width, c3 = c2 + 1;
+        int b0 = basin[c0], b1 = basin[c1], b2 = basin[c2], b3 = basin[c3];
+        if (b0 < 0 && b1 < 0 && b2 < 0 && b3 < 0) return null;
+        double w0 = (1 - tx) * (1 - tz), w1 = tx * (1 - tz), w2 = (1 - tx) * tz, w3 = tx * tz;
+        int id = -1;
+        double d = Double.NEGATIVE_INFINITY, distance = SHORE_REACH;
         for (int k = 0; k < 4; k++) {
-            if (basin[corners[k]] >= 0 && weights[k] > best) { best = weights[k]; id = basin[corners[k]]; }
-        }
-        if (id < 0) return null;
-        double d = 0, distance = 0;
-        for (int k = 0; k < 4; k++) {
-            boolean member = basin[corners[k]] == id;
-            d += weights[k] * (member ? depthField[corners[k]] : -REGION_DEPTH);
-            distance += weights[k] * (member ? reach[corners[k]] : SHORE_REACH);
+            int candidate = k == 0 ? b0 : k == 1 ? b1 : k == 2 ? b2 : b3;
+            if (candidate < 0 || candidate == id) continue;
+            double cd = w0 * (b0 == candidate ? depthField[c0] : -REGION_DEPTH) + w1 * (b1 == candidate ? depthField[c1] : -REGION_DEPTH)
+                + w2 * (b2 == candidate ? depthField[c2] : -REGION_DEPTH) + w3 * (b3 == candidate ? depthField[c3] : -REGION_DEPTH);
+            if (cd > d || cd == d && candidate < id) {
+                d = cd; id = candidate;
+                distance = w0 * (b0 == candidate ? reach[c0] : SHORE_REACH) + w1 * (b1 == candidate ? reach[c1] : SHORE_REACH)
+                    + w2 * (b2 == candidate ? reach[c2] : SHORE_REACH) + w3 * (b3 == candidate ? reach[c3] : SHORE_REACH);
+            }
         }
         // Irregular shoreline: perturbs only the shallow margin, never the deep interior.
         double shoreline = 1 - smooth(0, 10, Math.abs(d));
