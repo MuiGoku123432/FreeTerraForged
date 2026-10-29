@@ -102,3 +102,23 @@ River work, settled 2026-10-29:
   entries/exits, junctions; SR interaction (streams into RH valleys, SR lakes on).
 - Docs (VALIDATION.md, user-facing notes), version `1.0.0015-rh5`, deploy to the Prism client and the server; update
   the user preset to model 5 (plus an SR variant with River Count 4).
+
+## 4. As built (2026-10-29)
+
+Commits: plan `e5eefabf`; D `78b7e968`; W `ea7fc487`; C `8ae49b3c`; H `f2863fbb` + `31ebdb04`; S `27972b8c`;
+M `d8fa90aa`; validation fixes `5bce84c9`; release docs follow. Record: [VALIDATION.md](VALIDATION.md).
+
+Differences from the plan above:
+- **Model bump moved to D** (the first generation change), so every intermediate commit generates model 5.
+- **C** also removes the mountain-chain switch from RH climate sampling: RH reclassifies mountain-chain valley floors
+  as hills, which made the climate sample jump at every valley edge.
+- **H tarns** come from the existing lake decision (lake chance) for off-network depressions at least 8 deep, at
+  least 2 km apart; they have no drawn outlet. Other off-network hollows lose their fill level and get dished floors.
+- **S** lowers the base-level floor beside lakes to the lake level, so shorelines can follow the real ground: they
+  retreat up to 12 and advance up to 10 depth units from the planning field (no advance within 24-64 blocks of a
+  channel). Steep lake sides can still show straight edges where the stream-power incision itself steps between
+  128-block plan nodes.
+- **M** ranges are off by default (`rangeHeight` 0) so existing calibration and gates stay as they were; the user's
+  preset turns them on. Ranges are iso-lines of a strike-stretched noise (long, fairly straight, with occasional
+  hairpin turns like folded ranges), switched on in stretches and notched by passes.
+- Erosion filters may no longer dig dry valley ground below one block above its river.

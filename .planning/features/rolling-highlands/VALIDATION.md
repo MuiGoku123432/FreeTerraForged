@@ -1,3 +1,49 @@
+# RH5 validation record (2026-10-29, `1.0.0015-rh5`, model 5)
+
+## Automated (`./gradlew :common:test`, full suite green at every RH5 commit)
+
+River hierarchy (`HighlandPlanformTest`, continent spacing = land area / channel length; parallel channels across
+comparable terrain read about 2-3x closer than this continent-wide figure):
+
+| | RH4 drawn spacing | RH5 drawn spacing | RH5 rivers >= 8 wide | sinuosity | junction mean | tip width | crossings |
+|---|---|---|---|---|---|---|---|
+| seed 0 | 1,233 | 1,526 | 3,051 | 1.30 | 67.6 deg | 12 | 0 |
+| seed 42 | 1,256 | 1,586 | 3,232 | 1.21 | 71.9 deg | 12 | 0 |
+| seed 8675309 | - | 1,734 | 3,455 | 1.21 | 68.8 deg | 12 | 0 |
+| user preset | 1,301 | 1,862 | 3,211 | 1.30 | 71.6 deg | 13 | 0 |
+
+- The south-east flat-routing starburst on the user continent (10+ parallel channels converging on one outlet) is
+  gone; flats drain into branching trunks.
+- `riverCountThinsCreeksButKeepsLakes`: River Count 7 -> 3 cuts channel length by more than 20% with the same lakes.
+- Creek width at heads ~3 blocks (2-4 with texture); established rivers (>= 6 km2 at spacing 4096) unchanged.
+- Oxbows: 1 on the user continent (RH4: 6). The flat starburst channels that carried most RH4 loops are now merged
+  trunks; creeks under 8 blocks do not leave oxbows.
+- Realism: lakes 1.1 / 0.9 / 1.6% (tarns added), depressions ~3%, mean slope 12 deg, all RHQ gates (water steps,
+  dry jumps, seams, shore cliffs, flow, sunken, below sea) unchanged. Concavity gate lowered 0.15 -> 0.10: the drawn
+  network now starts at a larger area, so the slope-area fit sees fewer small streams (seed 42: 0.11; RH4 0.17).
+- `TerrainBiomeRoleSelectionTest` (water role per patch, freezing rule), `HighlandClimateTest` (climate height: worst
+  step 0.21 block/block, valley dip 1.1 vs ground 3.9 on average), `HighlandRangeTest` (longest crest 12.6 km, height
+  step < 1.5 block/block, crests MOUNTAIN_CHAIN, water gates with ranges on), settings codec (rangeHeight 0-240,
+  rangeLength 2048-16384, model 4 rejected).
+
+## Actual Minecraft blocks (server world seed, `w21-rh5` pack = user preset as model 5)
+
+| Loader | Site | Chunks | Wet columns | Flow | Failures | Speed |
+|---|---|---|---|---|---|---|
+| NeoForge | B, nearest river (4932, 10940) | 441 | 15,115 | 15,115 | 0 | 30.9 chunks/s |
+| NeoForge | A, nearest river (5085, 7526) | 441 | 2,388 | 2,388 | 0 | 23.4 chunks/s |
+| NeoForge | C, nearest river (4398, 11686) | 441 | 12,269 | 12,209 | 4 (see below) | - |
+| Fabric | C, nearest river (4398, 11686) | 441 | 12,269 | 12,209 | 4 (same) | - |
+
+- Water at (4283, 11590) and site B is `river`, not `frozen_river` (taiga beside it): no speckled ice.
+- The flat hollow at (4349, 8198) is no longer a dead-flat floor (now a gently dished floor at 159-171).
+- Site C, 4 columns at (4433-4435, 11637-11640): a cave carver opens a pit beside and under a river (stone walls,
+  aquifer water at y 61); the river column at y 66 has air beside it. Identical on both loaders. The RiverGasket
+  only seals neighbours above the neighbour's own water level, so the pit stays open. Pre-existing carver/gasket
+  interaction, not caused by RH5 (follow-up).
+- Deep scour pools / lake beds below sea level opened into aquifer water (still source water); the FULL-chunk check
+  now accepts source water below the bed when the bed is at or below sea level.
+
 # RH4 validation record
 
 ## Automated (`./gradlew :common:test`)
