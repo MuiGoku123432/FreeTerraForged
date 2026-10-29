@@ -303,3 +303,9 @@ the centre and wetland margins — yes. **O3** knight-move neighbours — evalua
   network is mostly steep; the user world winds more (sinuosity 1.34, 6 oxbows). Test: meanders 0 → no oxbows and
   ratio < 1.01, increasing with strength, 200% crossing-free and inside the belt. All windows at 100%: mean 1.29,
   18.1% < 1.1, 15.2% > 1.5 (targets 20% / 15%); default kept at 100.
+- R8 done: FULL-chunk water validation on Fabric and NeoForge (default seed 0 at a large confluence and an oxbow; the
+  user's exported world at two river sites found with the new `-PftfNearestRiver=true` benchmark option), results
+  identical across loaders; the only failures (7 spills at one user site) are vanilla carver breaches beside the
+  channel (see VALIDATION.md). IMPLEMENTATION.md and VALIDATION.md updated for RH4; version `1.0.0014-rh4`; NeoForge
+  jar deployed to the Prism instance (rh3 jar disabled) and the user's `Test-America-v3-ROLLING.json` converted to
+  model 4 (backup `.rh3-backup`). Existing model-3 worlds are rejected with "create a new world" (RH3 decision).

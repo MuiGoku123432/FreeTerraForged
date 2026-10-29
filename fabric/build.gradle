@@ -40,6 +40,7 @@ loom {
             vmArg "-Dfreeterraforged.benchmark.exit=true"
             vmArg "-Dfreeterraforged.benchmark.exact=${project.findProperty('ftfBenchmarkExact') ?: 'false'}"
             vmArg "-Dfreeterraforged.benchmark.validateHighlands=${project.findProperty('ftfValidateHighlands') ?: 'false'}"
+            vmArg "-Dfreeterraforged.benchmark.nearestRiver=${project.findProperty('ftfNearestRiver') ?: 'false'}"
         }
     }
 }

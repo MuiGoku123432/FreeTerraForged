@@ -57,19 +57,24 @@ public final class HighlandWorldValidation {
                     }
                     // Containment: a dry neighbour must be solid at the water surface, or water would spill.
                     boolean contained = true;
+                    String spill = "";
                     for (int[] d : new int[][]{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) {
                         context.lookup.applyCell(neighbour.reset(), x + d[0], z + d[1], true, false);
                         if (neighbour.hasRiverWater) continue;
                         pos.set(x + d[0], water, z + d[1]);
                         var side = level.getBlockState(pos);
-                        if (side.isAir()) { contained = false; spills++; break; }
+                        if (side.isAir()) {
+                            contained = false; spills++;
+                            spill = " spillNeighbour=" + neighbour.terrain.getName() + "/" + neighbour.riverZone + "@" + context.levels.scale(neighbour.height);
+                            break;
+                        }
                     }
                     if (!present || !sealed || extra || !flowOk || !contained) {
                         if (failed++ < 12) examples.append(" [").append(x).append(',').append(z).append(" water=").append(water)
                             .append(" bed=").append(bed).append(" present=").append(present).append(" sealed=").append(sealed).append(" extra=").append(extra)
                             .append(" flow=").append(flowOk).append(" contained=").append(contained)
                             .append(" top=").append(top.getBlock().builtInRegistryHolder().key().location().getPath())
-                            .append(" terrain=").append(cell.terrain.getName()).append(']');
+                            .append(" terrain=").append(cell.terrain.getName()).append(spill).append(']');
                     }
                 }
             }

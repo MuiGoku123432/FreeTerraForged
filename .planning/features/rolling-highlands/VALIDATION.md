@@ -1,3 +1,45 @@
+# RH4 validation record
+
+## Automated (`./gradlew :common:test`)
+
+All RH3 landscape and realism gates pass unchanged. `HighlandPlanformTest` adds, for seeds 0, 42, 8675309 (default
+preset) and the user's Test-America-v3 preset:
+
+| | sinuosity | < 1.1 / > 1.5 | anisotropy | junction mean / < 25° | tip width (< 5) | crossings | oxbows | outside belt |
+|---|---|---|---|---|---|---|---|---|
+| seed 0 | 1.31 | 8% / 14% | 5.9% | 72.0° / 0% | 13 (0%) | 0 | 0 | 0 |
+| seed 42 | 1.22 | 28% / 5% | 5.8% | 70.4° / 0% | 12 (0%) | 0 | 0 | 0 |
+| seed 8675309 | 1.23 | 19% / 0% | 1.7% | 74.9° / 0% | 12 (0%) | 0 | 0 | 0 |
+| user preset | 1.34 | 16% / 21% | 5.5% | 71.9° / 0% | 13 (0%) | 0 | 6 | 0 |
+
+RH3 → RH4 (user world): sinuosity 1.17 → 1.34, axis direction bias 30.3% → ~26%, junction angles under 25°
+~27% → 0%, sharp confluence tips 27% → 0%, crossings 4 → 0. Gates: sinuosity 1.15–1.65, anisotropy ≤ 8%,
+junction mean 60–80° with ≤ 10% under 25°, 0 crossings, tip median ≥ 8 with ≤ 5% under 5, no channel outside its
+belt, oxbows present. `HighlandDeterminismTest.meanderStrengthControlsChannelLength` covers the Meanders setting;
+`HighlandSettingsTest` covers model 4 and the rejection of models 1–3. Plan build ≤ 0.8 s on the user continent;
+column sampling +22% over the R2 baseline (user world, 262k samples).
+
+## Actual Minecraft blocks (RH4)
+
+FULL chunks (radius 8, 289 chunks) after features and a 40-tick wait, `-PftfValidateHighlands=true`:
+
+| Loader | World / site | Wet columns | Current columns | Flow missing | Spills | Failures | Throughput |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Fabric | default seed 0, confluence (−6236, 3859) | 32,639 | 21,737 | 0 | 0 | 0 | 23.2 chunks/s |
+| NeoForge | default seed 0, confluence (−6236, 3859) | 32,639 | 21,737 | 0 | 0 | 0 | 23.9 chunks/s |
+| Fabric | default seed 0, oxbow (−5526, 8884) | 3,825 | 3,172 | 0 | 0 | 0 | 27.1 chunks/s |
+| NeoForge | default seed 0, oxbow (−5526, 8884) | 3,825 | 3,172 | 0 | 0 | 0 | 28.1 chunks/s |
+| Fabric | user export, river nearest (4551, 9377) → (4391, 9569) | 10,422 | 10,422 | 0 | 0 | 0 | 33.0 chunks/s |
+| NeoForge | user export, river nearest (4551, 9377) → (4391, 9569) | 10,422 | 10,422 | 0 | 0 | 0 | 30.5 chunks/s |
+| Fabric | user export, river nearest (5300, 13000) → (5172, 12840) | 6,980 | 6,777 | 0 | 7 | 7 | — |
+| NeoForge | user export, river nearest (5300, 13000) → (5172, 12840) | 6,980 | 6,777 | 0 | 7 | 7 | — |
+
+Both loaders agree exactly. The 7 spills at the second user site are vanilla carvers: the dry neighbours are planned
+at y 72 but the world surface is at 70 with re-grassed cave openings below (air from y 69 down to 58/54 at
+(5309–5310, 12828)), the same class as the RH3 user-world "bed not sealed" failures. `-PftfNearestRiver=true`
+centres the run on the nearest planned river channel (used because the user export's layout is not the test
+fixture's); spill reports now name the neighbour's terrain, zone and planned height.
+
 # RH3 validation record
 
 Date: 2026-10-28. Java 21, Minecraft 1.21.1, build `1.0.0014-rh3`, generation model 3.

@@ -78,6 +78,30 @@ public final class WorldgenBenchmarkRunner {
      * Uses {@code SpawnType.CONTINENT_CENTER} logic ({@code continent().getNearestCenter(x, z)})
      * starting from {@code (probeX, probeZ)} and verifies the resolved center is inland and above water.
      */
+    /**
+     * Opt-in (freeterraforged.benchmark.nearestRiver): the nearest planned river channel to {@code from}, searched on a
+     * 32-block spiral up to 4096 blocks; {@code from} when none is found. Lets water validation target real channels in
+     * worlds whose layout is not known in advance.
+     */
+    static BlockPos nearestRiver(ServerLevel level, BlockPos from) {
+        var state = (etcodehome.freeterraforged.world.worldgen.FTFRandomState) (Object) level.getChunkSource().randomState();
+        var context = state.generatorContext();
+        if (context == null) return from;
+        var cell = new etcodehome.freeterraforged.world.worldgen.cell.Cell();
+        for (int ring = 0; ring <= 128; ring++) {
+            for (int dz = -ring; dz <= ring; dz++) for (int dx = -ring; dx <= ring; dx++) {
+                if (Math.max(Math.abs(dx), Math.abs(dz)) != ring) continue;
+                int x = from.getX() + dx * 32, z = from.getZ() + dz * 32;
+                context.lookup.applyCell(cell.reset(), x, z, true, false);
+                if (cell.hasRiverWater && cell.hasFlow) {
+                    FTFCommon.LOGGER.info("[FTF-Perf] Nearest river channel to ({}, {}): ({}, {})", from.getX(), from.getZ(), x, z);
+                    return new BlockPos(x, 0, z);
+                }
+            }
+        }
+        return from;
+    }
+
     public static BlockPos resolveContinentCenter(ServerLevel level, int probeX, int probeZ) {
         if ((Object) level.getChunkSource().randomState() instanceof FTFRandomState ftfRandomState) {
             GeneratorContext ctx = ftfRandomState.generatorContext();
@@ -219,6 +243,7 @@ public final class WorldgenBenchmarkRunner {
                 ServerLevel overworld = server.overworld();
                 BlockPos center = Boolean.getBoolean("freeterraforged.benchmark.exact")
                     ? new BlockPos(probeX, 0, probeZ) : resolveContinentCenter(overworld, probeX, probeZ);
+                if (Boolean.getBoolean("freeterraforged.benchmark.nearestRiver")) center = nearestRiver(overworld, center);
                 FTFCommon.LOGGER.info(
                     "[FTF-Perf] Auto-benchmark triggered via JVM properties (seed={}, radius={}, probe=({}, {}), resolvedContinentCenter=({}, {}), exit={})",
                     overworld.getSeed(), radius, probeX, probeZ, center.getX(), center.getZ(), exitOnComplete
