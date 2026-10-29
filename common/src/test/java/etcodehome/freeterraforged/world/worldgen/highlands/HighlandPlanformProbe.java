@@ -26,14 +26,16 @@ final class HighlandPlanformProbe {
     record Metrics(String label, int gridStep, int gridNodes, int landNodes, int refinedNodes, double buildMs,
                    double sinuosity, double straightShare, double meanderShare, int sinuosityWindows,
                    double directionBias, double knightBias, double anisotropy, int directionWindows, double junctionAngle, double acuteShare, int junctions,
-                   double tongueMedian, double narrowTongueShare, int tongues, long crossings, int oxbows, long outsideBelt) {
+                   double tongueMedian, double narrowTongueShare, int tongues, long crossings, int oxbows, long outsideBelt,
+                   double channelSpacing, double riverSpacing) {
         String summary() {
             return String.format(Locale.ROOT,
                 "RHP %s grid=%d nodes=%d land=%d refined=%d build=%.0fms sinuosity=%.3f straight<1.1=%.0f%% meander>1.5=%.0f%% (n=%d) "
-                    + "directionBias=%.1f%% knightBias=%.1f%% anisotropy=%.1f%% (n=%d, uniform 22.2%%) junction=%.1fdeg acute<25=%.0f%% (n=%d) tipWidth=%.1f sharp<5=%.0f%% (n=%d) crossings=%d oxbows=%d outsideBelt=%d",
+                    + "directionBias=%.1f%% knightBias=%.1f%% anisotropy=%.1f%% (n=%d, uniform 22.2%%) junction=%.1fdeg acute<25=%.0f%% (n=%d) tipWidth=%.1f sharp<5=%.0f%% (n=%d) crossings=%d oxbows=%d outsideBelt=%d "
+                    + "spacing=%.0f riverSpacing(w>=8)=%.0f",
                 label, gridStep, gridNodes, landNodes, refinedNodes, buildMs, sinuosity, 100 * straightShare, 100 * meanderShare,
                 sinuosityWindows, 100 * directionBias, 100 * knightBias, 100 * anisotropy, directionWindows, junctionAngle, 100 * acuteShare, junctions, tongueMedian,
-                100 * narrowTongueShare, tongues, crossings, oxbows, outsideBelt);
+                100 * narrowTongueShare, tongues, crossings, oxbows, outsideBelt, channelSpacing, riverSpacing);
         }
     }
 
@@ -145,7 +147,32 @@ final class HighlandPlanformProbe {
             windows == 0 ? Double.NaN : sinSum / windows, ratio(straight, windows), ratio(meander, windows), windows,
             ratio(biased, chords), ratio(knight, chords), anisotropy(sector, chords), chords, junctions == 0 ? Double.NaN : angleSum / junctions, ratio(acute, junctions), junctions,
             tongues.isEmpty() ? Double.NaN : tongues.get(tongues.size() / 2), ratio(narrow, tongues.size()), tongues.size(),
-            crossings(nodes), plan.oxbows().size(), outsideBelt(plan));
+            crossings(nodes), plan.oxbows().size(), outsideBelt(plan), spacing(plan, 0), spacing(plan, riverArea(context, 4)));
+    }
+
+    /** Drainage area at which a channel's half width (before width noise) first reaches {@code half} blocks. */
+    static double riverArea(GeneratorContext context, double half) {
+        var continent = (RollingHighlandsContinent) context.heightmap.continent();
+        var drainage = continent.drainage();
+        double lo = 1e4, hi = 1e9;
+        for (int i = 0; i < 60; i++) { double mid = Math.sqrt(lo * hi); if (drainage.halfWidth(mid, 1) >= half) hi = mid; else lo = mid; }
+        return hi;
+    }
+
+    /**
+     * Mean channel spacing (RH5): land area over the length of channels draining at least {@code minArea}. For parallel
+     * channels this is their spacing; over a whole continent it includes undrained uplands, so it reads about 2–3×
+     * the spacing seen across comparable terrain.
+     */
+    static double spacing(HighlandDrainage.Plan plan, double minArea) {
+        double length = 0;
+        var nodes = plan.nodes();
+        for (var node : nodes) {
+            if (node.parent() < 0 || node.area() < minArea) continue;
+            var p = nodes.get(node.parent());
+            length += Math.hypot(node.x() - p.x(), node.z() - p.z());
+        }
+        return length > 0 ? (double) plan.landNodes() * plan.gridStep() * plan.gridStep() / length : Double.NaN;
     }
 
     /** Total channel length over total valley-axis length (axis samples are ≤ 16 blocks apart; larger gaps are stem jumps). */

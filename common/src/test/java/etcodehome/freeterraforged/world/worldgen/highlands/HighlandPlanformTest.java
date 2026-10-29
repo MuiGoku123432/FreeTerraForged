@@ -10,7 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * channel crossings for the default preset (seeds 0, 42, 8675309) and the user's Test-America-v3 world, and renders
  * hillshades (build/rolling-highlands/planform-*.png). Gates are added as RH4 phases land (R3: belt containment,
  * sinuosity, anisotropy, oxbows present; R4: junction angles, no crossings;
- * R5: rounded confluence tips).
+ * R5: rounded confluence tips; RH5 D: thinner drawn network, established-river spacing).
  */
 class HighlandPlanformTest {
     @Test void planform() throws Exception {
@@ -37,6 +37,10 @@ class HighlandPlanformTest {
             if (m.crossings() > 0) failures.add("channels cross: " + m.summary());
             // R5: rounded confluence apex (dry width 2 blocks behind the tip).
             if (m.tongueMedian() < 8 || m.narrowTongueShare() > .05) failures.add("confluence tips too sharp: " + m.summary());
+            // RH5 D: a thinner drawn network than RH4 (continent metric 1,230-1,300 on these continents), and established
+            // rivers (8+ blocks wide) spaced 2.5-6 km on the continent metric, i.e. about 1-2 km across comparable terrain.
+            if (m.channelSpacing() < 1450) failures.add("drawn network not thinned (spacing < 1450): " + m.summary());
+            if (m.riverSpacing() < 2500 || m.riverSpacing() > 6000) failures.add("established-river spacing outside 2.5-6 km: " + m.summary());
         }
         if (results.stream().mapToInt(HighlandPlanformProbe.Metrics::oxbows).sum() == 0) failures.add("no oxbows in any test continent");
         assertTrue(failures.isEmpty(), String.join("\n", failures));

@@ -34,7 +34,24 @@ public final class HighlandDrainage {
     static final double MAX_WATER_SLOPE = .2;
     private final HighlandCoast coast;
     private final HighlandLand surface;
-    private final double spacing, coastEdge, inlandEdge, lakeChance, lakeDepth, ks, channelScale, meander;
+    private final double spacing, coastEdge, inlandEdge, lakeChance, lakeDepth, ks, meander;
+    /**
+     * River hierarchy (RH5 D2), as fractions of uplandSpacing²: drainage area at which the drawn network starts
+     * (creek heads, at River Count 7; River Count scales it inversely), at which a channel has grown to an established
+     * river, and the fixed structural area used for stream capture and lake placement (independent of River Count so
+     * thinning the drawn network keeps the same merges and lakes).
+     */
+    static final double CREEK_AREA = .065, RIVER_AREA = .36, STRUCTURAL_AREA = .043;
+    /** River Count that maps to CREEK_AREA, and the range of the resulting area scale. */
+    static final double REFERENCE_RIVER_COUNT = 7, MIN_DENSITY_SCALE = .4, MAX_DENSITY_SCALE = 3;
+    /** Half width (blocks) of a channel at its head: 2-4 block creeks once the valley texture's width noise applies. */
+    static final double CREEK_HALF_WIDTH = 1.4;
+    /** Established rivers: half width 16 (A/spacing²)^0.35 within these bounds (the RH4 law, unchanged). */
+    static final double RIVER_MIN_HALF_WIDTH = 4, RIVER_MAX_HALF_WIDTH = 12;
+    /** Head taper: the first HEAD_TAPER blocks below a channel head narrow to this share of the width. */
+    static final double HEAD_WIDTH = .85;
+    /** Drawn creek-head area, established-river area and structural (capture/lake) area, in blocks². */
+    private final double creekArea, riverArea, structuralArea, creekExponent;
     /** D8 neighbours; diagonals cost sqrt(2) in the flat-resolution distance and may not cross each other. */
     private static final int[] DX = {0, -1, 1, 0, -1, 1, -1, 1};
     private static final int[] DZ = {-1, 0, 0, 1, -1, 1, 1, -1};
@@ -52,6 +69,15 @@ public final class HighlandDrainage {
      * stays convex: links never cross and node fields rasterise back onto the lattice by barycentric interpolation.
      */
     static final double NODE_JITTER = .24;
+    /**
+     * Flat routing friction (RH5 D1). On flats and filled depressions every receiver has zero drop, so routing falls
+     * back to the shortest path to the outlet; on uniform friction that is a radial starburst of parallel channels
+     * that only meet at the outlet. Path cost per block is 1 + FLAT_FRICTION × n² for a smooth noise n of wavelength
+     * FLAT_FRICTION_WAVELENGTH: shortest paths through such a medium coalesce along its low-cost corridors, so flat
+     * drainage collects into branching trunks roughly a wavelength apart. Sloping ground is unaffected (its receiver
+     * is the steepest descent).
+     */
+    static final double FLAT_FRICTION = 3, FLAT_FRICTION_WAVELENGTH = 1400;
 
     public HighlandDrainage(HighlandCoast coast, HighlandLand surface, double spacing, WorldSettings.ControlPoints controls) {
         this(coast, surface, spacing, controls, .5, 10, 100, 10, 1);
@@ -69,7 +95,13 @@ public final class HighlandDrainage {
         this.lakeDepth = clamp(lakeDepth, 1, 32);
         // Valley depth scales the stream-power steepness; FTF's river count sets drainage density (10 = default).
         this.ks = KS * 100 / clamp(valleyDepthPercent, 25, 200);
-        this.channelScale = clamp(10.0 / Math.max(1, riverCount), .4, 4);
+        double area2 = spacing * spacing;
+        this.riverArea = RIVER_AREA * area2;
+        this.structuralArea = STRUCTURAL_AREA * area2;
+        double scale = clamp(REFERENCE_RIVER_COUNT / Math.max(1, riverCount), MIN_DENSITY_SCALE, MAX_DENSITY_SCALE);
+        this.creekArea = Math.min(CREEK_AREA * area2 * scale, riverArea / 1.5);
+        // Creeks widen as a power of drainage area from CREEK_HALF_WIDTH at their head to the river law at riverArea.
+        this.creekExponent = Math.log(riverHalfWidth(riverArea) / CREEK_HALF_WIDTH) / Math.log(riverArea / creekArea);
         this.coastEdge = controls.coast; this.inlandEdge = controls.coast + Math.max(controls.inland - controls.coast, COASTAL_RISE * Math.max(1, 16000.0 / coast.tectonicScale));
         if (!(inlandEdge > coastEdge)) throw new IllegalArgumentException("Rolling Highlands needs inland > coast");
     }
@@ -125,6 +157,26 @@ public final class HighlandDrainage {
             return size++;
         }
     }
+    private double riverHalfWidth(double area) {
+        return clamp(16 * Math.pow(Math.max(.01, area / (spacing * spacing)), .35), RIVER_MIN_HALF_WIDTH, RIVER_MAX_HALF_WIDTH);
+    }
+    /**
+     * Channel half width (blocks, before the valley texture's width noise) from drainage area: established rivers
+     * (area at least riverArea) follow the RH4 hydraulic-geometry law; smaller channels are creeks that widen
+     * gradually (a power of area) from CREEK_HALF_WIDTH at the drawn network's head. {@code head} (0..1) tapers
+     * the first HEAD_TAPER blocks below a channel head.
+     */
+    public double halfWidth(double area, double head) {
+        double base = area >= riverArea ? riverHalfWidth(area)
+            : CREEK_HALF_WIDTH * Math.pow(Math.max(1, area / creekArea), creekExponent);
+        return base * lerp(HEAD_WIDTH, 1, clamp(head, 0, 1));
+    }
+    /** 1 for a creek at its head, falling smoothly to 0 for an established river. */
+    public double creekness(double area) {
+        return 1 - smooth(Math.log(creekArea), Math.log(riverArea), Math.log(Math.max(1, area)));
+    }
+    double creekArea() { return creekArea; }
+    double riverArea() { return riverArea; }
     HighlandCoast coast() { return coast; }
     double coastEdge() { return coastEdge; }
     double spacing() { return spacing; }
@@ -306,6 +358,12 @@ public final class HighlandDrainage {
             nodeX[i] = originX + i % width * step + NODE_JITTER * step * (((hash & 0xFFFF) / 65535.0) * 2 - 1);
             nodeZ[i] = originZ + i / width * step + NODE_JITTER * step * ((((hash >>> 16) & 0xFFFF) / 65535.0) * 2 - 1);
         }
+        double[] friction = new double[n];
+        for (int i = 0; i < n; i++) {
+            double f = .65 * noise(surface.seed() + 4409, nodeX[i], nodeZ[i], FLAT_FRICTION_WAVELENGTH)
+                + .35 * noise(surface.seed() + 4410, nodeX[i], nodeZ[i], FLAT_FRICTION_WAVELENGTH * .4);
+            friction[i] = 1 + FLAT_FRICTION * f * f;
+        }
         boolean[] done = new boolean[n], stalled = new boolean[n];
         // Equal levels (flats and filled depressions) resolve by geometric distance from the outlet, not by
         // array order, so flat drainage spreads radially instead of in parallel grid lines.
@@ -350,7 +408,7 @@ public final class HighlandDrainage {
                         if (!done[j]) continue;
                         double dist = Math.hypot(nodeX[i] - nodeX[j], nodeZ[i] - nodeZ[j]);
                         double slope = Math.max(0, filled[i] - filled[j]) / dist;
-                        double via = routed[j] + dist / step;
+                        double via = routed[j] + dist / step * .5 * (friction[i] + friction[j]);
                         if (slope > pickSlope + 1e-12 || Math.abs(slope - pickSlope) <= 1e-12 && via < pickVia) {
                             pick = j; pickDir = d; pickSlope = slope; pickVia = via;
                         }
@@ -377,7 +435,7 @@ public final class HighlandDrainage {
                 if (seen[j]) level = Math.min(level, filled[j]);
                 seen[j] = true; stalled[j] = false;
                 filled[j] = level;
-                queue.add(new QueueNode(j, level, routed[i] + Math.hypot(nodeX[i] - nodeX[j], nodeZ[i] - nodeZ[j]) / step));
+                queue.add(new QueueNode(j, level, routed[i] + Math.hypot(nodeX[i] - nodeX[j], nodeZ[i] - nodeZ[j]) / step * .5 * (friction[i] + friction[j])));
             }
         }
         for (int i = 0; i < n; i++) {
@@ -403,7 +461,7 @@ public final class HighlandDrainage {
         // Stream capture: a channel that runs alongside a larger channel (orthogonal neighbours, not already joined)
         // joins it there instead of flowing in parallel to a later confluence. Only downhill-consistent captures that
         // cannot form a cycle are taken; the drainage tree is then re-ordered and areas recomputed.
-        double captureArea = Math.max(3.0 * step * step, .03 * spacing * spacing * channelScale);
+        double captureArea = Math.max(3.0 * step * step, structuralArea);
         boolean captured = false;
         for (int k = 0; k < count; k++) {
             int i = order[k];
@@ -496,12 +554,18 @@ public final class HighlandDrainage {
             }
             if (!breached || round == 3) break;
         }
-        double threshold = Math.max(3.0 * step * step, .03 * spacing * spacing * channelScale);
-        damLakes(ownerX, ownerZ, width, depth, step, n, count, order, parent, land, area, run, ground, incised, water, threshold);
-        boolean[] channel = new boolean[n];
-        for (int i = 0; i < n; i++) channel[i] = land[i] && area[i] >= threshold;
+        double structural = Math.max(3.0 * step * step, structuralArea), threshold = Math.max(3.0 * step * step, creekArea);
+        damLakes(ownerX, ownerZ, width, depth, step, n, count, order, parent, land, area, run, ground, incised, water, structural);
+        // Lakes form on the structural network (independent of River Count); the drawn network is every channel
+        // above the creek threshold plus the outlet of every lake, so a lake never sits in a dry valley.
+        boolean[] lakeChannel = new boolean[n], channel = new boolean[n];
+        for (int i = 0; i < n; i++) {
+            lakeChannel[i] = land[i] && area[i] >= structural;
+            channel[i] = land[i] && (area[i] >= threshold || lakeChannel[i] && water[i] - incised[i] > .5);
+        }
         for (int k = count - 1; k >= 0; k--) {
             int i = order[k];
+            if (lakeChannel[i] && parent[i] >= 0) lakeChannel[parent[i]] = true;
             if (channel[i] && parent[i] >= 0) channel[parent[i]] = true;
         }
         double[] incision = new double[n];
@@ -521,7 +585,7 @@ public final class HighlandDrainage {
             tributaries[p]++;
             if (mainChild[p] < 0 || area[i] > area[mainChild[p]] || area[i] == area[mainChild[p]] && i < mainChild[p]) mainChild[p] = i;
         }
-        HighlandBasins basins = new HighlandBasins(surface.seed() + 52361, originX, originZ, width, depth, step, incised, water, land, channel, nodeX, nodeZ);
+        HighlandBasins basins = new HighlandBasins(surface.seed() + 52361, originX, originZ, width, depth, step, incised, water, land, lakeChannel, nodeX, nodeZ);
         // Channels run through the routing nodes' own (jittered) positions.
         double[] pathX = nodeX, pathZ = nodeZ;
         // Valley axis (RH3 centreline): tangent-continuous Hermite per grid link, 16-block samples.

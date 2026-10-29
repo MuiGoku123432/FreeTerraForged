@@ -27,6 +27,10 @@ public final class RollingHighlandsContinent implements Continent {
     static final double BELT_YIELD_NEAR = 24, BELT_YIELD_FAR = 120;
     /** Oxbow open-water depth at the centre and wetland margin width (blocks). */
     static final double OXBOW_DEPTH = 2.5, OXBOW_MARGIN = 8;
+    /** Creek section (RH5): share of the river valley floor width kept, and bed depth (blocks, before texture). */
+    static final double CREEK_FLOOR = .3, CREEK_BED = 1.6;
+    /** Narrowest channel half width (blocks): a creek is never less than two blocks of water across. */
+    static final double MIN_RADIUS = 1;
     static final double BANK_RUN = 16, MIN_OUTER_RUN = 64, MAX_OUTER_RUN = 512, CREASE_SOFTNESS = 24;
     private static final Rivermap NO_LEGACY_RIVERS = new Rivermap(0, 0, new Network[0], GenWarp.EMPTY);
     private final HighlandCoast coast;
@@ -139,6 +143,7 @@ public final class RollingHighlandsContinent implements Continent {
     /** Test/diagnostic access to the owner plan containing a block position. */
     HighlandPlanIndex planAt(double x, double z) { var s = coast.sample(x, z); return plan(s.ownerX(), s.ownerZ()); }
     HighlandCoast coast() { return coast; }
+    HighlandDrainage drainage() { return drainage; }
     HighlandPlanIndex planOf(int ownerX, int ownerZ) { return plan(ownerX, ownerZ); }
     /** Diagnostics: the land surface before any valley, lake or wetland shaping, in blocks above sea level. */
     double uncarvedLand(double x, double z) {
@@ -313,13 +318,17 @@ public final class RollingHighlandsContinent implements Continent {
             // Channel size from discharge (hydraulic geometry); heads start as narrow shallow streams. Valley floor and
             // fadeout follow FTF's main-river bank width, pinch and relief-scaled fadeout, widened with drainage area
             // (floor ~ A^0.3) and narrowed where the valley is confined.
-            double radius = clamp(16 * Math.pow(q, .35), 4, 12) * lerp(.3, 1, head) * dynamic;
+            // RH5: creeks (small drainage area) have a narrow channel, a shallow bed, low banks and a narrow floor; all
+            // of it grows continuously into the established-river section as the drainage area reaches riverArea.
+            double creek = this.drainage.creekness(hits.area[k]);
+            double radius = Math.max(MIN_RADIUS, this.drainage.halfWidth(hits.area[k], head) * dynamic);
             double hydraulic = clamp(Math.pow(q / .1, .3), .5, 2) * settings.valleyWidth() / 256.0;
-            double floorHalf = river.bankWidth * dynamic * pinch * hydraulic * lerp(1, .4, confinement) * head * head;
+            double floorHalf = river.bankWidth * dynamic * pinch * hydraulic * lerp(1, .4, confinement) * head * head * lerp(1, CREEK_FLOOR, creek);
             double fadeRun = Math.min(MAX_FADE, river.bankWidth * dynamic * pinch * Math.max(.5, hydraulic)
                 * (5 + Math.max(0, land - water) / 100) * lerp(1, .6, confinement));
-            double bedDepth = Math.max(2, 2.3 + .3 * depthVar + river.bedDepth * clamp(q / .3, 0, 1) * flat) * lerp(.4, 1, head);
-            double bankRun = Math.max(3, (river.maxBankHeight - river.minBankHeight) * dynamic * side);
+            double bedDepth = lerp(Math.max(2, 2.3 + .3 * depthVar + river.bedDepth * clamp(q / .3, 0, 1) * flat) * lerp(.4, 1, head),
+                CREEK_BED + .3 * depthVar, creek);
+            double bankRun = Math.max(3, (river.maxBankHeight - river.minBankHeight) * dynamic * side) * lerp(1, .5, creek);
             // The axis floor contains the meander belt; the valley still ends inside the index influence.
             double belt = hits.belt[k], axisDistance = hits.axis[k];
             // The belt widens this floor only away from higher channels: a floodplain never undercuts a tributary
@@ -332,7 +341,7 @@ public final class RollingHighlandsContinent implements Continent {
             }
             double outer = Math.min(Math.max(MIN_OUTER_RUN, fadeRun), HighlandPlanIndex.INFLUENCE - 8 - belt - (radius + bankRun + floorHalf));
             var shape = new FtfValley.Shape(radius, bankRun, floorHalf, Math.max(8, outer), bedDepth,
-                Math.max(1, river.maxBankHeight - river.minBankHeight) + .4 * terrace - .6 * drainage, terrace, drainage);
+                (Math.max(1, river.maxBankHeight - river.minBankHeight) + .4 * terrace - .6 * drainage) * lerp(1, .5, creek), terrace, drainage);
             var section = FtfValley.sample(distance, axisDistance, belt, land, water, shape);
             maxInfluence = Math.max(maxInfluence, section.influence());
             support = Math.max(support, water + 1 - SUPPORT_SLOPE * Math.max(0, distance - shape.bankEnd()));
@@ -362,7 +371,7 @@ public final class RollingHighlandsContinent implements Continent {
             double jx = x - junction.x(), jz = z - junction.z();
             if (jx * jx + jz * jz >= HighlandPlanIndex.JUNCTION_REACH * HighlandPlanIndex.JUNCTION_REACH) continue;
             double dj = Math.sqrt(jx * jx + jz * jz);
-            double mainWidth = 2 * clamp(16 * Math.pow(Math.max(.01, junction.mainArea() / area2), .35), 4, 12);
+            double mainWidth = 2 * this.drainage.halfWidth(junction.mainArea(), 1);
             double reach = clamp(3 * mainWidth, 24, HighlandPlanIndex.JUNCTION_REACH);
             if (dj >= reach) continue;
             double fade = 1 - smooth(.5 * reach, reach, dj);

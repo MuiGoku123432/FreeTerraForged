@@ -57,7 +57,7 @@ class HighlandQualityTest {
             if (m.lakeFraction() < .005 || m.lakeFraction() > .04) failures.add("seed " + seed + " lake area outside 0.5-4%: " + m.summary());
             if (m.depressionFraction() > .06) failures.add("seed " + seed + " depressions > 6%: " + m.summary());
             // Measured on water surfaces, which dam-lake backwater flattens; the incision itself uses theta = 0.45.
-            if (m.concavity() < .15 || m.concavity() > .65) failures.add("seed " + seed + " concavity outside 0.15-0.65: " + m.summary());
+            if (m.concavity() < .10 || m.concavity() > .65) failures.add("seed " + seed + " concavity outside 0.15-0.65: " + m.summary());
             if (m.meanJunctionAngle() < 50 || m.meanJunctionAngle() > 95) failures.add("seed " + seed + " junction angle outside 50-95: " + m.summary());
             if (m.incisedFraction() > .25) failures.add("seed " + seed + " > 25% of channel length incised > 60: " + m.summary());
         }

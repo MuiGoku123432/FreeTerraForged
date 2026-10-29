@@ -18,9 +18,10 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 public record RollingHighlandsSettings(int modelVersion, int uplandSpacing, int uplandHeight, int valleyDepth, int valleyWidth, int meanders) {
     /**
      * Generation model. 3 = RH3 (legacy FTF land, stream-power drainage, FTF river profile, dam lakes); 4 = RH4
-     * (jittered-lattice routing, meandering channels with oxbows, natural tributary mouths, rounded confluences).
+     * (jittered-lattice routing, meandering channels with oxbows, natural tributary mouths, rounded confluences);
+     * 5 = RH5 (flat routing friction, creek-to-river hierarchy, structural lakes independent of River Count).
      */
-    public static final int MODEL_VERSION = 4;
+    public static final int MODEL_VERSION = 5;
     public static final int DEFAULT_MEANDERS = 100;
     public static final RollingHighlandsSettings DEFAULT = new RollingHighlandsSettings(MODEL_VERSION, 4096, 80, 100, 256, DEFAULT_MEANDERS);
 

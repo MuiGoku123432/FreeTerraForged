@@ -115,7 +115,10 @@ final class HighlandQualityProbe {
                 if (c.hasRiverWater) {
                     wetCount++;
                     var lake = continent.planAt(ox + x * RES, oz + z * RES).lake(ox + x * RES, oz + z * RES);
-                    if ((lake == null || lake.depth() <= 0) && c.terrain != TerrainType.WETLAND) { channelCells++; if (c.hasFlow) flowing++; }
+                    // Oxbow lakes are still water by design (RH4 R6), not channel cells.
+                    var oxbow = continent.planAt(ox + x * RES, oz + z * RES).oxbow(ox + x * RES, oz + z * RES);
+                    boolean still = oxbow != null && oxbow.distance() < oxbow.halfWidth();
+                    if ((lake == null || lake.depth() <= 0) && c.terrain != TerrainType.WETLAND && !still) { channelCells++; if (c.hasFlow) flowing++; }
                 }
                 else if (c.continentEdge > coastEdge) { dry++; if (c.riverZone != RiverZone.None) valley++; }
                 if (image != null) {

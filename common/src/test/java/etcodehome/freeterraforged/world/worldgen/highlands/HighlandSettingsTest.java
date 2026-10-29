@@ -38,6 +38,10 @@ class HighlandSettingsTest {
         json.addProperty("modelVersion", 3);
         var rh3 = RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).error();
         assertTrue(rh3.isPresent() && rh3.get().message().contains("create a new world"));
+        // RH4 (model 4) likewise: RH5 draws a different river hierarchy.
+        json.addProperty("modelVersion", 4);
+        var rh4 = RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).error();
+        assertTrue(rh4.isPresent() && rh4.get().message().contains("create a new world"));
         // Meanders is optional (default 100) and bounded.
         json.addProperty("modelVersion", RollingHighlandsSettings.MODEL_VERSION); json.remove("meanders");
         assertEquals(100, RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).getOrThrow().meanders());

@@ -41,6 +41,8 @@ final class HighlandMeanders {
     static final double OXBOW_CHANCE = .3;
     /** Loops qualify when their apex offset is at least this many channel widths and the loop is this sinuous. */
     static final double OXBOW_MIN_APEX = 2.5, OXBOW_MIN_LOOP = 1.5;
+    /** Creeks narrower than this (blocks) never leave oxbows (RH5: their loops are a few blocks across). */
+    static final double OXBOW_MIN_WIDTH = 8;
     /**
      * Loop offsets (fractions of the apex offset): the neck is cut where the channel crosses OXBOW_NECK, the oxbow
      * keeps the loop beyond OXBOW_ARC, and holds open water beyond OXBOW_WATER.
@@ -132,8 +134,7 @@ final class HighlandMeanders {
 
     /** Channel width (blocks) from drainage area, as rendered (RollingHighlandsContinent radius × 2, without noise). */
     private double width(int j) {
-        double q = Math.max(.01, ax.area[j] / (drainage.spacing() * drainage.spacing()));
-        return 2 * clamp(16 * Math.pow(q, .35), 4, 12) * lerp(.3, 1, ax.head[j]);
+        return 2 * drainage.halfWidth(ax.area[j], ax.head[j]);
     }
 
     Result build() {
@@ -321,8 +322,7 @@ final class HighlandMeanders {
         joined[0] = nearest;
         if (emitted.size() < 3) return emitted;
         var anchor = samples.get(nearest);
-        double wMain = 2 * clamp(16 * Math.pow(Math.max(.01, anchor.area() / (drainage.spacing() * drainage.spacing())), .35), 4, 12)
-            * lerp(.3, 1, anchor.head());
+        double wMain = 2 * drainage.halfWidth(anchor.area(), anchor.head());
         double length = Math.min(clamp(MOUTH_WIDTHS * wMain, MOUTH_MIN, MOUTH_MAX), .85 * emitted.get(emitted.size() - 1)[2]);
         int iA = 0;
         while (iA < emitted.size() - 2 && emitted.get(iA)[2] < length) iA++;
@@ -565,7 +565,7 @@ final class HighlandMeanders {
             for (int r = a; r <= b; r++) if (Math.abs(sy[r]) > Math.abs(sy[apex])) apex = r;
             double peak = Math.abs(sy[apex]);
             double w = width(pts[locate(u, su[apex])]);
-            if (peak < OXBOW_MIN_APEX * w || b - a < 4) continue;
+            if (w < OXBOW_MIN_WIDTH || peak < OXBOW_MIN_APEX * w || b - a < 4) continue;
             double channelLength = 0;
             for (int r = a + 1; r <= b; r++) channelLength += Math.hypot(su[r] - su[r - 1], sy[r] - sy[r - 1]);
             if (channelLength < OXBOW_MIN_LOOP * Math.max(1, su[b] - su[a])) continue;
@@ -807,8 +807,7 @@ final class HighlandMeanders {
             for (int c = stemFirst[parentStem]; c <= stemLast[parentStem]; c++) {
                 if (Math.abs(sampleU.get(c) - junctionU) > MOUTH_RANGE + 2 * BELT_MAX) continue;
                 var node = samples.get(c);
-                double q2 = Math.max(.01, node.area() / (drainage.spacing() * drainage.spacing()));
-                double wc = 2 * clamp(16 * Math.pow(q2, .35), 4, 12) * lerp(.3, 1, node.head());
+                double wc = 2 * drainage.halfWidth(node.area(), node.head());
                 best = Math.min(best, Math.hypot(node.x() - x[q], node.z() - z[q]) - .5 * w - .5 * wc - CLEARANCE);
             }
             clear[q] = Math.max(0, best);

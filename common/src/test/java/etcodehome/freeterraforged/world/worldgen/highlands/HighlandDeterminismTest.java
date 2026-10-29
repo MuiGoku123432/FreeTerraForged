@@ -72,6 +72,40 @@ class HighlandDeterminismTest {
         }
         assertTrue(ratio[0] < 1.01 && ratio[0] < ratio[1] - .005 && ratio[1] < ratio[2] - .01, java.util.Arrays.toString(ratio));
     }
+    /**
+     * RH5 D2/D3: River Count only moves where the drawn network starts. Fewer rivers means less channel length, but the
+     * same lakes (lake placement and stream capture use the fixed structural area). Creeks start narrow and widen
+     * monotonically into the unchanged RH4 river width.
+     */
+    @Test void riverCountThinsCreeksButKeepsLakes() {
+        double[] length = new double[2];
+        int[] lakes = new int[2];
+        int[] counts = {7, 3};
+        for (int i = 0; i < 2; i++) {
+            var p = preset(RollingHighlandsSettings.DEFAULT);
+            p.rivers().riverCount = counts[i];
+            try (var context = WorldgenFixture.context(p, 0)) {
+                var continent = (RollingHighlandsContinent) context.heightmap.continent();
+                var plan = continent.planOf(0, 0).plan();
+                length[i] = 1 / HighlandPlanformProbe.spacing(plan, 0);
+                lakes[i] = plan.basins().count();
+                var d = continent.drainage();
+                assertEquals(HighlandDrainage.CREEK_HALF_WIDTH, d.halfWidth(d.creekArea(), 1), 1e-9);
+                double previous = 0;
+                for (double a = d.creekArea(); a < 40 * d.riverArea(); a *= 1.1) {
+                    double w = d.halfWidth(a, 1);
+                    assertTrue(w >= previous - 1e-9, "width not monotone at " + a);
+                    previous = w;
+                }
+                double q = 2 * d.riverArea() / (4096.0 * 4096.0);
+                assertEquals(Math.min(12, Math.max(4, 16 * Math.pow(q, .35))), d.halfWidth(2 * d.riverArea(), 1), 1e-9);
+                assertEquals(1, d.creekness(d.creekArea()), 1e-9);
+                assertEquals(0, d.creekness(d.riverArea()), 1e-9);
+            }
+        }
+        assertTrue(length[1] < .8 * length[0], java.util.Arrays.toString(length));
+        assertEquals(lakes[0], lakes[1]);
+    }
     /** Valley width only reshapes floors: the drainage plan and water profile are unchanged. */
     @Test void valleyWidthKeepsTheChannelProfile() {
         var settings = new RollingHighlandsSettings[]{RollingHighlandsSettings.DEFAULT,
