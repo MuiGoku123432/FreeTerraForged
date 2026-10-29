@@ -24,6 +24,8 @@ public final class HighlandDrainage {
     static final int MAX_LAKE_NODES = 600;
     /** Single-node pits read as square ponds at plan resolution; such depressions are breached instead. */
     static final int MIN_DEPRESSION_LAKE_NODES = 3;
+    /** Tarns (RH5 H): off-network lakes need at least this depth (blocks) and this spacing (blocks) from each other. */
+    static final double TARN_MIN_DEPTH = 8, TARN_SPACING = 2000;
     /** Routing wander amplitude (blocks) and wavelength (blocks). */
     static final double ROUTE_WANDER = 6, ROUTE_WAVELENGTH = 700;
     /** Dam lakes never extend further than this from their dam (keeps them from drowning a whole trunk valley). */
@@ -271,24 +273,29 @@ public final class HighlandDrainage {
     /**
      * Hollows (RH5 H): filled depressions away from the structural network. Before RH5 these were neither lakes (a lake
      * needed a channel) nor drained, so the base-level floor turned them into dead-flat dry basins that Streams
-     * Reflowing filled with straight-edged lakes. Now a hollow kept by the lake decision (deep enough, chosen by the
-     * lake chance) becomes a tarn: an RH lake without a drawn outlet (it drains through the ground). Every other such
+     * Reflowing filled with straight-edged lakes. Now a hollow kept by the lake decision (chosen by the lake chance), at
+     * least TARN_MIN_DEPTH deep and TARN_SPACING from a deeper tarn, becomes a tarn: an RH lake without a drawn outlet
+     * (it drains through the ground). Every other such
      * hollow loses its fill level, so the floor follows the incised surface: a gently dished hollow instead of a flat.
      * Mutates {@code water}; returns the lake eligibility mask for the basins (structural network plus tarns).
      */
-    private static boolean[] hollows(int width, int depth, int n, boolean[] land, boolean[] lakeChannel, boolean[] keep,
+    private static boolean[] hollows(int width, int depth, int n, int step, boolean[] land, boolean[] lakeChannel, boolean[] keep,
                                      double[] incised, double[] water) {
         boolean[] mask = lakeChannel.clone(), visited = new boolean[n];
         int[] queue = new int[n];
+        List<int[]> tarns = new ArrayList<>();
+        List<Double> tarnDepth = new ArrayList<>();
         for (int start = 0; start < n; start++) {
             if (visited[start] || !land[start] || water[start] - incised[start] <= .5) continue;
             int head = 0, tail = 1;
             queue[0] = start; visited[start] = true;
             boolean connected = false, kept = true;
+            double deepest = 0;
             while (head < tail) {
                 int v = queue[head++], vx = v % width, vz = v / width;
                 connected |= lakeChannel[v];
                 kept &= keep[v];
+                deepest = Math.max(deepest, water[v] - incised[v]);
                 for (int d = 0; d < DX.length; d++) {
                     int nx = vx + DX[d], nz = vz + DZ[d];
                     if (nx < 0 || nz < 0 || nx >= width || nz >= depth) continue;
@@ -297,9 +304,30 @@ public final class HighlandDrainage {
                 }
             }
             if (connected) continue;
-            for (int q = 0; q < tail; q++) {
-                int v = queue[q];
-                if (kept) mask[v] = true; else water[v] = incised[v];
+            if (kept && deepest >= TARN_MIN_DEPTH) {
+                tarns.add(Arrays.copyOf(queue, tail));
+                tarnDepth.add(deepest);
+            } else {
+                for (int q = 0; q < tail; q++) water[queue[q]] = incised[queue[q]];
+            }
+        }
+        // Tarns are scattered, not clustered: deepest first, at least TARN_SPACING apart; the others are dished too.
+        Integer[] byDepth = new Integer[tarns.size()];
+        for (int i = 0; i < byDepth.length; i++) byDepth[i] = i;
+        Arrays.sort(byDepth, Comparator.<Integer>comparingDouble(i -> -tarnDepth.get(i)).thenComparingInt(i -> tarns.get(i)[0]));
+        List<double[]> placed = new ArrayList<>();
+        for (int t : byDepth) {
+            int[] nodes = tarns.get(t);
+            double cx = 0, cz = 0;
+            for (int v : nodes) { cx += v % width; cz += v / width; }
+            cx /= nodes.length; cz /= nodes.length;
+            boolean spaced = true;
+            for (double[] p : placed) if (Math.hypot(p[0] - cx, p[1] - cz) * step < TARN_SPACING) { spaced = false; break; }
+            if (spaced) {
+                placed.add(new double[]{cx, cz});
+                for (int v : nodes) mask[v] = true;
+            } else {
+                for (int v : nodes) water[v] = incised[v];
             }
         }
         return mask;
@@ -614,7 +642,7 @@ public final class HighlandDrainage {
         // above the creek threshold plus the outlet of every lake, so a lake never sits in a dry valley.
         boolean[] lakeChannel = new boolean[n], channel = new boolean[n];
         for (int i = 0; i < n; i++) lakeChannel[i] = land[i] && area[i] >= structural;
-        boolean[] lakeMask = hollows(width, depth, n, land, lakeChannel, keep, incised, water);
+        boolean[] lakeMask = hollows(width, depth, n, step, land, lakeChannel, keep, incised, water);
         for (int i = 0; i < n; i++) {
             channel[i] = land[i] && (area[i] >= threshold || lakeChannel[i] && water[i] - incised[i] > .5);
         }
