@@ -192,6 +192,7 @@ public final class RollingHighlandsContinent implements Continent {
         if (location.edge() <= coastEdge) {
             oceans.apply(cell, (float) x, (float) z);
             cell.terrainErosion = cell.erosion;
+            cell.climateHeight = cell.height;
             return;
         }
         // Legacy FTF land (regions, mountains, Blender) also writes the native terrain type, erosion and weirdness.
@@ -211,6 +212,7 @@ public final class RollingHighlandsContinent implements Continent {
         double ceiling = levels.worldHeight - levels.waterY - 24;
         if (height > ceiling) height = ceiling + 16 * (1 - Math.exp(-(height - ceiling) / 16));
         cell.height = normalized(height);
+        cell.climateHeight = normalized(Math.min(ceiling, index.climateHeight(x, z)));
         classify(cell);
     }
     /**

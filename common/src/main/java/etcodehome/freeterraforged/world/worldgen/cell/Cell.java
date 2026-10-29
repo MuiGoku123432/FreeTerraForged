@@ -49,6 +49,8 @@ public class Cell {
     public float riverWaterLevel = 0.0F;
     // RH uses an absolute normalized profile, including valid ocean-height water.
     public boolean rollingHighlands;
+    /** RH5: smoothed landscape height (same units as height) that climate reads instead of the column height. */
+    public float climateHeight;
     public boolean hasRiverWater;
     public int continentX;
     public int continentZ;
@@ -109,6 +111,7 @@ public class Cell {
         this.continentSizeModifier = other.continentSizeModifier;
         this.riverWaterLevel = other.riverWaterLevel;
         this.rollingHighlands = other.rollingHighlands;
+        this.climateHeight = other.climateHeight;
         this.hasRiverWater = other.hasRiverWater;
         this.riverZone = other.riverZone;
         this.waterTable = other.waterTable;

@@ -131,10 +131,11 @@ public final class HighlandDrainage {
     /**
      * {@code incision} holds, per plan grid node (origin, width, gridStep), how far stream-power incision lowered the
      * land; the rendered surface is the full-resolution land minus its smooth interpolation. {@code water} holds the
-     * per-node water level (base level) that dry ground must stay above.
+     * per-node water level (base level) that dry ground must stay above. {@code climate} holds the smoothed landscape
+     * height (incised planning surface, low-passed over about two grid steps) that RH climate reads (RH5 C).
      */
     public record Plan(int ownerX, int ownerZ, int gridStep, int gridNodes, int landNodes, List<Node> nodes, List<Reach> reaches, List<AxisNode> axis, List<Oxbow> oxbows,
-                       HighlandBasins basins, long buildNanos, int originX, int originZ, int width, double[] incision, double[] water) {}
+                       HighlandBasins basins, long buildNanos, int originX, int originZ, int width, double[] incision, double[] water, double[] climate) {}
     private record QueueNode(int index, double level, double distance) {}
     /** Lake id of axis samples in the sea (river mouths). */
     static final int OCEAN = -2;
@@ -270,7 +271,7 @@ public final class HighlandDrainage {
     /** Deterministic river-less plan used when an owner's drainage cannot be built. */
     public Plan emptyPlan(int ownerX, int ownerZ) {
         var basins = new HighlandBasins(surface.seed(), 0, 0, 1, 1, 64, new double[1], new double[1], new boolean[1], new boolean[1], new double[1], new double[1]);
-        return new Plan(ownerX, ownerZ, 64, 0, 0, List.of(), List.of(), List.of(), List.of(), basins, 0, 0, 0, 1, new double[1], new double[1]);
+        return new Plan(ownerX, ownerZ, 64, 0, 0, List.of(), List.of(), List.of(), List.of(), basins, 0, 0, 0, 1, new double[1], new double[1], new double[1]);
     }
 
     /**
@@ -296,6 +297,22 @@ public final class HighlandDrainage {
             if (d1 * d2 < 0 && d3 * d4 < 0) return true;
         }
         return false;
+    }
+
+    /** One 3x3 binomial (1-2-1) smoothing pass over a lattice field; edges use the available neighbours. */
+    static double[] smooth3(double[] values, int width, int depth) {
+        double[] out = new double[values.length];
+        for (int iz = 0; iz < depth; iz++) for (int ix = 0; ix < width; ix++) {
+            double sum = 0, weights = 0;
+            for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) {
+                int x = ix + dx, z = iz + dz;
+                if (x < 0 || z < 0 || x >= width || z >= depth) continue;
+                double w = (2 - Math.abs(dx)) * (2 - Math.abs(dz));
+                sum += w * values[z * width + x]; weights += w;
+            }
+            out[iz * width + ix] = sum / weights;
+        }
+        return out;
     }
 
     static double[] rasterise(double[] values, double[] nodeX, double[] nodeZ, int width, int depth, int originX, int originZ, int step) {
@@ -574,8 +591,13 @@ public final class HighlandDrainage {
         // Per-node water level (base level): dry ground is never rendered below it (see HighlandPlanIndex.waterFloor).
         double[] waterGrid = new double[n];
         for (int i = 0; i < n; i++) waterGrid[i] = land[i] ? water[i] : 0;
+        // Climate height (RH5 C): the incised planning surface (valley-scale, no riverbeds), binomial-smoothed twice.
+        double[] climate = new double[n];
+        for (int i = 0; i < n; i++) climate[i] = land[i] ? Math.max(0, Math.min(ground[i], incised[i])) : 0;
+        for (int pass = 0; pass < 2; pass++) climate = smooth3(climate, width, depth);
         // Node values live at jittered positions; the field interpolators work on the regular lattice.
         incision = rasterise(incision, nodeX, nodeZ, width, depth, originX, originZ, step);
+        climate = rasterise(climate, nodeX, nodeZ, width, depth, originX, originZ, step);
         waterGrid = rasterise(waterGrid, nodeX, nodeZ, width, depth, originX, originZ, step);
         int[] tributaries = new int[n], mainChild = new int[n];
         Arrays.fill(mainChild, -1);
@@ -686,6 +708,6 @@ public final class HighlandDrainage {
             var point = samples.get(j);
             nodes.add(new Node(point.x(), point.z(), point.ground(), profile[j], point.area(), point.parent(), point.head()));
         }
-        return new Plan(ownerX, ownerZ, step, n, landCount, List.copyOf(nodes), List.copyOf(reaches), List.copyOf(channels.axis()), List.copyOf(oxbows), basins, System.nanoTime() - started, originX, originZ, width, incision, waterGrid);
+        return new Plan(ownerX, ownerZ, step, n, landCount, List.copyOf(nodes), List.copyOf(reaches), List.copyOf(channels.axis()), List.copyOf(oxbows), basins, System.nanoTime() - started, originX, originZ, width, incision, waterGrid, climate);
     }
 }

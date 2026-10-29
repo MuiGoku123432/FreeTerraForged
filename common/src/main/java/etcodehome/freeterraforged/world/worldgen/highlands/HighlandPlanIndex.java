@@ -95,7 +95,7 @@ public final class HighlandPlanIndex {
             }
         }
         long estimatedBytes = entries * 4 + building.size() * 96L + nodes.size() * 100L + plan.axis().size() * 40L + boxes.length * 8L
-            + plan.gridNodes() * 12L + plan.reaches().size() * 32L;
+            + plan.gridNodes() * 20L + plan.reaches().size() * 32L;
         if (estimatedBytes > 8L * 1024 * 1024) throw new IllegalStateException("RH retained plan exceeds 8 MiB budget");
         // Confluences.
         List<List<Integer>> children = new ArrayList<>(nodes.size());
@@ -182,7 +182,13 @@ public final class HighlandPlanIndex {
      * a smooth incision cannot leave dry pits below the rivers that drain them.
      */
     public double waterFloor(double x, double z) {
-        double[] grid = plan.water();
+        return smoothBilinear(plan.water(), x, z);
+    }
+    /** Smoothed landscape height for climate (RH5 C), interpolated like the base level. */
+    public double climateHeight(double x, double z) {
+        return smoothBilinear(plan.climate(), x, z);
+    }
+    private double smoothBilinear(double[] grid, double x, double z) {
         int width = plan.width(), depth = grid.length / Math.max(1, width), step = plan.gridStep();
         double gx = (x - plan.originX()) / step, gz = (z - plan.originZ()) / step;
         int ix = (int) Math.floor(gx), iz = (int) Math.floor(gz);
