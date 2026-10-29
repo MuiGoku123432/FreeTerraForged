@@ -38,7 +38,10 @@ public final class HighlandWorldValidation {
                     boolean present = top.getFluidState().is(FluidTags.WATER) || top.is(Blocks.ICE) || top.is(Blocks.FROSTED_ICE)
                         || !top.isAir() && top.getFluidState().isEmpty() && top.isSolid();
                     pos.setY(bed);
-                    boolean sealed = !level.getBlockState(pos).isAir() && level.getBlockState(pos).getFluidState().isEmpty();
+                    var floor = level.getBlockState(pos);
+                    // Below sea level a deep pool (scour, lake) may open into aquifer water: still water, not a leak.
+                    boolean sealed = !floor.isAir() && (floor.getFluidState().isEmpty()
+                        || bed <= context.levels.scale(context.levels.water) && floor.getFluidState().isSource());
                     // Above the planned surface only a one-block flowing riffle from a higher neighbouring step is
                     // acceptable; source water or anything higher means the column overflowed.
                     pos.setY(water + 1);
