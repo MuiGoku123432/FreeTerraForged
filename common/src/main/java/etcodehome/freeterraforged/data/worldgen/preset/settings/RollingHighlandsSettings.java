@@ -14,23 +14,37 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
  * @param valleyDepth   stream-power incision strength (percent; 100 = calibrated default)
  * @param valleyWidth   reference flat valley-floor width (blocks)
  * @param meanders      meander strength (percent; 0 = channels follow their valley axis, 100 = default, 200 = maximum)
+ * @param rangeHeight   crest height of the RH mountain ranges above the land (blocks; 0 = no ranges)
+ * @param rangeLength   typical length scale of the RH mountain ranges (blocks)
  */
-public record RollingHighlandsSettings(int modelVersion, int uplandSpacing, int uplandHeight, int valleyDepth, int valleyWidth, int meanders) {
+public record RollingHighlandsSettings(int modelVersion, int uplandSpacing, int uplandHeight, int valleyDepth, int valleyWidth, int meanders,
+                                       int rangeHeight, int rangeLength) {
     /**
      * Generation model. 3 = RH3 (legacy FTF land, stream-power drainage, FTF river profile, dam lakes); 4 = RH4
      * (jittered-lattice routing, meandering channels with oxbows, natural tributary mouths, rounded confluences);
-     * 5 = RH5 (flat routing friction, creek-to-river hierarchy, structural lakes independent of River Count).
+     * 5 = RH5 (flat routing friction, creek-to-river hierarchy, structural lakes independent of River Count, tarns,
+     * contour shorelines, smoothed climate height, mountain ranges).
      */
     public static final int MODEL_VERSION = 5;
     public static final int DEFAULT_MEANDERS = 100;
+    /** RH5 mountain ranges: off by default (0 blocks); length scale 6144 blocks. */
+    public static final int DEFAULT_RANGE_HEIGHT = 0, DEFAULT_RANGE_LENGTH = 6144;
+    public static final int MAX_RANGE_HEIGHT = 240, MIN_RANGE_LENGTH = 2048, MAX_RANGE_LENGTH = 16384;
     public static final RollingHighlandsSettings DEFAULT = new RollingHighlandsSettings(MODEL_VERSION, 4096, 80, 100, 256, DEFAULT_MEANDERS);
 
-    /** Profile with the default meander strength. */
+    /** Profile with the default meander strength and no ranges. */
     public RollingHighlandsSettings(int modelVersion, int uplandSpacing, int uplandHeight, int valleyDepth, int valleyWidth) {
         this(modelVersion, uplandSpacing, uplandHeight, valleyDepth, valleyWidth, DEFAULT_MEANDERS);
     }
+    /** Profile without mountain ranges. */
+    public RollingHighlandsSettings(int modelVersion, int uplandSpacing, int uplandHeight, int valleyDepth, int valleyWidth, int meanders) {
+        this(modelVersion, uplandSpacing, uplandHeight, valleyDepth, valleyWidth, meanders, DEFAULT_RANGE_HEIGHT, DEFAULT_RANGE_LENGTH);
+    }
     public RollingHighlandsSettings withMeanders(int value) {
-        return new RollingHighlandsSettings(modelVersion, uplandSpacing, uplandHeight, valleyDepth, valleyWidth, value);
+        return new RollingHighlandsSettings(modelVersion, uplandSpacing, uplandHeight, valleyDepth, valleyWidth, value, rangeHeight, rangeLength);
+    }
+    public RollingHighlandsSettings withRanges(int height, int length) {
+        return new RollingHighlandsSettings(modelVersion, uplandSpacing, uplandHeight, valleyDepth, valleyWidth, meanders, height, length);
     }
     public static final Codec<RollingHighlandsSettings> CODEC = RecordCodecBuilder.<RollingHighlandsSettings>create(i -> i.group(
         integer(1, Integer.MAX_VALUE).fieldOf("modelVersion").forGetter(RollingHighlandsSettings::modelVersion),
@@ -39,7 +53,9 @@ public record RollingHighlandsSettings(int modelVersion, int uplandSpacing, int 
         integer(0, 160).optionalFieldOf("uplandHeight", 80).forGetter(RollingHighlandsSettings::uplandHeight),
         integer(25, 200).optionalFieldOf("valleyDepth", 100).forGetter(RollingHighlandsSettings::valleyDepth),
         integer(64, 512).fieldOf("valleyWidth").forGetter(RollingHighlandsSettings::valleyWidth),
-        integer(0, 200).optionalFieldOf("meanders", DEFAULT_MEANDERS).forGetter(RollingHighlandsSettings::meanders)
+        integer(0, 200).optionalFieldOf("meanders", DEFAULT_MEANDERS).forGetter(RollingHighlandsSettings::meanders),
+        integer(0, MAX_RANGE_HEIGHT).optionalFieldOf("rangeHeight", DEFAULT_RANGE_HEIGHT).forGetter(RollingHighlandsSettings::rangeHeight),
+        integer(MIN_RANGE_LENGTH, MAX_RANGE_LENGTH).optionalFieldOf("rangeLength", DEFAULT_RANGE_LENGTH).forGetter(RollingHighlandsSettings::rangeLength)
     ).apply(i, RollingHighlandsSettings::new)).validate(s -> s.modelVersion == MODEL_VERSION
         ? DataResult.success(s) : DataResult.error(() -> unsupported(s.modelVersion)));
 
@@ -57,7 +73,8 @@ public record RollingHighlandsSettings(int modelVersion, int uplandSpacing, int 
     public void validate(WorldSettings world) {
         if (modelVersion != MODEL_VERSION) throw new IllegalArgumentException(unsupported(modelVersion));
         if (uplandSpacing < 4096 || uplandSpacing > 8192 || uplandHeight < 0 || uplandHeight > 160
-            || valleyDepth < 25 || valleyDepth > 200 || valleyWidth < 64 || valleyWidth > 512 || meanders < 0 || meanders > 200) {
+            || valleyDepth < 25 || valleyDepth > 200 || valleyWidth < 64 || valleyWidth > 512 || meanders < 0 || meanders > 200
+            || rangeHeight < 0 || rangeHeight > MAX_RANGE_HEIGHT || rangeLength < MIN_RANGE_LENGTH || rangeLength > MAX_RANGE_LENGTH) {
             throw new IllegalArgumentException("Unsupported Rolling Highlands profile; check model version and control ranges");
         }
         if (world.continent.continentScale < 1000 || world.continent.continentScale > 5000) {

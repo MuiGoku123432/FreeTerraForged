@@ -93,6 +93,8 @@ public class TerrainSettingsPage extends PresetEditorPage {
             addHighlandSlider(terrain, 1, terrain.highlands().uplandHeight(), 0, 160, "gui.ftf.highlands.uplands");
             addHighlandSlider(terrain, 2, terrain.highlands().valleyDepth(), 25, 200, "gui.ftf.highlands.depth");
             addHighlandSlider(terrain, 3, terrain.highlands().valleyWidth(), 64, 512, "gui.ftf.highlands.valleys");
+            addHighlandSlider(terrain, 4, terrain.highlands().rangeHeight(), 0, RollingHighlandsSettings.MAX_RANGE_HEIGHT, "gui.ftf.highlands.rangeHeight");
+            addHighlandSlider(terrain, 5, terrain.highlands().rangeLength(), RollingHighlandsSettings.MIN_RANGE_LENGTH, RollingHighlandsSettings.MAX_RANGE_LENGTH, "gui.ftf.highlands.rangeLength");
             this.left.addWidget(PresetWidgets.createLabel("gui.ftf.highlands.preview"));
             // RH3 builds on the normal FTF land, so the regular terrain controls follow.
         }
@@ -414,7 +416,8 @@ public class TerrainSettingsPage extends PresetEditorPage {
             int blocks = (int) slider.scaleValue(value);
             terrain.rollingHighlands = new RollingHighlandsSettings(RollingHighlandsSettings.MODEL_VERSION,
                 field == 0 ? blocks : old.uplandSpacing(), field == 1 ? blocks : old.uplandHeight(),
-                field == 2 ? blocks : old.valleyDepth(), field == 3 ? blocks : old.valleyWidth(), old.meanders());
+                field == 2 ? blocks : old.valleyDepth(), field == 3 ? blocks : old.valleyWidth(), old.meanders(),
+                field == 4 ? blocks : old.rangeHeight(), field == 5 ? blocks : old.rangeLength());
             this.regenerate();
             return value;
         }));

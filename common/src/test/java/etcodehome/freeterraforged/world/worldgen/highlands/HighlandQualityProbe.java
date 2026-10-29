@@ -54,7 +54,10 @@ final class HighlandQualityProbe {
     }
 
     static Metrics measure(long seed, boolean writeMap) throws Exception {
-        var preset = preset();
+        return measure(preset(), seed, writeMap);
+    }
+
+    static Metrics measure(Preset preset, long seed, boolean writeMap) throws Exception {
         try (var context = WorldgenFixture.context(preset, seed)) {
             var continent = (RollingHighlandsContinent) context.heightmap.continent();
             var coast = continent.coast();

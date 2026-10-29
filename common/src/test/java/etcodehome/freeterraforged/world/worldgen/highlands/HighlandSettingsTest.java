@@ -49,6 +49,17 @@ class HighlandSettingsTest {
         assertTrue(RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).error().isPresent());
         json.addProperty("meanders", 0);
         assertEquals(0, RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).getOrThrow().meanders());
+        // RH5 ranges are optional (off, 6144) and bounded.
+        json.remove("rangeHeight"); json.remove("rangeLength");
+        var ranges = RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).getOrThrow();
+        assertEquals(0, ranges.rangeHeight()); assertEquals(6144, ranges.rangeLength());
+        json.addProperty("rangeHeight", 241);
+        assertTrue(RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).error().isPresent());
+        json.addProperty("rangeHeight", 120); json.addProperty("rangeLength", 2047);
+        assertTrue(RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).error().isPresent());
+        json.addProperty("rangeLength", 8000);
+        assertEquals(new RollingHighlandsSettings(RollingHighlandsSettings.MODEL_VERSION, 4096, 80, 100, 256, 0, 120, 8000),
+            RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).getOrThrow());
         json.addProperty("uplandHeight", Double.NaN);
         assertTrue(RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).error().isPresent());
         json.addProperty("uplandHeight", 80); json.addProperty("valleyDepth", Double.NaN);
