@@ -171,3 +171,29 @@ that world (`HighlandGroundTest`); ranges are measured separately in R.
   back to `minecraft:frozen_river` / `minecraft:river`.
 - `bloomingnature:cold_river` (0.175) is excluded at y 101–107 (the speckled-ice screenshot) and still used below
   y 72. Unit tests cover the formula and the candidate split.
+
+### R as built
+`HighlandRangeProbe` (user continent with Range Height 200 / length 6144, rendered surface; `HighlandRangeTest`):
+
+| | RH5 (200) | RH6 R |
+|---|---|---|
+| crest std / relief | 0.63 | 0.20 |
+| crest within 25% of the local max | 12% | 80% |
+| flank ridges within ±30° of strike-normal | 29% | 51% |
+| longest crest / crossings | — | 11.3 km / 0 |
+| heightmap µs per column, ranges vs none | — | 18.5 vs 27.7 |
+
+- **R1** not as a low-pass (too slow): legacy height above 24 blocks is compressed by up to 0.85 × core. With D-b on,
+  legacy mountains keep 0.2 of their weight and the legacy chain mask is scaled to 0.4, so ranges are cheaper than
+  the legacy mountains they replace (generation time −33%, gate ≤ +10%).
+- **R2** ridged noise stretched 4× along the strike, crest ±15%, passes only in the low tail of the pass noise
+  (0.10–0.25). Strike-oriented noise is evaluated in 16 fixed rotations over the full turn and blended (folding to
+  half a turn made a mirrored seam).
+- **R3** spurs at 0.3 of range height from the foothills to just below the crest, scaled by 1 / flank width so the
+  steep flank is ribbed rather than one wall; flank asymmetry ±25%; foothill ridges parallel to the strike.
+- **R4** `MOUNTAIN_CHAIN` and mountain inputs where crest > 0.4, between 0.2 and 0.45 of range height.
+- **Drainage:** channel steepness × (1 + 2·core), so incision cuts less into ranges.
+- **Peak aspect ≥ 2: not measured** (no robust peak segmentation on the rendered surface; the crest metrics above
+  cover the visual goal).
+- `rangeCore` is 0 at range height 0 (the drainage steepness used it before the height check and changed worlds
+  without ranges). The range continuity test compares block steps against the legacy land's own steps.

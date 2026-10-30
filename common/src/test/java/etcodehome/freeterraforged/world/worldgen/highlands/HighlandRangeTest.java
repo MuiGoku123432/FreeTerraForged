@@ -21,7 +21,11 @@ class HighlandRangeTest {
     }
 
     @Test void rangesAreLongContinuousAndOffAtZero() {
-        try (var context = WorldgenFixture.context(withRanges(), 0); var flat = WorldgenFixture.context(HighlandQualityProbe.preset(), 0)) {
+        // The added range height is compared against the same legacy land: with D-b on, the legacy land itself changes
+        // (fewer legacy mountains), and legacy land has its own sharp features, so continuity is checked with it off.
+        var additive = withRanges();
+        additive.terrain().rollingHighlands = additive.terrain().rollingHighlands.withRangesReplaceMountains(false);
+        try (var context = WorldgenFixture.context(additive, 0); var flat = WorldgenFixture.context(HighlandQualityProbe.preset(), 0)) {
             var land = HighlandLand.create(context);
             var plain = HighlandLand.create(flat);
             var bounds = ((RollingHighlandsContinent) context.heightmap.continent()).coast().bounds(0, 0);
@@ -36,9 +40,11 @@ class HighlandRangeTest {
                 // Range height 0 adds nothing; with ranges the added height is continuous block to block.
                 assertEquals(plain.apply(b.reset(), bx, bz), plain.height(bx, bz), 1e-9);
                 if (core > 0 && x % 4 == 0 && z % 4 == 0) {
-                    double h0 = land.apply(a.reset(), bx, bz) - plain.apply(b.reset(), bx, bz);
-                    double h1 = land.apply(a.reset(), bx + 1, bz) - plain.apply(b.reset(), bx + 1, bz);
-                    worstStep = Math.max(worstStep, Math.abs(h1 - h0));
+                    // A block step on the range is no larger than the legacy land's own step there plus the range's
+                    // (RH6 R1 compresses legacy relief inside the range, which scales its steps down, never up).
+                    double ranged = Math.abs(land.apply(a.reset(), bx + 1, bz) - land.apply(a.reset(), bx, bz));
+                    double legacy = Math.abs(plain.apply(b.reset(), bx + 1, bz) - plain.apply(b.reset(), bx, bz));
+                    worstStep = Math.max(worstStep, ranged - legacy);
                 }
             }
             // Longest crest: the largest bounding-box diagonal of an 8-connected crest component.
@@ -94,5 +100,51 @@ class HighlandRangeTest {
             }
             assertTrue(crests > 20 && mountains > .6 * crests, "crests=" + crests + " mountains=" + mountains);
         }
+    }
+
+    /**
+     * RH6 R gates on the rendered surface of the user world with Range Height 200 (D-a): even crests, spurs across the
+     * strike, long crests, no channel crossings, and ranges (which replace legacy mountains, D-b) cost no more than
+     * +10% heightmap time over the same world without ranges.
+     */
+    @Test void userRangesHaveEvenCrestsAndSpurs() throws Exception {
+        var preset = HighlandPlanformProbe.userPreset();
+        preset.terrain().rollingHighlands = preset.terrain().rollingHighlands.withRanges(200, 6144);
+        assertTrue(preset.terrain().rollingHighlands.replacesMountains());
+        double on, off;
+        try (var context = WorldgenFixture.context(preset, HighlandPlanformProbe.USER_SEED)) {
+            var m = HighlandRangeProbe.measure(context, HighlandPlanformProbe.USER_X, HighlandPlanformProbe.USER_Z);
+            System.out.println(m.summary());
+            assertTrue(m.evenness() <= .25, m.summary());
+            assertTrue(m.nearMax() >= .8, m.summary());
+            assertTrue(m.spurAlignment() >= .5, m.summary());
+            assertTrue(m.longest() >= 4000, m.summary());
+            var p = HighlandPlanformProbe.measure("user-ranges", context, HighlandPlanformProbe.USER_X, HighlandPlanformProbe.USER_Z);
+            System.out.println(p.summary());
+            assertEquals(0, p.crossings(), p.summary());
+            on = columnTime(context);
+        }
+        var flat = HighlandPlanformProbe.userPreset();
+        flat.terrain().rollingHighlands = flat.terrain().rollingHighlands.withRanges(0, 6144);
+        try (var context = WorldgenFixture.context(flat, HighlandPlanformProbe.USER_SEED)) {
+            off = columnTime(context);
+        }
+        String time = String.format(java.util.Locale.ROOT, "RHRange time ranges=%.2f none=%.2f us/column", on, off);
+        System.out.println(time);
+        assertTrue(on <= 1.1 * off, time);
+    }
+
+    /** Best of three heightmap passes (µs per column) over a 4 km square of the user continent, after warming its plans. */
+    private static double columnTime(etcodehome.freeterraforged.world.worldgen.GeneratorContext context) {
+        Cell c = new Cell();
+        int x0 = 2656, z0 = 7396, size = 4096;
+        for (int z = 0; z < size; z += 64) for (int x = 0; x < size; x += 64) context.heightmap.apply(c.reset(), x0 + x, z0 + z, false);
+        double best = Double.MAX_VALUE;
+        for (int rep = 0; rep < 3; rep++) {
+            long t = System.nanoTime();
+            for (int z = 0; z < size; z += 16) for (int x = 0; x < size; x += 16) context.heightmap.apply(c.reset(), x0 + x, z0 + z, false);
+            best = Math.min(best, (System.nanoTime() - t) / 1e3 / ((size / 16) * (size / 16)));
+        }
+        return best;
     }
 }

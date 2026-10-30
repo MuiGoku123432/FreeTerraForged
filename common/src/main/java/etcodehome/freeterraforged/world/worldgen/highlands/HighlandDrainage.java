@@ -19,6 +19,8 @@ public final class HighlandDrainage {
      * Concavity THETA is the global median of real landscapes (RESEARCH-RH3 §3).
      */
     static final double KS = .04, THETA = .45, SLOPE_MIN = .0005, SLOPE_MAX = .6;
+    /** Extra channel steepness on a range's crest line (RH6 R; scales with the range core). */
+    static final double RANGE_STEEPNESS = 2;
     /** Depressions left after incision become lakes only if at least this deep and no larger than MAX_LAKE_NODES. */
     static final double LAKE_MIN_DEPTH = 4;
     static final int MAX_LAKE_NODES = 600;
@@ -742,11 +744,15 @@ public final class HighlandDrainage {
             run[i] = Math.hypot(nodeX[i] - nodeX[p], nodeZ[i] - nodeZ[p]);
         }
         boolean[] keep = new boolean[n];
+        // RH6 R: ranges are uplifted faster, so their steady-state channels are steeper (channel steepness grows with
+        // uplift rate): incision cuts less deeply into a range than into the uplands around it.
+        double[] steepness = new double[n];
+        for (int i = 0; i < n; i++) steepness[i] = land[i] ? ks * (1 + RANGE_STEEPNESS * surface.rangeCore(nodeX[i], nodeZ[i])) : ks;
         for (int round = 0; ; round++) {
             for (int k = 0; k < count; k++) {
                 int i = order[k], p = parent[i];
                 if (!land[i]) { incised[i] = 0; water[i] = 0; continue; }
-                double slope = clamp(ks * Math.pow(area[i] / 1e6, -THETA), SLOPE_MIN, SLOPE_MAX);
+                double slope = clamp(steepness[i] * Math.pow(area[i] / 1e6, -THETA), SLOPE_MIN, SLOPE_MAX);
                 incised[i] = Math.min(Math.min(ground[i], cap[i]), p < 0 ? ground[i] : incised[p] + run[i] * slope);
                 water[i] = p < 0 ? incised[i] : Math.max(incised[i], water[p]);
             }

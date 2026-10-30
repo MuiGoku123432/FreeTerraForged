@@ -207,11 +207,15 @@ public record Heightmap(
      * order is unchanged; Rolling Highlands passes a fresh seed so its land is independent of construction order.
      */
     public static Land makeLand(GeneratorContext ctx, Seed seed) {
-    	HolderGetter<Noise> noiseLookup = ctx.noiseLookup;
-    	
-        Preset preset = ctx.preset;
+        return makeLand(ctx, seed, ctx.preset.terrain(), 1.0F);
+    }
 
-        TerrainSettings terrainSettings = preset.terrain();
+    /**
+     * The legacy land composition from the given terrain settings (Rolling Highlands may adjust a copy of them);
+     * {@code chainStrength} scales the mountain-chain mask (1 = FTF's chains).
+     */
+    public static Land makeLand(GeneratorContext ctx, Seed seed, TerrainSettings terrainSettings, float chainStrength) {
+    	HolderGetter<Noise> noiseLookup = ctx.noiseLookup;
         TerrainSettings.General general = terrainSettings.general;
         float globalVerticalScale = general.globalVerticalScale;
         
@@ -236,6 +240,7 @@ public record Heightmap(
         mountainShape = Noises.curve(mountainShape, Interpolation.CURVE3);
         mountainShape = Noises.clamp(mountainShape, 0.0F, 0.9F);
         mountainShape = Noises.map(mountainShape, 0.0F, 1.0F);
+        if (chainStrength != 1.0F) mountainShape = Noises.mul(mountainShape, chainStrength);
 
         Noise ground = PresetNoiseData.getNoise(noiseLookup, PresetTerrainTypeNoise.GROUND);
         

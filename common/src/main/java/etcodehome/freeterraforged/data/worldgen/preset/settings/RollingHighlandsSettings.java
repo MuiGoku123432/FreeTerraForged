@@ -16,15 +16,18 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
  * @param meanders      meander strength (percent; 0 = channels follow their valley axis, 100 = default, 200 = maximum)
  * @param rangeHeight   crest height of the RH mountain ranges above the land (blocks; 0 = no ranges)
  * @param rangeLength   typical length scale of the RH mountain ranges (blocks)
+ * @param rangesReplaceMountains with ranges on, the legacy FTF mountain terrain is mostly replaced by the ranges
+ *                      (its weight falls to REPLACED_MOUNTAIN_WEIGHT), so mountains live in ranges (RH6 D-b)
  */
 public record RollingHighlandsSettings(int modelVersion, int uplandSpacing, int uplandHeight, int valleyDepth, int valleyWidth, int meanders,
-                                       int rangeHeight, int rangeLength) {
+                                       int rangeHeight, int rangeLength, boolean rangesReplaceMountains) {
     /**
      * Generation model. 3 = RH3 (legacy FTF land, stream-power drainage, FTF river profile, dam lakes); 4 = RH4
      * (jittered-lattice routing, meandering channels with oxbows, natural tributary mouths, rounded confluences);
      * 5 = RH5 (flat routing friction, creek-to-river hierarchy, structural lakes independent of River Count, tarns,
-     * contour shorelines, smoothed climate height, mountain ranges); 6 = RH6 (water-relative floor, low-envelope
-     * planning nodes, thalweg-following valley axes).
+     * contour shorelines, smoothed climate height, mountain ranges); 6 = RH6 (water-relative floor, tilted valley
+     * floors, thalweg-following valley axes, valley lakes with clean junctions, ranges that replace the legacy
+     * mountains).
      */
     public static final int MODEL_VERSION = 6;
     public static final int DEFAULT_MEANDERS = 100;
@@ -32,6 +35,8 @@ public record RollingHighlandsSettings(int modelVersion, int uplandSpacing, int 
     public static final int DEFAULT_RANGE_HEIGHT = 0, DEFAULT_RANGE_LENGTH = 6144;
     public static final int MAX_RANGE_HEIGHT = 240, MIN_RANGE_LENGTH = 2048, MAX_RANGE_LENGTH = 16384;
     public static final RollingHighlandsSettings DEFAULT = new RollingHighlandsSettings(MODEL_VERSION, 4096, 80, 100, 256, DEFAULT_MEANDERS);
+    /** Share of the legacy mountain terrain weight kept when ranges replace mountains. */
+    public static final float REPLACED_MOUNTAIN_WEIGHT = .2F;
 
     /** Profile with the default meander strength and no ranges. */
     public RollingHighlandsSettings(int modelVersion, int uplandSpacing, int uplandHeight, int valleyDepth, int valleyWidth) {
@@ -41,12 +46,22 @@ public record RollingHighlandsSettings(int modelVersion, int uplandSpacing, int 
     public RollingHighlandsSettings(int modelVersion, int uplandSpacing, int uplandHeight, int valleyDepth, int valleyWidth, int meanders) {
         this(modelVersion, uplandSpacing, uplandHeight, valleyDepth, valleyWidth, meanders, DEFAULT_RANGE_HEIGHT, DEFAULT_RANGE_LENGTH);
     }
+    /** Profile whose ranges (if any) replace the legacy mountains. */
+    public RollingHighlandsSettings(int modelVersion, int uplandSpacing, int uplandHeight, int valleyDepth, int valleyWidth, int meanders,
+                                    int rangeHeight, int rangeLength) {
+        this(modelVersion, uplandSpacing, uplandHeight, valleyDepth, valleyWidth, meanders, rangeHeight, rangeLength, true);
+    }
     public RollingHighlandsSettings withMeanders(int value) {
-        return new RollingHighlandsSettings(modelVersion, uplandSpacing, uplandHeight, valleyDepth, valleyWidth, value, rangeHeight, rangeLength);
+        return new RollingHighlandsSettings(modelVersion, uplandSpacing, uplandHeight, valleyDepth, valleyWidth, value, rangeHeight, rangeLength, rangesReplaceMountains);
     }
     public RollingHighlandsSettings withRanges(int height, int length) {
-        return new RollingHighlandsSettings(modelVersion, uplandSpacing, uplandHeight, valleyDepth, valleyWidth, meanders, height, length);
+        return new RollingHighlandsSettings(modelVersion, uplandSpacing, uplandHeight, valleyDepth, valleyWidth, meanders, height, length, rangesReplaceMountains);
     }
+    public RollingHighlandsSettings withRangesReplaceMountains(boolean value) {
+        return new RollingHighlandsSettings(modelVersion, uplandSpacing, uplandHeight, valleyDepth, valleyWidth, meanders, rangeHeight, rangeLength, value);
+    }
+    /** Whether the legacy mountain terrain is scaled down for ranges (ranges on and the toggle set). */
+    public boolean replacesMountains() { return rangeHeight > 0 && rangesReplaceMountains; }
     public static final Codec<RollingHighlandsSettings> CODEC = RecordCodecBuilder.<RollingHighlandsSettings>create(i -> i.group(
         integer(1, Integer.MAX_VALUE).fieldOf("modelVersion").forGetter(RollingHighlandsSettings::modelVersion),
         integer(4096, 8192).fieldOf("uplandSpacing").forGetter(RollingHighlandsSettings::uplandSpacing),
@@ -56,7 +71,8 @@ public record RollingHighlandsSettings(int modelVersion, int uplandSpacing, int 
         integer(64, 512).fieldOf("valleyWidth").forGetter(RollingHighlandsSettings::valleyWidth),
         integer(0, 200).optionalFieldOf("meanders", DEFAULT_MEANDERS).forGetter(RollingHighlandsSettings::meanders),
         integer(0, MAX_RANGE_HEIGHT).optionalFieldOf("rangeHeight", DEFAULT_RANGE_HEIGHT).forGetter(RollingHighlandsSettings::rangeHeight),
-        integer(MIN_RANGE_LENGTH, MAX_RANGE_LENGTH).optionalFieldOf("rangeLength", DEFAULT_RANGE_LENGTH).forGetter(RollingHighlandsSettings::rangeLength)
+        integer(MIN_RANGE_LENGTH, MAX_RANGE_LENGTH).optionalFieldOf("rangeLength", DEFAULT_RANGE_LENGTH).forGetter(RollingHighlandsSettings::rangeLength),
+        Codec.BOOL.optionalFieldOf("rangesReplaceMountains", true).forGetter(RollingHighlandsSettings::rangesReplaceMountains)
     ).apply(i, RollingHighlandsSettings::new)).validate(s -> s.modelVersion == MODEL_VERSION
         ? DataResult.success(s) : DataResult.error(() -> unsupported(s.modelVersion)));
 
