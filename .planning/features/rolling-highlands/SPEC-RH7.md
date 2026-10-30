@@ -11,9 +11,12 @@ threshold hillslopes, glacial valleys and cirques above a snowline, and surfaces
 ## 2. Decisions (confirmed 2026-10-30)
 - **D-a Glaciation in RH7:** U-shaped main valleys, cirques with tarns at valley heads, arêtes and horns above a
   snowline.
-- **D-b Range Height cap 548**, adjustable (setting range 0-548). Crests approaching the world top are compressed
-  softly within the last 32 blocks below it (no flat-topped clipping); the UI tooltip says so. User presets keep
-  their value until changed.
+- **D-b Taller ranges, taller worlds.** Range Height setting 0-640 (raised from 240; can go higher later). Rolling
+  Highlands presets default to a world top near y 728: world height 864 with depth 128 (top y 735; heights must be
+  multiples of 16). Crests approaching the world top are compressed softly within the last 32 blocks below it (no
+  flat-topped clipping); the tooltip says so. User presets keep their Range Height until changed.
+- **D-e Deep valleys.** Range valleys may cut down to the range foot and below it into gorges; dissection is not
+  capped at a share of the range height.
 - **D-c Legacy mountains 0%** when ranges replace mountains (RH6 kept 20%) and the legacy chain mask is off.
 - **D-d Range surfaces by slope and snowline:** cliff rock on steep ground, scree/talus below cliffs, snow on gentle
   high ground and in cirques, alpine meadow above the treeline, forest below. Only on RH range columns.
@@ -25,7 +28,7 @@ threshold hillslopes, glacial valleys and cirques above a snowline, and surfaces
 - **valley spacing / half width** along each crest (transverse valleys = local minima of height along a line parallel
   to the crest at mid-flank): target ratio of half width to spacing 1.7-2.5;
 - **dissection depth**: mean (envelope − surface) on range flanks, where the envelope is the 300-block max filter;
-  target ≥ 0.3 of range relief;
+  target ≥ 0.4 of range relief (deeper is fine);
 - **hillslope angle distribution** on range flanks: median 25-38°, ≤ 10% under 10° (excluding valley floors);
 - **crest sharpness**: width of the band within 5 blocks of the local crest height; target median ≤ 12 blocks;
 - **convexity**: share of flank columns with positive curvature at 64-block scale; target ≤ 35%;
@@ -62,9 +65,11 @@ cross-section strip.
   snowline, water gates (tarns contained in game).
 
 ### M: mountain-only legacy and height (D-b, D-c)
-- Range Height setting 0-548 (codec, UI, tooltip); soft compression in the last 32 blocks below the world top.
+- Range Height setting 0-640 (codec, UI, tooltip); soft compression in the last 32 blocks below the world top.
+- RH presets (default RH profile, user presets) get world height 864 / depth 128; check the vertical frame, noise
+  router, aquifers, caves and structure placement still work at that height on both loaders.
 - With ranges replacing mountains: legacy mountain weight 0 and chain strength 0.
-- Gates: settings codec tests (548 accepted, 549 rejected); no column above the world top minus 1; continuity.
+- Gates: settings codec tests (640 accepted, 641 rejected); no column above the world top minus 1; continuity.
 
 ### S: surfaces by slope and snowline (D-d)
 - On RH range columns, surface layers chosen by slope (gradient) and height relative to the snowline and treeline:
