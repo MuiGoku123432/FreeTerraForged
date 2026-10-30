@@ -39,9 +39,9 @@ public final class HighlandWorldValidation {
                         || !top.isAir() && top.getFluidState().isEmpty() && top.isSolid();
                     pos.setY(bed);
                     var floor = level.getBlockState(pos);
-                    // Below sea level a deep pool (scour, lake) may open into aquifer water: still water, not a leak.
+                    // Below sea level (blocks under the sea surface, y < sea level) a deep pool may open into aquifer water: still water, not a leak.
                     boolean sealed = !floor.isAir() && (floor.getFluidState().isEmpty()
-                        || bed <= context.levels.scale(context.levels.water) && floor.getFluidState().isSource());
+                        || bed < level.getSeaLevel() && floor.getFluidState().isSource());
                     // Above the planned surface only a one-block flowing riffle from a higher neighbouring step is
                     // acceptable; source water or anything higher means the column overflowed.
                     pos.setY(water + 1);
@@ -68,13 +68,16 @@ public final class HighlandWorldValidation {
                         var side = level.getBlockState(pos);
                         if (side.isAir()) {
                             contained = false; spills++;
-                            spill = " spillNeighbour=" + neighbour.terrain.getName() + "/" + neighbour.riverZone + "@" + context.levels.scale(neighbour.height);
+                            int solid = water;
+                            while (solid > water - 8 && level.getBlockState(pos.set(x + d[0], solid, z + d[1])).isAir()) solid--;
+                            spill = " spillNeighbour=" + neighbour.terrain.getName() + "/" + neighbour.riverZone + "@" + context.levels.scale(neighbour.height)
+                                + " raw=" + neighbour.height + " water=" + cell.riverWaterLevel + " solidTop=" + solid + ":" + level.getBlockState(pos);
                             break;
                         }
                     }
                     if (!present || !sealed || extra || !flowOk || !contained) {
                         if (failed++ < 12) examples.append(" [").append(x).append(',').append(z).append(" water=").append(water)
-                            .append(" bed=").append(bed).append(" present=").append(present).append(" sealed=").append(sealed).append(" extra=").append(extra)
+                            .append(" bed=").append(bed).append(" present=").append(present).append(" sealed=").append(sealed).append(sealed ? "" : ":" + floor).append(" extra=").append(extra)
                             .append(" flow=").append(flowOk).append(" contained=").append(contained)
                             .append(" top=").append(top.getBlock().builtInRegistryHolder().key().location().getPath())
                             .append(" terrain=").append(cell.terrain.getName()).append(spill).append(']');

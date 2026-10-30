@@ -1,3 +1,44 @@
+# RH6 validation record (2026-10-30, `1.0.0016-rh6`, model 6)
+
+## Automated (`./gradlew :common:test`, full suite green at every RH6 commit)
+
+Details per phase in [PLAN-RH6.md](PLAN-RH6.md) §4.
+
+| | RH5 | RH6 |
+|---|---|---|
+| dry land lifted > 2 blocks (user continent) | 32.1% | 1.0% |
+| dead-flat share at the 5 screenshot sites | 28/19/15/27/6% | 0/0/0/0/0% |
+| lakes / area / mean depth / under 3 blocks | 38 / 2.82 km² / 6.5 / 31% | 21 / 1.22 km² / 7.6 / 24% |
+| stream cells stepping against lake water | 108 | 0 |
+| range crest std / relief (Range Height 200) | 0.63 | 0.20 |
+| crest within 25% of the local max | 12% | 80% |
+| flank ridges across the strike (±30°) | 29% | 51% |
+| heightmap time, ranges on vs off | — | 18.5 vs 27.7 µs/column |
+
+## Actual Minecraft blocks (server world seed, `w21-rh6` pack = user preset as model 6, Range Height 200, ranges replace mountains)
+
+`-PftfBenchmarkExact=true -PftfNearestRiver=true`, 441 FULL chunks per site:
+
+| Site (probe → nearest river) | Wet columns | NeoForge | Fabric |
+|---|---|---|---|
+| A (5085, 7526) → (4381, 8230), lake by a range foot | 20,063 | 0 failures, 24.5 chunks/s | 0 failures, 24.4 chunks/s |
+| B (4932, 10940) → (5060, 11036), near the coast | 11,154 | 0 failures, 26.5 chunks/s | 0 failures, 28.9 chunks/s |
+| C (4398, 11686) → (4590, 11814) | 12,996 | 0 failures, 31.4 chunks/s | 0 failures, 29.7 chunks/s |
+| R (4704, 9444) → (4128, 8868), range flank | 13,235 | 0 failures, 26.7 chunks/s | 0 failures, 25.6 chunks/s |
+
+Fixed during validation:
+- **Caves under lake banks (site A, 11 columns).** Dry bank columns beside a lake at y 136 were planned at 136-137
+  but caves had opened them down to 128-135 (stone tops), so the lake spilled sideways. The river gasket only
+  sealed neighbours up to their own water level. It now also seals, for RH water, every dry direct neighbour at each
+  water level. This also covers the RH5 site C carver pit.
+- **Beds just below sea level (site B, 11 columns).** A channel bed at y 62 (sea level 63) opened into source water;
+  the check now accepts source water under beds below the world's sea level (it used the scaled water level, one
+  block lower). The gasket also scans RH channels down to their bed.
+- Validation failures now print the floor block and, for spills, the neighbour's real top block.
+
+Not re-checked in game: ice biomes (unit tests over the height formula), SR lakes in natural hollows (D-c leaves them
+unchanged).
+
 # RH5 validation record (2026-10-29, `1.0.0015-rh5`, model 5)
 
 ## Automated (`./gradlew :common:test`, full suite green at every RH5 commit)

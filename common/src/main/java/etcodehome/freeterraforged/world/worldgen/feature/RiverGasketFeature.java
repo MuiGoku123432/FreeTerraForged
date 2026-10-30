@@ -157,6 +157,9 @@ public class RiverGasketFeature extends Feature<NoneFeatureConfiguration> {
             int scanTopY = Math.max(localWaterY, currentFloorHeight);
             int scanBottomY = Math.min(localWaterY, currentFloorHeight) - 8;
             scanBottomY = Math.max(scanBottomY, levels.scale(levels.water));
+            // Rolling Highlands channel beds can dip below sea level near the coast (scour pools): seal them down to
+            // the bed, so a cave under the bed cannot drain the channel.
+            if (cell.rollingHighlands) scanBottomY = Math.min(scanBottomY, currentFloorHeight);
 
             // Sample column structural block
             BlockState structuralState = null;
@@ -268,6 +271,23 @@ public class RiverGasketFeature extends Feature<NoneFeatureConfiguration> {
 
                                     level.setBlock(pos.neighbor, finalPlacementState, 2);
                                 }
+                            }
+                        }
+                    }
+                    // Rolling Highlands: a dry column directly beside the water must hold it at every water level, even
+                    // where a cave or carver opened it below its planned ground (the radius pass above only seals
+                    // neighbours up to their own water level, which a dry bank beside a lake may not have).
+                    if (cell.rollingHighlands) {
+                        for (Direction dir : HORIZONTAL_DIRECTIONS) {
+                            int nx = blockX + dir.getStepX(), nz = blockZ + dir.getStepZ();
+                            int rx = nx - minBlockX, rz = nz - minBlockZ;
+                            Cell side = rx >= 0 && rx < 16 && rz >= 0 && rz < 16 ? chunkCells[rx + rz * 16]
+                                : CellSampler.getCachedOrLookup(generatorContext.lookup, nx, nz, false);
+                            if (side.hasRiverWater) continue;
+                            pos.neighbor.set(nx, y, nz);
+                            BlockState sideState = level.getBlockState(pos.neighbor);
+                            if (sideState.isAir() || sideState.is(Blocks.CAVE_AIR)) {
+                                level.setBlock(pos.neighbor, structuralState, 2);
                             }
                         }
                     }

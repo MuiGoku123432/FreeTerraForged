@@ -197,3 +197,8 @@ that world (`HighlandGroundTest`); ranges are measured separately in R.
   cover the visual goal).
 - `rangeCore` is 0 at range height 0 (the drainage steepness used it before the height check and changed worlds
   without ranges). The range continuity test compares block steps against the legacy land's own steps.
+
+### V as built
+Record: [VALIDATION.md](VALIDATION.md). Four sites on both loaders, 0 failures after two gasket fixes (cave-opened
+lake banks; beds just under sea level). Release `1.0.0016-rh6`, model 6. User presets: Range Height 200, ranges
+replace mountains. A new world is required (model 5 presets are rejected).
