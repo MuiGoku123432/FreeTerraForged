@@ -55,7 +55,9 @@ class HighlandQualityTest {
             // RESEARCH-RH3 §3 targets. Legacy FTF land has 20-24% closed depressions. RH3-RH5 measured 2.5-2.9% because the
             // base-level floor filled every dip (dead-flat plateaus); RH6 (D-c) keeps natural hollows away from water:
             // 8.6-9.4%, a third of legacy land.
-            if (m.lakeFraction() < .005 || m.lakeFraction() > .04) failures.add("seed " + seed + " lake area outside 0.5-4%: " + m.summary());
+            // Lakes: RH6 D-d asks for fewer, deeper valley lakes (dam lakes only in confined valleys): 0.3-0.7% here
+            // (RH5 0.8-1.1%), so the lower bound is 0.25%.
+            if (m.lakeFraction() < .0025 || m.lakeFraction() > .04) failures.add("seed " + seed + " lake area outside 0.25-4%: " + m.summary());
             if (m.depressionFraction() > .12) failures.add("seed " + seed + " depressions > 12%: " + m.summary());
             // Measured on water surfaces, which dam-lake backwater flattens; the incision itself uses theta = 0.45.
             if (m.concavity() < .10 || m.concavity() > .65) failures.add("seed " + seed + " concavity outside 0.15-0.65: " + m.summary());

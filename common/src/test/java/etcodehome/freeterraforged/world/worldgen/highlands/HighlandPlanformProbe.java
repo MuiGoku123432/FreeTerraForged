@@ -68,7 +68,8 @@ final class HighlandPlanformProbe {
         boolean[] lake = new boolean[n];
         for (int i = 0; i < n; i++) {
             var s = plan.basins().sample(nodes.get(i).x(), nodes.get(i).z());
-            lake[i] = s != null && s.depth() > 0;
+            // Lake samples, including channel samples absorbed into a lake's shore band (RH6 L3).
+            lake[i] = s != null && (s.depth() > 0 || HighlandDrainage.absorbed(s, nodes.get(i).water()));
         }
 
         // Sinuosity: 1 km windows walked downstream from channel samples on rivers > 4 km2, away from lakes.

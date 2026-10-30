@@ -34,7 +34,15 @@ public final class RollingHighlandsContinent implements Continent {
     /** Narrowest channel half width (blocks): a creek is never less than two blocks of water across. */
     static final double MIN_RADIUS = 1;
     /** Lake shoreline (RH5 S): how far (depth units) the real ground contour may pull the planned shoreline inward. */
-    static final double SHORE_BLEND = 12, SHORE_ADVANCE = 10, SHORE_CHANNEL_NEAR = 24, SHORE_CHANNEL_FAR = 64;
+    static final double SHORE_BLEND = 12, SHORE_ADVANCE = 2, SHORE_CHANNEL_NEAR = 24, SHORE_CHANNEL_FAR = 64;
+    /**
+     * Beach (RH6 L4): low ground beside a lake is held up along a ramp that starts BEACH_FLUSH above the water at the
+     * planned shoreline, rises one block per BEACH_RUN blocks and levels off BEACH_TOP above the start, instead of a
+     * flat shelf one block above the water whose edge reads as a stone step.
+     */
+    static final double BEACH_FLUSH = .5, BEACH_RUN = 5, BEACH_TOP = 1, BEACH_MIN_GRADIENT = .02;
+    /** Effective depth over which a lake bed settles from the real ground to (at least) the planned depth. */
+    static final double BED_SETTLE = 2;
     static final double BANK_RUN = 16, MIN_OUTER_RUN = 64, MAX_OUTER_RUN = 512, CREASE_SOFTNESS = 24;
     private static final Rivermap NO_LEGACY_RIVERS = new Rivermap(0, 0, new Network[0], GenWarp.EMPTY);
     private final HighlandCoast coast;
@@ -65,7 +73,7 @@ public final class RollingHighlandsContinent implements Continent {
         this.coast = new HighlandCoast(context);
         this.land = HighlandLand.create(context);
         this.drainage = new HighlandDrainage(coast, land, settings.uplandSpacing(), context.preset.world().controlPoints, context.preset.rivers().lakes.chance, context.preset.rivers().lakes.depth,
-            settings.valleyDepth(), context.preset.rivers().riverCount, settings.meanders() / 100.0);
+            settings.valleyDepth(), context.preset.rivers().riverCount, settings.meanders() / 100.0, context.preset.rivers().lakes.sizeMax);
         this.coastEdge = context.preset.world().controlPoints.coast;
         this.classSeed = context.seed.root() * 0x9E3779B97F4A7C15L + 0x52484632L;
         this.coastMarker = context.preset.world().controlPoints.coastMarker();
@@ -232,8 +240,10 @@ public final class RollingHighlandsContinent implements Continent {
             if (oxbow != null) height = shapeOxbow(cell, x, z, oxbow, height);
         }
         if (lake != null && lake.depth() > -HighlandBasins.MAX_SHORE - SHORE_ADVANCE) {
+            // Channels at another level than the lake (outlets, rivers passing below it, rapids above it) hold the
+            // shoreline back; channels at the lake's own level (RH6 L2/L3 inflows) may be reached by it.
             double channelDistance = Double.POSITIVE_INFINITY;
-            for (int k = 0; k < hits.count; k++) channelDistance = Math.min(channelDistance, hits.distance[k]);
+            for (int k = 0; k < hits.count; k++) if (Math.abs(hits.water[k] - lake.water()) > .25) channelDistance = Math.min(channelDistance, hits.distance[k]);
             height = shapeLake(cell, x, z, index, lake, height, raw, channelDistance);
         }
         // Reserve ceiling headroom before any water/bed is handed to final generation.
@@ -254,9 +264,11 @@ public final class RollingHighlandsContinent implements Continent {
         double water = lake.water(), depth = lake.depth();
         // RH5 S: off the channels, the shoreline follows the real ground (unfloored land) at the lake's level: it
         // retreats up to SHORE_BLEND depth units inside the planning field where the ground rises (bays, points,
-        // islands) and advances up to SHORE_ADVANCE where it is low, so outlines trace terrain contours instead of the planning grid's lines. Near channels (inlets,
-        // outlets) it does not advance, so lake water never reaches a channel running below the lake level.
-        // Continuous: fades with the lake's proximity and the channel distance.
+        // islands) and advances up to SHORE_ADVANCE (RH6: 2, so low flats beside a lake no longer become shallow sheets
+        // and the bed never drops more than 2 below the planned depth) where it is low, so outlines trace terrain
+        // contours instead of the planning grid's lines. Near channels (inlets, outlets) it does not advance, so lake
+        // water never reaches a channel running below the lake level. Continuous: fades with the lake's proximity and the
+        // channel distance.
         if (!cell.hasRiverWater) {
             double proximity = lake.proximity();
             double advance = SHORE_ADVANCE * proximity * smooth(SHORE_CHANNEL_NEAR, SHORE_CHANNEL_FAR, channelDistance);
@@ -279,7 +291,10 @@ public final class RollingHighlandsContinent implements Continent {
             } else {
                 cell.hasFlow = false; cell.flowAngle = 0;
             }
-            return water - Math.min(depth, 16);
+            // RH6 L4: away from its shoreline the bed lies at least at the planned depth, so legacy bumps under the water
+            // do not turn the lake into a shallow sheet (the shoreline itself still follows the real ground).
+            double bed = Math.max(depth, lake.depth() * smooth(0, BED_SETTLE, depth));
+            return water - Math.min(bed, 16);
         }
         if (cell.hasRiverWater) return height;
         // Depth units: the shore band widens with the height it has to descend.
@@ -288,8 +303,15 @@ public final class RollingHighlandsContinent implements Continent {
         double shore = Math.min(height, water + 1 - depth);
         double shaped = lerp(height, shore, weight);
         // Rim: rendered land carries legacy detail the plan grid does not see, so ground just outside the shoreline
-        // can dip below the lake surface. Hold it at least one block above the water near the shore.
-        return Math.max(shaped, lerp(shaped, water + 1, smooth(-LAKE_RIM, 0, depth) * lake.proximity()));
+        // can dip below the lake surface. Hold it above the water near the shore along a beach ramp (RH6 L4): distance
+        // from the planned shoreline is the planned depth over its horizontal gradient.
+        double gradient = BEACH_MIN_GRADIENT;
+        var east = plan.lake(x + 2, z);
+        var south = plan.lake(x, z + 2);
+        if (east != null && south != null && east.lake() == lake.lake() && south.lake() == lake.lake())
+            gradient = Math.max(gradient, Math.hypot(east.depth() - lake.depth(), south.depth() - lake.depth()) / 2);
+        double beach = water + BEACH_FLUSH + Math.min(BEACH_TOP, Math.max(0, -lake.depth()) / gradient / BEACH_RUN);
+        return Math.max(shaped, lerp(shaped, beach, smooth(-LAKE_RIM, 0, depth) * lake.proximity()));
     }
 
     /**

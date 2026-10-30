@@ -128,3 +128,37 @@ that world (`HighlandGroundTest`); ranges are measured separately in R.
   any > 5 ≤ 0.5%; any > 2 ≤ 15% (RH5 22%).
 - **Depressions gate re-baselined** to ≤ 12% (8.7–9.5% on seeds 0/42/8675309; legacy FTF land 20–24%; RH5 2.5–2.9%
   came from the global fill). All other gates are unchanged and pass.
+
+### L as built
+
+`HighlandLakeProbe` (user continent, 4-block cells around every lake; `HighlandLakeTest`):
+
+| | RH4 | RH5 | RH6 L |
+|---|---|---|---|
+| lakes / area | 21 / 0.92 km² | 38 / 2.82 km² | 21 / 1.22 km² |
+| mean depth / area under 3 blocks | 3.3 / 54% | 6.5 / 31% | 7.6 / 24% |
+| stream cells stepping against lake water (lakes) | 158 (18) | 108 (18) | 0 |
+| longest shore-parallel channel at another level | 138 | 139 | 0 |
+| shore columns on a 1- / 2-block shelf | — | 20% / 11% | 14% / 13% |
+
+(The research's planned-field measure gave RH4 1.5 km² and RH5 3.4 km²; this probe counts rendered water cells.)
+
+- **L1** as planned (mean depth ≥ max(5, 0.45·dam), ≤ 25% of nodes under 3, confinement within 3 nodes on both
+  sides, extent ≤ 4 × `sizeMax`). The same depth/shallow test also applies to depression lakes and tarns. Lake 20
+  (the screenshot lake, a 4.4-deep sheet on a valley flat) is no longer generated.
+- **L2** as planned: flooded plan nodes carry the lake surface before axis levels are built.
+- **L3** in two parts:
+  - routing: a node beside a lake whose water stands within 2 blocks above the lake drains into the deepest
+    flooded neighbour (no crossing, no cycle; tree re-ordered);
+  - axis: inflowing channel samples in the shore band (planned depth > −6, water between the surface and the spill)
+    belong to the lake. The shoreline may now advance up to channels at the lake's own level; only channels at
+    another level hold it back.
+- **L4** as planned (advance ≤ 2, beach ramp from water + 0.5 at 1:5 levelling off 1 block higher; distance from the
+  shoreline is the planned depth over its gradient). Additionally the bed settles from the real ground to at least
+  the planned depth within 2 depth units of the shoreline, so legacy bumps do not make the interior shallow.
+- **Shelf metric** replaces "share of shore columns at +1/+2": a shelf is a shore column whose land 4 and 8 blocks
+  further from the water stands on the same block level (+1 alone is normal for any gentle shore).
+- **Realism lake-area gate** lowered from 0.5% to 0.25% of land (default preset 0.3–0.7%, RH5 0.8–1.1%), as D-d asks
+  for fewer lakes.
+- Known: where lake 20 was, its two feeding rivers now run about 60 blocks apart down the flat valley floor to their
+  confluence (stream capture only joins a channel into one at least twice its size).

@@ -269,7 +269,7 @@ final class HighlandMeanders {
                 double ground = drainage.planningHeight(cx, cz, location.edge());
                 double level = lerp(ax.level[pts[ptr]], ax.level[pts[nxt]], t);
                 var lake = basins.sample(cx, cz);
-                boolean flooded = lake != null && lake.depth() > 0;
+                boolean flooded = lake != null && (lake.depth() > 0 || HighlandDrainage.absorbed(lake, level));
                 if (flooded) level = lake.water();
                 if (location.edge() <= drainage.coastEdge()) level = 0;
                 int index = samples.size();

@@ -28,7 +28,7 @@ public final class HighlandBasins {
     private static final int[] RX = {-1, 0, 1, -1, 1, -1, 0, 1}, RZ = {-1, -1, -1, 0, 0, 1, 1, 1};
     private final int originX, originZ, width, depth, step;
     private final long seed;
-    private final double[] levels, depthField, reach, outletX, outletZ;
+    private final double[] levels, depthField, reach, outletX, outletZ, nodeSurface;
     private final int[] basin;
 
     /** {@code proximity} is 1 near flooded nodes and falls smoothly to 0 at SHORE_REACH from them. */
@@ -69,6 +69,8 @@ public final class HighlandBasins {
             }
         }
         this.levels = surfaces.stream().mapToDouble(Double::doubleValue).toArray();
+        this.nodeSurface = new double[n];
+        for (int i = 0; i < n; i++) nodeSurface[i] = basin[i] >= 0 ? levels[basin[i]] : Double.NaN;
         this.outletX = new double[levels.length]; this.outletZ = new double[levels.length];
         Arrays.fill(outletX, Double.NaN); Arrays.fill(outletZ, Double.NaN);
         // Shore region: grow outward from each lake over dry rising ground (never into lower ground such as the
@@ -139,6 +141,9 @@ public final class HighlandBasins {
     }
 
     public int count() { return levels.length; }
+
+    /** Lake surface at plan node i if the node is flooded, else NaN (RH6 L2). */
+    double nodeSurface(int i) { return nodeSurface[i]; }
 
     /** Records where the channel leaves a lake; set once while the owning plan is built, before publication. */
     void setOutlet(int lake, double x, double z) {

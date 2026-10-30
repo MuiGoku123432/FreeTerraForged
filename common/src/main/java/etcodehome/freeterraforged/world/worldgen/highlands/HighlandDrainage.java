@@ -30,13 +30,25 @@ public final class HighlandDrainage {
     static final double ROUTE_WANDER = 6, ROUTE_WAVELENGTH = 700;
     /** Dam lakes never extend further than this from their dam (keeps them from drowning a whole trunk valley). */
     static final double LAKE_MAX_REACH = 2800;
+    /**
+     * Dam-lake shape (RH6 L1): valley lakes, not sheets on flats. The flood's mean depth must reach
+     * max(LAKE_MEAN_DEPTH, LAKE_MEAN_SHARE × dam height); at most LAKE_SHALLOW_SHARE of its nodes may be shallower than
+     * LAKE_SHALLOW; the ground beside the dam (across the flow, within LAKE_CONFINE nodes) must reach the lake level on
+     * both sides; and the flood stays within LAKE_SIZE_EXTENT × the FTF lake size of the dam.
+     */
+    static final double LAKE_MEAN_DEPTH = 5, LAKE_MEAN_SHARE = .45, LAKE_SHALLOW = 3, LAKE_SHALLOW_SHARE = .25, LAKE_SIZE_EXTENT = 4, DEFAULT_LAKE_SIZE = 500;
+    static final int LAKE_CONFINE = 3;
+    /** Shore absorption (RH6 L3): largest rise (blocks) of a shore node's water above the lake it drains into. */
+    static final double SHORE_ABSORB = 2;
+    /** Shore band (planned depth units below the shoreline) in which inflowing channel samples join their lake (RH6 L3). */
+    static final double SHORE_BAND = 6;
     /** Dam-lake sites: channel gradient limit, share of eligible sites used at lake chance 1, minimum spacing. */
     static final double LAKE_SITE_SLOPE = .015, LAKE_SITE_DENSITY = 1, LAKE_SPACING = 1000;
     /** Steepest water-surface gradient between refined samples (rapids); keeps adjacent wet cells within a block. */
     static final double MAX_WATER_SLOPE = .2;
     private final HighlandCoast coast;
     private final HighlandLand surface;
-    private final double spacing, coastEdge, inlandEdge, lakeChance, lakeDepth, ks, meander;
+    private final double spacing, coastEdge, inlandEdge, lakeChance, lakeDepth, ks, meander, lakeReach;
     /**
      * River hierarchy (RH5 D2), as fractions of uplandSpacing²: drainage area at which the drawn network starts
      * (creek heads, at River Count 7; River Count scales it inversely), at which a channel has grown to an established
@@ -102,6 +114,12 @@ public final class HighlandDrainage {
     /** @param meander meander strength (1 = default, 0 = channels follow the valley axis, 2 = maximum). */
     public HighlandDrainage(HighlandCoast coast, HighlandLand surface, double spacing, WorldSettings.ControlPoints controls,
                             double lakeChance, double lakeDepth, double valleyDepthPercent, int riverCount, double meander) {
+        this(coast, surface, spacing, controls, lakeChance, lakeDepth, valleyDepthPercent, riverCount, meander, DEFAULT_LAKE_SIZE);
+    }
+    /** @param lakeSize FTF lake settings' largest size (blocks); dam lakes extend at most LAKE_SIZE_EXTENT times it from the dam. */
+    public HighlandDrainage(HighlandCoast coast, HighlandLand surface, double spacing, WorldSettings.ControlPoints controls,
+                            double lakeChance, double lakeDepth, double valleyDepthPercent, int riverCount, double meander, double lakeSize) {
+        this.lakeReach = Math.min(LAKE_MAX_REACH, LAKE_SIZE_EXTENT * Math.max(64, lakeSize));
         this.meander = clamp(meander, 0, 2);
         this.coast = coast; this.surface = surface; this.spacing = spacing; this.lakeChance = clamp(lakeChance, 0, 1);
         this.lakeDepth = clamp(lakeDepth, 1, 32);
@@ -204,7 +222,8 @@ public final class HighlandDrainage {
      * and {@code water}.
      */
     private void damLakes(int ownerX, int ownerZ, int width, int depth, int step, int n, int count, int[] order, int[] parent,
-                          boolean[] land, double[] area, double[] run, double[] ground, double[] incised, double[] water, double threshold) {
+                          boolean[] land, double[] area, double[] run, double[] ground, double[] incised, double[] water, double threshold,
+                          boolean[] flooded) {
         if (lakeChance <= 0) return;
         int[] childCount = new int[n];
         for (int i = 0; i < n; i++) if (parent[i] >= 0) childCount[parent[i]]++;
@@ -250,7 +269,7 @@ public final class HighlandDrainage {
                 boolean leaks = false;
                 while (head < tail && !leaks) {
                     int v = queue[head++], vx = v % width, vz = v / width;
-                    if (Math.hypot(vx - d % width, vz - d / width) * step > LAKE_MAX_REACH) { leaks = true; break; }
+                    if (Math.hypot(vx - d % width, vz - d / width) * step > lakeReach) { leaks = true; break; }
                     for (int dir = 0; dir < DX.length; dir++) {
                         int nx = vx + DX[dir], nz = vz + DZ[dir];
                         if (nx < 0 || nz < 0 || nx >= width || nz >= depth) continue;
@@ -261,13 +280,16 @@ public final class HighlandDrainage {
                         if (tail > MAX_LAKE_NODES) { leaks = true; break; }
                     }
                 }
+                // RH6 L1: a valley lake, not a sheet on a flat.
+                if (!leaks) leaks = tail < 2 || !lakeShape(queue, tail, level, level - water[d], incised)
+                    || !confined(d, parent[d], level, incised, land, width, depth);
                 // Restore basin marks of nodes not flooded in this attempt for the next attempt.
                 if (leaks) { for (int q = 0; q < tail; q++) mark[queue[q]] = basinStamp; continue; }
-                placed = tail >= 2;
+                placed = true;
                 break;
             }
             if (!placed) continue;
-            for (int q = 0; q < tail; q++) water[queue[q]] = level;
+            for (int q = 0; q < tail; q++) { water[queue[q]] = level; flooded[queue[q]] = true; }
             incised[d] = Math.max(incised[d], level + 1);
             water[d] = Math.max(water[d], incised[d]);
             sites.add(new int[]{d % width, d / width});
@@ -278,6 +300,101 @@ public final class HighlandDrainage {
                 if (land[i] && p >= 0) water[i] = Math.max(water[i], Math.max(incised[i], water[p]));
             }
         }
+    }
+
+    /** Re-orders the drainage tree outlet-first (breadth-first from the roots) and recomputes drainage areas. */
+    static int reorder(int n, int count, int[] order, int[] parent, double[] area, double[] cellArea) {
+        int[] childCount = new int[n];
+        for (int i = 0; i < n; i++) if (parent[i] >= 0) childCount[parent[i]]++;
+        int[] offset = new int[n + 1];
+        for (int i = 0; i < n; i++) offset[i + 1] = offset[i] + childCount[i];
+        int[] children = new int[offset[n]], fill = offset.clone();
+        for (int i = 0; i < n; i++) if (parent[i] >= 0) children[fill[parent[i]]++] = i;
+        int head = 0, tail = 0;
+        for (int k = 0; k < count; k++) if (parent[order[k]] < 0) order[tail++] = order[k];
+        while (head < tail) {
+            int v = order[head++];
+            for (int c = offset[v]; c < offset[v + 1]; c++) order[tail++] = children[c];
+        }
+        System.arraycopy(cellArea, 0, area, 0, n);
+        for (int k = tail - 1; k >= 0; k--) {
+            int i = order[k];
+            if (parent[i] >= 0) area[parent[i]] += area[i];
+        }
+        return tail;
+    }
+
+    /**
+     * RH6 L3: shore absorption. A node beside a lake (an 8-neighbour is flooded) whose water stands at most
+     * SHORE_ABSORB above the lake's level but whose receiver is dry runs along the shore; it drains into the lake
+     * instead (the deepest flooded neighbour), so channels enter lakes head-on instead of running beside them.
+     * Links never cross and never close a cycle. Returns whether any receiver changed.
+     */
+    static boolean absorbShores(int n, int width, int depth, int[] parent, boolean[] land, boolean[] lakeNode, double[] incised, double[] water,
+                                double[] run, double[] nodeX, double[] nodeZ) {
+        boolean changed = false;
+        for (int i = 0; i < n; i++) {
+            int p = parent[i];
+            if (!land[i] || lakeNode[i] || p < 0 || lakeNode[p]) continue;
+            int ix = i % width, iz = i / width, best = -1;
+            for (int d = 0; d < DX.length; d++) {
+                int x = ix + DX[d], z = iz + DZ[d];
+                if (x < 0 || z < 0 || x >= width || z >= depth) continue;
+                int j = z * width + x;
+                if (!lakeNode[j] || water[i] < water[j] - 1e-6 || water[i] > water[j] + SHORE_ABSORB) continue;
+                if (best < 0 || incised[j] < incised[best] || incised[j] == incised[best] && j < best) best = j;
+            }
+            if (best < 0 || crosses(i, best, parent, nodeX, nodeZ, width, depth)) continue;
+            boolean cycle = false;
+            for (int v = best, hops = 0; v >= 0 && hops < n; v = parent[v], hops++) if (v == i) { cycle = true; break; }
+            if (cycle) continue;
+            parent[i] = best;
+            run[i] = Math.hypot(nodeX[i] - nodeX[best], nodeZ[i] - nodeZ[best]);
+            changed = true;
+        }
+        return changed;
+    }
+
+    /**
+     * RH6 L3: a channel sample in a lake's shore band (planned depth above -SHORE_BAND) whose water stands between the
+     * lake surface and the spill level belongs to the lake: the channel ends where it reaches the shore band instead of
+     * running along the shore just above the lake.
+     */
+    static boolean absorbed(HighlandBasins.Sample lake, double level) {
+        return lake.depth() > -SHORE_BAND && level >= lake.water() - 1e-6 && level <= lake.water() + HighlandBasins.FREEBOARD + 1e-6;
+    }
+
+    /** RH6 L1: mean flooded depth and shallow share of a dam-lake flood. */
+    static boolean lakeShape(int[] nodes, int count, double level, double damHeight, double[] incised) {
+        double sum = 0;
+        int shallow = 0;
+        for (int q = 0; q < count; q++) {
+            double depth = level - incised[nodes[q]];
+            sum += depth;
+            if (depth < LAKE_SHALLOW) shallow++;
+        }
+        return sum / count >= Math.max(LAKE_MEAN_DEPTH, LAKE_MEAN_SHARE * damHeight) && shallow <= LAKE_SHALLOW_SHARE * count;
+    }
+
+    /**
+     * RH6 L1: the valley at the dam is confined: on both sides across the flow (dam to its receiver), the ground within
+     * LAKE_CONFINE nodes reaches the lake level.
+     */
+    static boolean confined(int dam, int receiver, double level, double[] incised, boolean[] land, int width, int depth) {
+        if (receiver < 0) return false;
+        int dx = Integer.signum(receiver % width - dam % width), dz = Integer.signum(receiver / width - dam / width);
+        int px = -dz, pz = dx;
+        for (int side = -1; side <= 1; side += 2) {
+            boolean wall = false;
+            for (int k = 1; k <= LAKE_CONFINE && !wall; k++) {
+                int x = dam % width + side * k * px, z = dam / width + side * k * pz;
+                if (x < 0 || z < 0 || x >= width || z >= depth) break;
+                int j = z * width + x;
+                wall = land[j] && incised[j] >= level;
+            }
+            if (!wall) return false;
+        }
+        return true;
     }
 
     /**
@@ -314,7 +431,7 @@ public final class HighlandDrainage {
                 }
             }
             if (connected) continue;
-            if (kept && deepest >= TARN_MIN_DEPTH) {
+            if (kept && deepest >= TARN_MIN_DEPTH && lakeShape(queue, tail, water[start], 0, incised)) {
                 tarns.add(Arrays.copyOf(queue, tail));
                 tarnDepth.add(deepest);
             } else {
@@ -614,27 +731,7 @@ public final class HighlandDrainage {
             parent[i] = best;
             captured = true;
         }
-        if (captured) {
-            // Re-order outlet-first (breadth-first from the roots) and recompute drainage areas.
-            int[] childCount = new int[n];
-            for (int i = 0; i < n; i++) if (parent[i] >= 0) childCount[parent[i]]++;
-            int[] offset = new int[n + 1];
-            for (int i = 0; i < n; i++) offset[i + 1] = offset[i] + childCount[i];
-            int[] children = new int[offset[n]], fill = offset.clone();
-            for (int i = 0; i < n; i++) if (parent[i] >= 0) children[fill[parent[i]]++] = i;
-            int head = 0, tail = 0;
-            for (int k = 0; k < count; k++) if (parent[order[k]] < 0) order[tail++] = order[k];
-            while (head < tail) {
-                int v = order[head++];
-                for (int c = offset[v]; c < offset[v + 1]; c++) order[tail++] = children[c];
-            }
-            count = tail;
-            System.arraycopy(cellArea, 0, area, 0, n);
-            for (int k = count - 1; k >= 0; k--) {
-                int i = order[k];
-                if (parent[i] >= 0) area[parent[i]] += area[i];
-            }
-        }
+        if (captured) count = reorder(n, count, order, parent, area, cellArea);
         // Stream-power incision of the rendered land: z = min(ground, z_receiver + run * S(A)), outlet-first. Valleys
         // deepen where land stands high above its outlet; divides stay at the land surface.
         double[] run = new double[n], cap = new double[n], incised = new double[n], water = new double[n];
@@ -674,7 +771,8 @@ public final class HighlandDrainage {
                     }
                 }
                 double hash = (mix(surface.seed() * 31 + bottom) >>> 11) * 0x1.0p-53;
-                boolean lake = round == 0 && water[start] - incised[bottom] >= LAKE_MIN_DEPTH && tail >= MIN_DEPRESSION_LAKE_NODES && tail <= MAX_LAKE_NODES && hash < lakeChance;
+                boolean lake = round == 0 && water[start] - incised[bottom] >= LAKE_MIN_DEPTH && tail >= MIN_DEPRESSION_LAKE_NODES && tail <= MAX_LAKE_NODES && hash < lakeChance
+                    && lakeShape(queueBuffer, tail, water[start], 0, incised); // RH6 L1: deep enough throughout, not a sheet
                 if (lake) { for (int q = 0; q < tail; q++) keep[queueBuffer[q]] = true; continue; }
                 double limit = incised[bottom];
                 for (int v = parent[bottom]; v >= 0 && land[v]; v = parent[v]) {
@@ -687,7 +785,11 @@ public final class HighlandDrainage {
             if (!breached || round == 3) break;
         }
         double structural = Math.max(3.0 * step * step, structuralArea), threshold = Math.max(3.0 * step * step, creekArea);
-        damLakes(ownerX, ownerZ, width, depth, step, n, count, order, parent, land, area, run, ground, incised, water, structural);
+        boolean[] lakeNode = keep.clone();
+        damLakes(ownerX, ownerZ, width, depth, step, n, count, order, parent, land, area, run, ground, incised, water, structural, lakeNode);
+        for (int i = 0; i < n; i++) lakeNode[i] &= land[i] && water[i] > incised[i];
+        if (absorbShores(n, width, depth, parent, land, lakeNode, incised, water, run, nodeX, nodeZ))
+            count = reorder(n, count, order, parent, area, cellArea);
         // Lakes form on the structural network (independent of River Count); the drawn network is every channel
         // above the creek threshold plus the outlet of every lake, so a lake never sits in a dry valley.
         boolean[] lakeChannel = new boolean[n], channel = new boolean[n];
@@ -724,6 +826,12 @@ public final class HighlandDrainage {
             if (mainChild[p] < 0 || area[i] > area[mainChild[p]] || area[i] == area[mainChild[p]] && i < mainChild[p]) mainChild[p] = i;
         }
         HighlandBasins basins = new HighlandBasins(surface.seed() + 52361, originX, originZ, width, depth, step, incised, water, land, lakeMask, nodeX, nodeZ);
+        // RH6 L2: one lake level. Flooded nodes carry the lake surface (spill minus freeboard), not the spill level, so
+        // channels in a lake's backwater meet the lake at its own level instead of stepping down one block.
+        for (int i = 0; i < n; i++) {
+            double lakeSurface = basins.nodeSurface(i);
+            if (!Double.isNaN(lakeSurface)) water[i] = Math.min(water[i], lakeSurface);
+        }
         // Channels run through the routing nodes' own (jittered) positions.
         double[] pathX = nodeX, pathZ = nodeZ;
         // Valley axis (RH3 centreline): tangent-continuous Hermite per grid link, 16-block samples.
@@ -797,7 +905,7 @@ public final class HighlandDrainage {
                 double h = planningHeight(sx, sz, location.edge());
                 double level = lerp(water[p], water[i], t);
                 var lake = basins.sample(sx, sz);
-                boolean flooded = lake != null && lake.depth() > 0;
+                boolean flooded = lake != null && (lake.depth() > 0 || absorbed(lake, level));
                 if (flooded) level = lake.water();
                 boolean ocean = location.edge() <= coastEdge;
                 if (ocean) level = 0;
