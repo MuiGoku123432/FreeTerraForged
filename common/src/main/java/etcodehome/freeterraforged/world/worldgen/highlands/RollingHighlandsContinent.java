@@ -19,6 +19,8 @@ public final class RollingHighlandsContinent implements Continent {
     static final double VALLEY_WEIRDNESS = -.12, VALLEY_EROSION = .1;
     static final float WETLAND_EROSION = .78F;
     static final double CHANNEL_DEPTH = 4, SHORE_RATE = .4, MAX_FADE = 384, CONFLUENCE_RAPID = .25, LAKE_RIM = 12, FLOOR_MARGIN = 1.5, FLOOR_SOFTNESS = 4, FLOOR_COAST_RAMP = 6, SUPPORT_SLOPE = .5;
+    /** Water-relative floor (RH6 F3): reach (blocks beyond a channel's banks) and fall (per block) of the pit-fill cone. */
+    static final double FLOOR_REACH = 64, PIT_SLOPE = .08;
     /** Current speed model (normalized 0..1 as stored in ChunkFlowField). */
     static final double FLOW_BASE = .45, FLOW_SLOPE = 6, FLOW_MIN = .3, LAKE_DRIFT = .18, OUTLET_DRIFT = 128;
     /** Confluence apex rounding (fillet radius in channel half widths) and the largest scour (fraction of bed depth). */
@@ -33,8 +35,6 @@ public final class RollingHighlandsContinent implements Continent {
     static final double MIN_RADIUS = 1;
     /** Lake shoreline (RH5 S): how far (depth units) the real ground contour may pull the planned shoreline inward. */
     static final double SHORE_BLEND = 12, SHORE_ADVANCE = 10, SHORE_CHANNEL_NEAR = 24, SHORE_CHANNEL_FAR = 64;
-    /** Planning depth range over which the base-level floor beside a lake falls to the lake level (RH5 S). */
-    static final double LAKE_FLOOR_FAR = -36, LAKE_FLOOR_NEAR = -16;
     static final double BANK_RUN = 16, MIN_OUTER_RUN = 64, MAX_OUTER_RUN = 512, CREASE_SOFTNESS = 24;
     private static final Rivermap NO_LEGACY_RIVERS = new Rivermap(0, 0, new Network[0], GenWarp.EMPTY);
     private final HighlandCoast coast;
@@ -161,22 +161,36 @@ public final class RollingHighlandsContinent implements Continent {
         if (location.edge() <= coastEdge) return 0;
         var index = plan(location.ownerX(), location.ownerZ());
         double blend = drainage.landBlend(location.edge());
-        return floored(index, x, z, blend, blend * land.height(x, z) - index.incision(x, z), index.lake(x, z));
+        return floored(blend, blend * land.height(x, z) - index.incision(x, z), index.near(x, z));
     }
     /**
-     * Dry ground stays at least FLOOR_MARGIN above the plan's base level (smooth maximum). The plan grid cannot see
-     * legacy land detail between its nodes, so land minus a smooth incision would otherwise leave pits below the
-     * adjacent river: rivers would stand on levees and the pits fill with standing water (sea-level fill below sea
-     * level, Streams Reflowing lakes above it). The floor fades in over the first part of the coastal land blend, so shores still meet the sea.
+     * Water-relative floor (RH6 F3). Dry ground is held up only where water needs it:
+     * <ul>
+     * <li>inland land stays FLOOR_MARGIN above sea level (faded in over the first part of the coastal land blend, so
+     * shores still meet the sea);</li>
+     * <li>within FLOOR_REACH of a channel's banks, ground stays above a gentle cone from FLOOR_MARGIN over that
+     * channel's water, so no pit beside a river lies below its water (it would hold standing water: sea-level fill or
+     * a Streams Reflowing lake).</li>
+     * </ul>
+     * Everywhere else the land is the legacy land minus the plan's incision: hollows away from water keep their real
+     * shape (RH5 lifted all land to an interpolant of the plan's node levels, which left dead-flat plateaus and a
+     * 128-block grid imprint). Smooth maxima throughout, so no creases.
      */
-    private static double floored(HighlandPlanIndex index, double x, double z, double blend, double surface, HighlandBasins.Sample lake) {
-        double base = index.waterFloor(x, z);
-        // RH5 S: beside a lake the floor only has to keep land above that lake, not above the planning grid's node
-        // levels; lowering it there lets the real ground shape the shore and lets the water follow its contours.
-        if (lake != null) base = lerp(base, Math.min(base, lake.water()), lake.proximity() * smooth(LAKE_FLOOR_FAR, LAKE_FLOOR_NEAR, lake.depth()));
-        double floor = Math.min(1, FLOOR_COAST_RAMP * blend) * (base + FLOOR_MARGIN);
-        double h = Math.max(FLOOR_SOFTNESS - Math.abs(surface - floor), 0) / FLOOR_SOFTNESS;
-        return Math.max(surface, floor) + h * h * FLOOR_SOFTNESS * .25;
+    private double floored(double blend, double surface, HighlandPlanIndex.Hits hits) {
+        double ramp = Math.min(1, FLOOR_COAST_RAMP * blend);
+        double height = softMax(surface, ramp * FLOOR_MARGIN);
+        for (int k = 0; k < hits.count; k++) {
+            double beyond = hits.distance[k] - drainage.halfWidth(hits.area[k], hits.head[k]);
+            if (beyond >= FLOOR_REACH) continue;
+            double level = ramp * (hits.water[k] + FLOOR_MARGIN) - PIT_SLOPE * Math.max(0, beyond);
+            if (level <= height - FLOOR_SOFTNESS) continue;
+            height = lerp(height, softMax(height, level), 1 - smooth(.5 * FLOOR_REACH, FLOOR_REACH, beyond));
+        }
+        return height;
+    }
+    private static double softMax(double a, double b) {
+        double h = Math.max(FLOOR_SOFTNESS - Math.abs(a - b), 0) / FLOOR_SOFTNESS;
+        return Math.max(a, b) + h * h * FLOOR_SOFTNESS * .25;
     }
 
     @Override public void apply(Cell cell, float x, float z) { apply(cell, (double) x, z); }
@@ -210,8 +224,8 @@ public final class RollingHighlandsContinent implements Continent {
         // detail, and valleys deepen exactly where the drainage computed on this same land says they should.
         double raw = blend * land.apply(cell, x, z) - index.incision(x, z);
         var lake = index.lake(x, z);
-        double surface = floored(index, x, z, blend, raw, lake);
         var hits = index.near(x, z);
+        double surface = floored(blend, raw, hits);
         double height = carveValleys(cell, x, z, location.edge(), index, hits, surface);
         if (!cell.hasRiverWater) {
             var oxbow = index.oxbow(x, z);
@@ -240,8 +254,7 @@ public final class RollingHighlandsContinent implements Continent {
         double water = lake.water(), depth = lake.depth();
         // RH5 S: off the channels, the shoreline follows the real ground (unfloored land) at the lake's level: it
         // retreats up to SHORE_BLEND depth units inside the planning field where the ground rises (bays, points,
-        // islands) and advances up to SHORE_ADVANCE where it is low (the floor beside lakes is the lake level, see
-        // floored), so outlines trace terrain contours instead of the planning grid's lines. Near channels (inlets,
+        // islands) and advances up to SHORE_ADVANCE where it is low, so outlines trace terrain contours instead of the planning grid's lines. Near channels (inlets,
         // outlets) it does not advance, so lake water never reaches a channel running below the lake level.
         // Continuous: fades with the lake's proximity and the channel distance.
         if (!cell.hasRiverWater) {

@@ -80,6 +80,16 @@ public final class HighlandDrainage {
      * is the steepest descent).
      */
     static final double FLAT_FRICTION = 3, FLAT_FRICTION_WAVELENGTH = 1400;
+    /**
+     * Thalweg refinement (RH6 F2): valley-axis samples search ±min(THALWEG_REACH, THALWEG_SHARE·step) across their link
+     * (every THALWEG_STEP blocks) for the low unincised ground and move toward it (softly weighted within
+     * THALWEG_SOFTNESS blocks of the lowest); the move is smoothed along the link, fades in over THALWEG_TAPER blocks
+     * from the link's end nodes (nodes and junctions stay put) and never exceeds THALWEG_CLEARANCE of the distance (less
+     * THALWEG_MARGIN) to any other drawn link. Channels drawn between coarse plan nodes then run in the valley they
+     * appear to drain instead of across its sides.
+     */
+    static final double THALWEG_REACH = 48, THALWEG_SHARE = .3, THALWEG_STEP = 6, THALWEG_TAPER = 96, THALWEG_SOFTNESS = 1.5,
+        THALWEG_CLEARANCE = .45, THALWEG_MARGIN = 16;
 
     public HighlandDrainage(HighlandCoast coast, HighlandLand surface, double spacing, WorldSettings.ControlPoints controls) {
         this(coast, surface, spacing, controls, .5, 10, 100, 10, 1);
@@ -133,7 +143,7 @@ public final class HighlandDrainage {
     /**
      * {@code incision} holds, per plan grid node (origin, width, gridStep), how far stream-power incision lowered the
      * land; the rendered surface is the full-resolution land minus its smooth interpolation. {@code water} holds the
-     * per-node water level (base level) that dry ground must stay above. {@code climate} holds the smoothed landscape
+     * per-node water level (base level; diagnostic since RH6). {@code climate} holds the smoothed landscape
      * height (incised planning surface, low-passed over about two grid steps) that RH climate reads (RH5 C).
      */
     public record Plan(int ownerX, int ownerZ, int gridStep, int gridNodes, int landNodes, List<Node> nodes, List<Reach> reaches, List<AxisNode> axis, List<Oxbow> oxbows,
@@ -331,6 +341,46 @@ public final class HighlandDrainage {
             }
         }
         return mask;
+    }
+
+    /**
+     * RH6 F2: unincised ground (planning height minus the plan's incision) across a valley-axis sample: the softly
+     * weighted offset of the low ground along the normal. Off-land samples are ignored.
+     */
+    private double thalwegOffset(double x, double z, double normalX, double normalZ, double reach, double[] incision, int width,
+                                 int originX, int originZ, int step) {
+        int count = 2 * (int) Math.floor(reach / THALWEG_STEP) + 1, half = count / 2;
+        double[] values = new double[count];
+        double low = Double.POSITIVE_INFINITY;
+        for (int m = 0; m < count; m++) {
+            double o = (m - half) * THALWEG_STEP, px = x + normalX * o, pz = z + normalZ * o;
+            var s = coast.sample(px, pz);
+            values[m] = s.edge() <= coastEdge ? Double.NaN
+                : planningHeight(px, pz, s.edge()) - HighlandPlanIndex.incision(incision, width, originX, originZ, step, px, pz);
+            if (values[m] < low) low = values[m];
+        }
+        double weights = 0, offset = 0;
+        for (int m = 0; m < count; m++) {
+            if (Double.isNaN(values[m])) continue;
+            double w = Math.exp(-(values[m] - low) / THALWEG_SOFTNESS);
+            weights += w; offset += w * (m - half) * THALWEG_STEP;
+        }
+        return weights > 0 ? offset / weights : 0;
+    }
+
+    /** RH6 F2: distance from a point to the nearest drawn link (node to receiver chord) other than link {@code self}. */
+    private static double otherLinkDistance(double x, double z, int self, double[] nodeX, double[] nodeZ, int[] parent, boolean[] channel,
+                                            int width, int depth, int originX, int originZ, int step) {
+        int cx = (int) Math.round((x - originX) / step), cz = (int) Math.round((z - originZ) / step);
+        double best = Double.POSITIVE_INFINITY;
+        for (int gz = Math.max(0, cz - 2); gz <= Math.min(depth - 1, cz + 2); gz++) for (int gx = Math.max(0, cx - 2); gx <= Math.min(width - 1, cx + 2); gx++) {
+            int k = gz * width + gx, q = parent[k];
+            if (k == self || q < 0 || !channel[k]) continue;
+            double ax = nodeX[q], az = nodeZ[q], dx = nodeX[k] - ax, dz = nodeZ[k] - az, l2 = dx * dx + dz * dz;
+            double t = l2 > 1e-12 ? clamp(((x - ax) * dx + (z - az) * dz) / l2, 0, 1) : 0;
+            best = Math.min(best, Math.hypot(x - ax - dx * t, z - az - dz * t));
+        }
+        return best;
     }
 
     /** Deterministic river-less plan used when an owner's drainage cannot be built. */
@@ -654,7 +704,7 @@ public final class HighlandDrainage {
         double[] incision = new double[n];
         // Positive: incision; negative only at lake dams (a natural barrier raised above the land, like a moraine).
         for (int i = 0; i < n; i++) incision[i] = land[i] ? ground[i] - incised[i] : 0;
-        // Per-node water level (base level): dry ground is never rendered below it (see HighlandPlanIndex.waterFloor).
+        // Per-node water level (base level, for diagnostics; RH6 no longer floors the land to it).
         double[] waterGrid = new double[n];
         for (int i = 0; i < n; i++) waterGrid[i] = land[i] ? water[i] : 0;
         // Climate height (RH5 C): the incised planning surface (valley-scale, no riverbeds), binomial-smoothed twice.
@@ -713,11 +763,36 @@ public final class HighlandDrainage {
             boolean headReach = tributaries[i] == 0;
             int previous = endpoint[p];
             linkFirst[i] = axis.size;
+            // RH6 F2: thalweg refinement. Samples move across the link toward the low ground (smoothed, tapered to
+            // zero at both end nodes, clear of other links).
+            double[] sxs = new double[pieces + 1], szs = new double[pieces + 1], move = new double[pieces + 1];
+            double reachAcross = Math.min(THALWEG_REACH, THALWEG_SHARE * step);
             for (int piece = 1; piece <= pieces; piece++) {
-                if (axis.size >= MAX_REFINED_NODES) throw new IllegalStateException("RH profile refinement budget exceeded");
                 double t = piece / (double) pieces, f = t * 16;
                 int c = Math.min(15, (int) f);
-                double sx = lerp(curveX[c], curveX[c + 1], f - c), sz = lerp(curveZ[c], curveZ[c + 1], f - c);
+                sxs[piece] = lerp(curveX[c], curveX[c + 1], f - c); szs[piece] = lerp(curveZ[c], curveZ[c + 1], f - c);
+                move[piece] = thalwegOffset(sxs[piece], szs[piece], nx, nz, reachAcross, incision, width, originX, originZ, step);
+            }
+            move[pieces] = 0; // the upstream end is node i itself
+            for (int pass = 0; pass < 2; pass++) {
+                double[] next = move.clone();
+                for (int piece = 1; piece < pieces; piece++) next[piece] = .25 * move[piece - 1] + .5 * move[piece] + .25 * move[piece + 1];
+                move = next;
+            }
+            for (int piece = 1; piece <= pieces; piece++) {
+                double t = piece / (double) pieces, fromEnds = Math.min(t, 1 - t) * length;
+                double shift = move[piece] * smooth(0, THALWEG_TAPER, fromEnds);
+                // Clearance: never more than a share of the distance to any other drawn link, so channels drawn into
+                // the same valley bottom cannot meet or cross.
+                double room = THALWEG_CLEARANCE * Math.max(0, otherLinkDistance(sxs[piece], szs[piece], i, pathX, pathZ, parent, channel,
+                    width, depth, originX, originZ, step) - THALWEG_MARGIN);
+                shift = clamp(shift, -room, room);
+                sxs[piece] += nx * shift; szs[piece] += nz * shift;
+            }
+            for (int piece = 1; piece <= pieces; piece++) {
+                if (axis.size >= MAX_REFINED_NODES) throw new IllegalStateException("RH profile refinement budget exceeded");
+                double t = piece / (double) pieces;
+                double sx = sxs[piece], sz = szs[piece];
                 var location = coast.sample(sx, sz);
                 double h = planningHeight(sx, sz, location.edge());
                 double level = lerp(water[p], water[i], t);

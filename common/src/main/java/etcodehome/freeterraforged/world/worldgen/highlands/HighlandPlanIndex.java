@@ -160,9 +160,12 @@ public final class HighlandPlanIndex {
 
     /** Stream-power incision depth at a position: C1 Catmull-Rom interpolation of the plan grid, never negative. */
     public double incision(double x, double z) {
-        double[] grid = plan.incision();
-        int width = plan.width(), depth = grid.length / Math.max(1, width), step = plan.gridStep();
-        double gx = (x - plan.originX()) / step, gz = (z - plan.originZ()) / step;
+        return incision(plan.incision(), plan.width(), plan.originX(), plan.originZ(), plan.gridStep(), x, z);
+    }
+    /** {@link #incision(double, double)} over a lattice field that is not yet part of a plan (used while planning). */
+    static double incision(double[] grid, int width, int originX, int originZ, int step, double x, double z) {
+        int depth = grid.length / Math.max(1, width);
+        double gx = (x - originX) / step, gz = (z - originZ) / step;
         int ix = (int) Math.floor(gx), iz = (int) Math.floor(gz);
         double tx = gx - ix, tz = gz - iz, sum = 0;
         for (int dz = -1; dz <= 2; dz++) {
@@ -175,14 +178,6 @@ public final class HighlandPlanIndex {
             sum += row * catmullRom(dz, tz);
         }
         return Math.max(0, sum);
-    }
-    /**
-     * Base level at a position: smoothstep-weighted bilinear interpolation of the per-node water levels. Bounded by
-     * the four surrounding nodes (no overshoot) and C1. Land is never rendered below it, so legacy land detail minus
-     * a smooth incision cannot leave dry pits below the rivers that drain them.
-     */
-    public double waterFloor(double x, double z) {
-        return smoothBilinear(plan.water(), x, z);
     }
     /** Smoothed landscape height for climate (RH5 C), interpolated like the base level. */
     public double climateHeight(double x, double z) {

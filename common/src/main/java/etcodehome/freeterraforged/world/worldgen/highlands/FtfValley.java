@@ -16,6 +16,9 @@ import static etcodehome.freeterraforged.world.worldgen.highlands.HighlandMath.*
 final class FtfValley {
     private FtfValley() {}
 
+    /** Cross-valley rise of the valley floor (blocks per block of distance from the valley axis). */
+    static final double FLOOR_TILT = .035;
+
     /** Zone widths (blocks) and shaping inputs for one channel at one point. */
     record Shape(double bedRadius, double bankRun, double floorHalf, double fadeRun, double bedDepth,
                  double floorRise, double terrace, double drainage) {
@@ -41,7 +44,9 @@ final class FtfValley {
         // The belt widens the floor inside the valley's own extent (the side slope steepens, at most twofold) rather
         // than pushing the valley sides outward into neighbouring valleys.
         double r1 = s.bedRadius(), r2 = s.bankEnd(), r3 = s.floorEnd() + belt, r4 = Math.max(s.reach(), r3 + .5 * s.fadeRun());
-        double floor = water + s.floorRise();
+        // RH6: the floor rises gently away from the valley axis (a floodplain sloping up to its valley sides) instead of
+        // lying dead flat at one level across the whole valley.
+        double floor = water + s.floorRise() + FLOOR_TILT * a;
         if (d < r1) {
             double influence = 1 - d * d / (r1 * r1);
             influence = influence * influence * (3 - 2 * influence);

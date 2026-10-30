@@ -23,9 +23,10 @@ public record RollingHighlandsSettings(int modelVersion, int uplandSpacing, int 
      * Generation model. 3 = RH3 (legacy FTF land, stream-power drainage, FTF river profile, dam lakes); 4 = RH4
      * (jittered-lattice routing, meandering channels with oxbows, natural tributary mouths, rounded confluences);
      * 5 = RH5 (flat routing friction, creek-to-river hierarchy, structural lakes independent of River Count, tarns,
-     * contour shorelines, smoothed climate height, mountain ranges).
+     * contour shorelines, smoothed climate height, mountain ranges); 6 = RH6 (water-relative floor, low-envelope
+     * planning nodes, thalweg-following valley axes).
      */
-    public static final int MODEL_VERSION = 5;
+    public static final int MODEL_VERSION = 6;
     public static final int DEFAULT_MEANDERS = 100;
     /** RH5 mountain ranges: off by default (0 blocks); length scale 6144 blocks. */
     public static final int DEFAULT_RANGE_HEIGHT = 0, DEFAULT_RANGE_LENGTH = 6144;

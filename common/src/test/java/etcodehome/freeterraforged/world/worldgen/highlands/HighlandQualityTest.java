@@ -52,10 +52,11 @@ class HighlandQualityTest {
         for (long seed : new long[]{0, 42, 8675309}) {
             var m = HighlandRealismProbe.measure(seed, true);
             System.out.println(m.summary());
-            // RESEARCH-RH3 §3 targets. Legacy FTF land has 20-24% closed depressions; RH3 measures 2.5-2.9% with the base-level floor
-            // (8.5% before it; those pits held standing water beside rivers in game).
+            // RESEARCH-RH3 §3 targets. Legacy FTF land has 20-24% closed depressions. RH3-RH5 measured 2.5-2.9% because the
+            // base-level floor filled every dip (dead-flat plateaus); RH6 (D-c) keeps natural hollows away from water:
+            // 8.6-9.4%, a third of legacy land.
             if (m.lakeFraction() < .005 || m.lakeFraction() > .04) failures.add("seed " + seed + " lake area outside 0.5-4%: " + m.summary());
-            if (m.depressionFraction() > .06) failures.add("seed " + seed + " depressions > 6%: " + m.summary());
+            if (m.depressionFraction() > .12) failures.add("seed " + seed + " depressions > 12%: " + m.summary());
             // Measured on water surfaces, which dam-lake backwater flattens; the incision itself uses theta = 0.45.
             if (m.concavity() < .10 || m.concavity() > .65) failures.add("seed " + seed + " concavity outside 0.15-0.65: " + m.summary());
             if (m.meanJunctionAngle() < 50 || m.meanJunctionAngle() > 95) failures.add("seed " + seed + " junction angle outside 50-95: " + m.summary());

@@ -42,6 +42,10 @@ class HighlandSettingsTest {
         json.addProperty("modelVersion", 4);
         var rh4 = RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).error();
         assertTrue(rh4.isPresent() && rh4.get().message().contains("create a new world"));
+        // RH5 (model 5) likewise: RH6 no longer lifts land to the plan's base level.
+        json.addProperty("modelVersion", 5);
+        var rh5 = RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).error();
+        assertTrue(rh5.isPresent() && rh5.get().message().contains("create a new world"));
         // Meanders is optional (default 100) and bounded.
         json.addProperty("modelVersion", RollingHighlandsSettings.MODEL_VERSION); json.remove("meanders");
         assertEquals(100, RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).getOrThrow().meanders());
