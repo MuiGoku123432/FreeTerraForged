@@ -162,3 +162,12 @@ that world (`HighlandGroundTest`); ranges are measured separately in R.
   for fewer lakes.
 - Known: where lake 20 was, its two feeding rivers now run about 60 blocks apart down the flat valley floor to their
   confluence (stream capture only joins a channel into one at least twice its size).
+
+### I as built
+- RH water patches judge freezing at the water's block height with vanilla 1.21.1's height-adjusted temperature
+  (above y 80: −0.05 per 40 blocks, noise ±8 blocks). The land biome freezes when its mean adjusted temperature is
+  under 0.15. Water then uses only river candidates whose water always freezes (warmest case < 0.15), or only those
+  that never freeze (coldest case ≥ 0.15). Candidates in between are never chosen. With no candidate left, it falls
+  back to `minecraft:frozen_river` / `minecraft:river`.
+- `bloomingnature:cold_river` (0.175) is excluded at y 101–107 (the speckled-ice screenshot) and still used below
+  y 72. Unit tests cover the formula and the candidate split.
