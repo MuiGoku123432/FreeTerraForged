@@ -39,6 +39,13 @@ public record RollingHighlandsSettings(int modelVersion, int uplandSpacing, int 
     /** RH7 G: default snowline (percent of Range Height above the range foot) and its range. */
     public static final int DEFAULT_SNOWLINE = 60, MIN_SNOWLINE = 20, MAX_SNOWLINE = 100;
     public static final RollingHighlandsSettings DEFAULT = new RollingHighlandsSettings(MODEL_VERSION, 4096, 80, 100, 256, DEFAULT_MEANDERS);
+    /**
+     * Profile a new Rolling Highlands world starts from (RH7, the "Rockies" setup): broad high uplands, wide gently
+     * meandering valleys and 400-block glaciated ranges that replace the legacy mountains. DEFAULT stays the
+     * calibration profile the tests measure against.
+     */
+    public static final RollingHighlandsSettings ROCKIES = new RollingHighlandsSettings(MODEL_VERSION, 6144, 120, 120, 448, 80,
+        400, DEFAULT_RANGE_LENGTH, true, DEFAULT_SNOWLINE);
     /** Share of the legacy mountain terrain weight kept when ranges replace mountains (RH7 D-c: none). */
     public static final float REPLACED_MOUNTAIN_WEIGHT = 0F;
 

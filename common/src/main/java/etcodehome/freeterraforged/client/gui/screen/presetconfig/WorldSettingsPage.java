@@ -74,7 +74,12 @@ public class WorldSettingsPage extends PresetEditorPage {
 			continent.continentType, FTFTranslationKeys.GUI_BUTTON_CONTINENT_TYPE,
 			(button, value) -> {
 				continent.continentType = value;
-				if (value == ContinentType.ROLLING_HIGHLANDS) this.applyHighlandsHeight(properties);
+				if (value == ContinentType.ROLLING_HIGHLANDS) {
+					this.applyHighlandsHeight(properties);
+					// A preset switched to Rolling Highlands for the first time starts from the Rockies profile.
+					var terrain = this.preset.getPreset().terrain();
+					if (terrain.rollingHighlands == null) terrain.rollingHighlands = etcodehome.freeterraforged.data.worldgen.preset.settings.RollingHighlandsSettings.ROCKIES;
+				}
 				this.applyContinentType(value);
 				this.regenerate();
 			}, 

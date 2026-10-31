@@ -80,6 +80,15 @@ class HighlandSettingsTest {
         var world = WorldSettings.makeDefault(); world.continent.continentScale = 5000;
         assertThrows(IllegalArgumentException.class, () -> new RollingHighlandsSettings(RollingHighlandsSettings.MODEL_VERSION, 2048, 80, 100, 256).validate(world));
     }
+    @Test void rockiesProfileIsValidAndRoundTrips() {
+        var world = WorldSettings.makeDefault();
+        world.continent.continentScale = 3000;
+        world.properties.worldHeight = 736; world.properties.worldDepth = 128;
+        RollingHighlandsSettings.ROCKIES.validate(world);
+        var json = RollingHighlandsSettings.CODEC.encodeStart(JsonOps.INSTANCE, RollingHighlandsSettings.ROCKIES).getOrThrow();
+        assertEquals(RollingHighlandsSettings.ROCKIES, RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).getOrThrow());
+        assertEquals(400, RollingHighlandsSettings.ROCKIES.rangeHeight());
+    }
     @Test void legacyEnumOrdinalsRemainStable() {
         assertEquals(0, ContinentType.MULTI.ordinal());
         assertEquals(1, ContinentType.SINGLE.ordinal());
