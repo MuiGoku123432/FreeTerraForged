@@ -189,10 +189,11 @@ class HighlandRangeTest {
             System.out.println("RH400 " + g.summary());
             var m = HighlandRangeProbe.measure(context, HighlandPlanformProbe.USER_X, HighlandPlanformProbe.USER_Z);
             System.out.println("RH400 " + m.summary());
-            assertTrue(g.medianSlope() >= 28 && g.medianSlope() <= 38, g.summary());
-            assertTrue(g.gentleShare() <= .17, g.summary());
-            assertTrue(g.crestWidth() <= 40, g.summary());
-            assertTrue(m.crestHeight() - m.footHeight() >= 150, m.summary());
+            assertTrue(g.medianSlope() >= 30 && g.medianSlope() <= 38, g.summary());
+            assertTrue(g.gentleShare() <= .13, g.summary());
+            assertTrue(g.crestWidth() <= 36, g.summary());
+            assertTrue(g.dissection() >= .19, g.summary());
+            assertTrue(m.crestHeight() - m.footHeight() >= 300, m.summary());
         }
     }
 

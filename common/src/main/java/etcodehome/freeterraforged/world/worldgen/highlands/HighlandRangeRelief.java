@@ -13,14 +13,14 @@ import java.util.Arrays;
  */
 public final class HighlandRangeRelief {
     static final int STEP = 24, COARSE = 6, ITERATIONS = 3;
-    /** Threshold hillslope gradient (≈ 39°). */
-    static final double HILLSLOPE = .8;
+    /** Threshold hillslope gradient (≈ 39°) at REFERENCE_HEIGHT, and its cap (≈ 50°) for taller ranges. */
+    static final double HILLSLOPE = .8, MAX_HILLSLOPE = 1.2;
     /**
      * Channel gradient at the reference area, area exponent (concavity), reference area (blocks²), and the drainage
      * area at which a channel starts (smaller areas are hillslopes rising at HILLSLOPE along the flow path).
      */
     static final double CHANNEL_SLOPE = .35, THETA = .5, REFERENCE_AREA = 1e4, CHANNEL_AREA = 1.5e4;
-    /** Range Height (blocks) at which CHANNEL_SLOPE applies; taller ranges scale it up. */
+    /** Range Height (blocks) at which the constants apply; taller ranges scale them (see build). */
     static final double REFERENCE_HEIGHT = 200;
     /** Routing perturbation (blocks) and its wavelength, so flow on the smooth envelope breaks into branches. */
     static final double ROUGHNESS = 14, ROUGHNESS_WAVELENGTH = 260;
@@ -145,16 +145,21 @@ public final class HighlandRangeRelief {
         }
         // Routing surface: the envelope, roughened slightly.
 
+        // Ranges taller than REFERENCE_HEIGHT (h = height ratio): steeper channels (steady state S ∝ uplift, so channel
+        // steepness grows with h²: the range must also stand h times taller over the same width), steeper threshold
+        // hillslopes (√h, capped), and stronger, finer routing roughness so the valleys stay dense.
+        double h = Math.max(1, land.rangeHeight() / REFERENCE_HEIGHT);
+        double roughness = ROUGHNESS * h, roughnessWavelength = ROUGHNESS_WAVELENGTH / h;
+        double hillslope = Math.min(MAX_HILLSLOPE, HILLSLOPE * Math.sqrt(h)), channelSlope = CHANNEL_SLOPE * h * h;
         double[] surface = new double[n], area = new double[n];
         int[] order = new int[n], receiver = new int[n];
         float[] rough = new float[n];
         for (int i = 0; i < n; i++) if (range[i]) {
-            rough[i] = (float) (ROUGHNESS * (2 * HighlandMath.noise(seed + 7307, originX + i % width * STEP, originZ + i / width * STEP, ROUGHNESS_WAVELENGTH) - 1));
+            rough[i] = (float) (roughness * (2 * HighlandMath.noise(seed + 7307, originX + i % width * STEP, originZ + i / width * STEP, roughnessWavelength) - 1));
             surface[i] = envelope[i] + rough[i];
         }
         double[] carved = envelope.clone();
         // Steady-state channel gradient scales with uplift (S ∝ U for n = 1), so taller ranges keep their relief.
-        double channelSlope = CHANNEL_SLOPE * Math.max(1, land.rangeHeight() / REFERENCE_HEIGHT);
         int count = 0;
         boolean[] seen = new boolean[n];
         double[] filled = new double[n];
@@ -171,13 +176,13 @@ public final class HighlandRangeRelief {
                 if (r < 0) { carved[i] = Math.min(envelope[i], 0); continue; }
                 int dx = i % width - r % width, dz = i / width - r / width;
                 double distance = STEP * Math.sqrt(dx * dx + dz * dz);
-                double slope = area[i] < CHANNEL_AREA ? HILLSLOPE : Math.min(HILLSLOPE, channelSlope * Math.pow(area[i] / REFERENCE_AREA, -THETA));
+                double slope = area[i] < CHANNEL_AREA ? hillslope : Math.min(hillslope, channelSlope * Math.pow(area[i] / REFERENCE_AREA, -THETA));
                 carved[i] = Math.min(envelope[i], carved[r] + distance * slope);
             }
             for (int i = 0; i < n; i++) if (range[i]) surface[i] = carved[i] + rough[i];
         }
 
-        hillslopes(carved, envelope, area, receiver, range, width, depth, seed, originX, originZ);
+        hillslopes(carved, envelope, area, receiver, range, width, depth, seed, originX, originZ, hillslope);
         float[] cut = new float[n];
         for (int i = 0; i < n; i++) if (range[i]) cut[i] = (float) carved[i];
         return new HighlandRangeRelief(originX, originZ, width, depth, cut, System.nanoTime() - started);
@@ -198,8 +203,8 @@ public final class HighlandRangeRelief {
     static final double ENVELOPE_SOFTNESS = 12;
     /** Softness (blocks) of divides between neighbouring hillslope cones. */
     static final double RIDGE_SOFTNESS = 8;
-    private static double wall(double distance) {
-        return HILLSLOPE * (Math.sqrt(distance * distance + FLOOR_ROUNDING * FLOOR_ROUNDING) - FLOOR_ROUNDING);
+    private static double wall(double distance, double hillslope) {
+        return hillslope * (Math.sqrt(distance * distance + FLOOR_ROUNDING * FLOOR_ROUNDING) - FLOOR_ROUNDING);
     }
 
     /**
@@ -208,7 +213,7 @@ public final class HighlandRangeRelief {
      * stream profile interpolated along them; the range foot is a point source at its own height. Sources propagate
      * Dijkstra-style over the grid (each node keeps the source giving it the lowest surface).
      */
-    private static void hillslopes(double[] carved, double[] envelope, double[] area, int[] receiver, boolean[] range, int width, int depth, long seed, int originX, int originZ) {
+    private static void hillslopes(double[] carved, double[] envelope, double[] area, int[] receiver, boolean[] range, int width, int depth, long seed, int originX, int originZ, double hillslope) {
         int n = width * depth, m = 0;
         int[] nodes = new int[n];
         for (int i = 0; i < n; i++) if (range[i]) nodes[m++] = i;
@@ -252,7 +257,7 @@ public final class HighlandRangeRelief {
             boolean foot = receiver[i] < 0;
             if (!channel[i] && !foot) continue;
             source[i] = i;
-            best[i] = Math.min(carved[i], surface(i, i % width, i / width, carved, receiver, channel, px, pz));
+            best[i] = Math.min(carved[i], surface(i, i % width, i / width, carved, receiver, channel, px, pz, hillslope));
             queue.pushGrow(i, best[i]);
         }
         boolean[] done = new boolean[n];
@@ -266,7 +271,7 @@ public final class HighlandRangeRelief {
                 if (jx < 0 || jz < 0 || jx >= width || jz >= depth) continue;
                 int j = jz * width + jx;
                 if (!range[j] || done[j]) continue;
-                double h = surface(s, jx, jz, carved, receiver, channel, px, pz);
+                double h = surface(s, jx, jz, carved, receiver, channel, px, pz, hillslope);
                 if (h < best[j]) {
                     best[j] = h; source[j] = s;
                     queue.pushGrow(j, h);
@@ -293,7 +298,7 @@ public final class HighlandRangeRelief {
                 for (int q = 0; q < count && !repeat; q++) repeat = seen[q] == s;
                 if (repeat) continue;
                 seen[count++] = s;
-                double v = surface(s, ix, iz, carved, receiver, channel, px, pz);
+                double v = surface(s, ix, iz, carved, receiver, channel, px, pz, hillslope);
                 h = Double.isNaN(h) ? v : HighlandMath.smin(h, v, RIDGE_SOFTNESS);
             }
             joined[i] = h;
@@ -302,15 +307,15 @@ public final class HighlandRangeRelief {
     }
 
     /** Height of the cone (hillslope) from source s's channel segment (or point) at grid position (x, z). */
-    private static double surface(int s, double x, double z, double[] carved, int[] receiver, boolean[] channel, double[] px, double[] pz) {
+    private static double surface(int s, double x, double z, double[] carved, int[] receiver, boolean[] channel, double[] px, double[] pz, double hillslope) {
         int r = receiver[s];
         if (!channel[s] || r < 0 || !channel[r])
-            return carved[s] + wall(STEP * Math.hypot(x - px[s], z - pz[s]));
+            return carved[s] + wall(STEP * Math.hypot(x - px[s], z - pz[s]), hillslope);
         double ax = px[s], az = pz[s], bx = px[r] - ax, bz = pz[r] - az;
         double length = bx * bx + bz * bz;
         double t = length <= 0 ? 0 : HighlandMath.clamp(((x - ax) * bx + (z - az) * bz) / length, 0, 1);
         double floor = carved[s] + (carved[r] - carved[s]) * t;
-        return floor + wall(STEP * Math.hypot(x - ax - t * bx, z - az - t * bz));
+        return floor + wall(STEP * Math.hypot(x - ax - t * bx, z - az - t * bz), hillslope);
     }
 
     private static final int[] DX = {1, -1, 0, 0, 1, 1, -1, -1}, DZ = {0, 0, 1, -1, 1, -1, 1, -1};

@@ -85,3 +85,26 @@ At 400 the slope target is met; spacing, dissection, crest width and convexity a
 (steeper channels need more area to stay below the threshold slope) and relief reaches only ~190 of the 400 (the
 threshold hillslope caps how far divides rise above channels). Follow-up before G: denser channel heads and a
 height-scaled hillslope at 400, then re-measure.
+
+### M tuning at Range Height 400
+For h = Range Height / 200 (≥ 1): channel steepness × h² (the range stands h times taller over the same width;
+real active-range steepness indices are well above the 200 value), threshold hillslope × √h (cap 1.2), routing
+roughness × h at wavelength / h. Range Height ≤ 200 is unchanged. Swept on the 400 probe (hillslope exponent 0-0.7,
+channel exponent 0.5-2.5, channel-head area ×1/8-×1, roughness): channel-head area had no measurable effect on
+spacing; channel steepness drives relief; finer, stronger roughness tightens spacing a little.
+
+| Metric at 400 | M commit | tuned | aim | SPEC target |
+|---|---|---|---|---|
+| crest / foot | 263 / 71 | 402 / 72 | relief ≥ 300 (met) | — |
+| valley spacing | 947 | 840 | < 700 (not met) | hw/sp 1.7-2.5 |
+| dissection | 0.15 | 0.21 | ≥ 0.25 (not met) | ≥ 0.4 |
+| median slope | 30.4° | 37.7° | — | 25-38° (met) |
+| flank < 10° | 14% | 11% | — | ≤ 10% (close) |
+| crest width | 36 | 28 | — | ≤ 12 |
+| convex | 44% | 44% | — | ≤ 35% |
+
+640 in the tall frame now reaches the compression band (highest column y 732, top 735). Remaining gaps: the
+dissection metric (max within a 300-block window) is bounded by hillslope × 150 / Range Height, about 0.3 at 400 with
+these slopes, so ≥ 0.4 needs slopes over 45°; valley spacing is set by how the routing organises basins, not by the
+channel-head area. Both are left to G (U valleys and cirques deepen and widen valley heads) and re-measured there.
+Gates at 400 now: slope 30-38°, gentle ≤ 13%, crest width ≤ 36, dissection ≥ 0.19, relief ≥ 300.
