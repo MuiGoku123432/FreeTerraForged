@@ -38,6 +38,110 @@ public final class HighlandRangeRelief {
         this.buildNanos = buildNanos; this.cirques = cirques; this.glacialChannels = glacialChannels;
     }
 
+    /** G2 tarns: lake id per node (-1 none), each tarn's level (carved units) and centre (world blocks). */
+    private int[] tarnId;
+    private double[] tarnLevel, tarnX, tarnZ;
+    /** Absolute water height (blocks above sea level) per tarn, resolved lazily by the continent (NaN until then). */
+    private double[] tarnWater;
+    int tarnCount() { return tarnLevel == null ? 0 : tarnLevel.length; }
+    double[] tarnCentre(int k) { return new double[] {tarnX[k], tarnZ[k]}; }
+
+    /**
+     * G2: floods the carved grid; the closed depression around each cirque centre that is at least TARN_MIN_DEPTH
+     * deep becomes a tarn at its spill level less TARN_FREEBOARD.
+     */
+    private void tarns(double[] carved, boolean[] range, Net net, boolean[] seen, double[] filled) {
+        int n = width * depth;
+        int[] id = new int[n];
+        Arrays.fill(id, -1);
+        var found = new java.util.ArrayList<double[]>();
+        int[] stack = new int[n];
+        for (int s = 0; s < n; s++) {
+            if (net.cirque[s] <= .5) continue;
+            int cx = (int) Math.round(net.cx[s]), cz = (int) Math.round(net.cz[s]);
+            // Local priority flood over a window around the bowl; its edge counts as an outlet (the bowl is small).
+            int k = (int) Math.ceil(1.5 * net.cr[s] / STEP) + 2;
+            int x0 = Math.max(0, cx - k), z0 = Math.max(0, cz - k), x1 = Math.min(width - 1, cx + k), z1 = Math.min(depth - 1, cz + k);
+            if (x0 > cx || z0 > cz || x1 < cx || z1 < cz) continue;
+            fillWindow(carved, range, x0, z0, x1, z1, seen, filled);
+            int seed = -1;
+            double deepest = TARN_MIN_DEPTH;
+            for (int dz = -2; dz <= 2; dz++) for (int dx = -2; dx <= 2; dx++) {
+                int jx = cx + dx, jz = cz + dz;
+                if (jx < 0 || jz < 0 || jx >= width || jz >= depth) continue;
+                int j = jz * width + jx;
+                if (range[j] && id[j] < 0 && filled[j] - carved[j] >= deepest) { deepest = filled[j] - carved[j]; seed = j; }
+            }
+            if (seed < 0) continue;
+            int lake = found.size(), top = 0, size = 0;
+            double level = filled[seed], sx = 0, sz = 0;
+            stack[top++] = seed; id[seed] = lake;
+            while (top > 0) {
+                int i = stack[--top];
+                sx += i % width; sz += i / width; size++;
+                for (int d = 0; d < 8; d++) {
+                    int jx = i % width + DX[d], jz = i / width + DZ[d];
+                    if (jx < 0 || jz < 0 || jx >= width || jz >= depth) continue;
+                    int j = jz * width + jx;
+                    if (jx < x0 || jz < z0 || jx > x1 || jz > z1) continue;
+                    if (!range[j] || id[j] >= 0 || filled[j] - carved[j] <= 1e-6 || Math.abs(filled[j] - level) > 1e-6) continue;
+                    id[j] = lake; stack[top++] = j;
+                }
+            }
+            found.add(new double[] {level - TARN_FREEBOARD, originX + sx / size * STEP, originZ + sz / size * STEP});
+        }
+        if (found.isEmpty()) return;
+        int count = found.size();
+        tarnId = id;
+        tarnLevel = new double[count]; tarnX = new double[count]; tarnZ = new double[count]; tarnWater = new double[count];
+        Arrays.fill(tarnWater, Double.NaN);
+        for (int k = 0; k < count; k++) { tarnLevel[k] = found.get(k)[0]; tarnX[k] = found.get(k)[1]; tarnZ[k] = found.get(k)[2]; }
+    }
+
+    /** Priority flood of carved heights inside a window (its edge and non-range nodes drain out) into {@code filled}. */
+    private void fillWindow(double[] carved, boolean[] range, int x0, int z0, int x1, int z1, boolean[] seen, double[] filled) {
+        var heap = new MinHeap(256);
+        for (int z = z0; z <= z1; z++) for (int x = x0; x <= x1; x++) {
+            int i = z * width + x;
+            seen[i] = false; filled[i] = carved[i];
+            if (!range[i] || x == x0 || z == z0 || x == x1 || z == z1) { seen[i] = true; if (range[i]) heap.pushGrow(i, carved[i]); }
+        }
+        while (heap.size > 0) {
+            double level = heap.topKey();
+            int i = heap.pop();
+            for (int d = 0; d < 8; d++) {
+                int jx = i % width + DX[d], jz = i / width + DZ[d];
+                if (jx < x0 || jz < z0 || jx > x1 || jz > z1) continue;
+                int j = jz * width + jx;
+                if (seen[j]) continue;
+                seen[j] = true;
+                filled[j] = Math.max(carved[j], level);
+                heap.pushGrow(j, filled[j]);
+            }
+        }
+    }
+
+    /** Tarn sample: id, membership weight (bilinear share of the surrounding nodes in it), level and centre. */
+    record Tarn(int id, double weight, double level, double centerX, double centerZ) {}
+    Tarn tarn(double x, double z) {
+        if (tarnId == null) return null;
+        double fx = (x - originX) / STEP, fz = (z - originZ) / STEP;
+        int ix = (int) Math.floor(fx), iz = (int) Math.floor(fz);
+        if (ix < 0 || iz < 0 || ix >= width - 1 || iz >= depth - 1) return null;
+        int a = iz * width + ix, id = Math.max(Math.max(tarnId[a], tarnId[a + 1]), Math.max(tarnId[a + width], tarnId[a + width + 1]));
+        if (id < 0) return null;
+        double tx = fx - ix, tz = fz - iz;
+        double w = (1 - tz) * ((1 - tx) * (tarnId[a] == id ? 1 : 0) + tx * (tarnId[a + 1] == id ? 1 : 0))
+            + tz * ((1 - tx) * (tarnId[a + width] == id ? 1 : 0) + tx * (tarnId[a + width + 1] == id ? 1 : 0));
+        return new Tarn(id, w, tarnLevel[id], tarnX[id], tarnZ[id]);
+    }
+    /** Absolute tarn water (blocks above sea level), resolved once per tarn by {@code resolve} (deterministic). */
+    double tarnWater(Tarn tarn, java.util.function.ToDoubleFunction<Tarn> resolve) {
+        double w = tarnWater[tarn.id()];
+        if (Double.isNaN(w)) tarnWater[tarn.id()] = w = resolve.applyAsDouble(tarn);
+        return w;
+    }
+
     /** Diagnostic: grayscale image of the cut grid. */
     void dump(java.io.File file) throws java.io.IOException {
         var image = new java.awt.image.BufferedImage(width, depth, java.awt.image.BufferedImage.TYPE_INT_RGB);
@@ -189,7 +293,9 @@ public final class HighlandRangeRelief {
         for (int i = 0; i < n; i++) if (range[i]) cut[i] = (float) carved[i];
         int cirques = 0, glacial = 0;
         if (net.glacier != null) for (int i = 0; i < n; i++) { if (net.cirque[i] > .5) cirques++; if (net.glacier[i] > .5) glacial++; }
-        return new HighlandRangeRelief(originX, originZ, width, depth, cut, System.nanoTime() - started, cirques, glacial);
+        var relief = new HighlandRangeRelief(originX, originZ, width, depth, cut, System.nanoTime() - started, cirques, glacial);
+        if (net.cirque != null) relief.tarns(carved, range, net, seen, filled);
+        return relief;
     }
 
     /**
@@ -379,6 +485,8 @@ public final class HighlandRangeRelief {
     static final double CIRQUE_AREA = 6e4;
     /** G2: cirque radius (share of Range Height, clamped in blocks), centre offset upslope, floor gradient, headwall gradient. */
     static final double CIRQUE_RADIUS = .4, CIRQUE_MIN = 60, CIRQUE_MAX = 200, CIRQUE_OFFSET = .6, CIRQUE_FLOOR = .12, CIRQUE_WALL = 1.6;
+    /** G2: cirque floor overdeepening and lip height above the head floor (blocks); tarn minimum depth and freeboard. */
+    static final double TARN_DEPTH = 12, LIP_HEIGHT = 2, TARN_MIN_DEPTH = 3, TARN_FREEBOARD = 1;
     /** G3: share of the divide softness removed between glacial sources. */
     static final double ARETE = .8;
 
@@ -402,7 +510,11 @@ public final class HighlandRangeRelief {
         double along = ox * net.ux[s] + oz * net.uz[s], across = -ox * net.uz[s] + oz * net.ux[s];
         double cg = net.cirque[s], radius = net.cr[s], d = Math.hypot(Math.max(0, along), across);
         double inner = .6 * radius;
-        double bowl = net.floor[s] + CIRQUE_FLOOR * Math.min(d, inner) + CIRQUE_WALL * Math.max(0, d - inner) + (1 - cg) * radius * net.hillslope;
+        // Overdeepened floor (TARN_DEPTH) closed downvalley by a rock lip that rises back to the head's floor where the
+        // bowl meets the valley, so the floor holds a tarn.
+        double deepen = cg * TARN_DEPTH, lip = (deepen + LIP_HEIGHT) / (CIRQUE_OFFSET * radius);
+        double bowl = net.floor[s] - deepen + CIRQUE_FLOOR * Math.min(d, inner) + CIRQUE_WALL * Math.max(0, d - inner)
+            + lip * Math.max(0, -along) + (1 - cg) * radius * net.hillslope;
         return Math.min(base, bowl);
     }
     /** Valley wall at a distance from the centre line: V (rounded floor) or, with a U half width, a parabolic floor then walls. */

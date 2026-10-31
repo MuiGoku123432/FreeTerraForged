@@ -204,6 +204,7 @@ class HighlandRangeTest {
     @Test void tallRangesAreGlaciated() throws Exception {
         String[] lines = new String[2];
         double[] cirquesPer10km = new double[2];
+        int[] tarns = new int[2];
         for (int run = 0; run < 2; run++) {
             var preset = tallPreset(400);
             if (run == 1) preset.terrain().rollingHighlands = preset.terrain().rollingHighlands.withSnowline(100);
@@ -212,13 +213,45 @@ class HighlandRangeTest {
                 var m = HighlandRangeProbe.measure(context, HighlandPlanformProbe.USER_X, HighlandPlanformProbe.USER_Z);
                 var index = ((RollingHighlandsContinent) context.heightmap.continent()).rebuildAt(HighlandPlanformProbe.USER_X, HighlandPlanformProbe.USER_Z);
                 cirquesPer10km[run] = index.relief.cirques * 1e4 / m.totalLength();
-                lines[run] = String.format(java.util.Locale.ROOT, "RHGlacial snowline=%s cirques=%d (%.1f per 10 km crest) glacialChannels=%d %s crest=%.0f foot=%.0f",
-                    run == 0 ? "60" : "off", index.relief.cirques, cirquesPer10km[run], index.relief.glacialChannels, g.summary(), m.crestHeight(), m.footHeight());
+                int[] spill = tarnContainment(context, index.relief);
+                tarns[run] = index.relief.tarnCount();
+                lines[run] = String.format(java.util.Locale.ROOT, "RHGlacial snowline=%s cirques=%d (%.1f per 10 km crest) tarns=%d tarnColumns=%d spills=%d glacialChannels=%d %s crest=%.0f foot=%.0f",
+                    run == 0 ? "60" : "off", index.relief.cirques, cirquesPer10km[run], tarns[run], spill[0], spill[1], index.relief.glacialChannels, g.summary(), m.crestHeight(), m.footHeight());
+                assertEquals(0, spill[1], lines[run]);
                 System.out.println(lines[run]);
             }
         }
         assertEquals(0, cirquesPer10km[1], lines[1]);
         assertTrue(cirquesPer10km[0] >= 30, lines[0]);
+        assertEquals(0, tarns[1], lines[1]);
+        assertTrue(tarns[0] >= 10, lines[0]);
+    }
+
+    /**
+     * Every tarn water column's eight neighbours are water at the same level or dry ground at least at the water
+     * surface. Returns {water columns, spills}.
+     */
+    private static int[] tarnContainment(etcodehome.freeterraforged.world.worldgen.GeneratorContext context, HighlandRangeRelief relief) {
+        var levels = context.levels;
+        Cell c = new Cell(), e = new Cell();
+        int columns = 0, spills = 0;
+        for (int t = 0; t < relief.tarnCount(); t++) {
+            var centre = relief.tarnCentre(t);
+            for (int dz = -160; dz <= 160; dz += 2) for (int dx = -160; dx <= 160; dx += 2) {
+                float x = (float) (centre[0] + dx), z = (float) (centre[1] + dz);
+                context.heightmap.apply(c.reset(), x, z, false);
+                if (!c.hasRiverWater || c.terrain != etcodehome.freeterraforged.world.worldgen.cell.terrain.TerrainType.RIVER) continue;
+                columns++;
+                int waterY = levels.scale(c.riverWaterLevel);
+                for (int k = 0; k < 8; k++) {
+                    int ox = k < 3 ? -1 : k < 5 ? 0 : 1, oz = k == 3 ? -1 : k == 4 ? 1 : (k % 3) - 1;
+                    context.heightmap.apply(e.reset(), x + ox, z + oz, false);
+                    boolean ok = e.hasRiverWater ? levels.scale(e.riverWaterLevel) == waterY : levels.scale(e.height) >= waterY;
+                    if (!ok) spills++;
+                }
+            }
+        }
+        return new int[] {columns, spills};
     }
 
     /**

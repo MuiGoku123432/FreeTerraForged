@@ -286,6 +286,11 @@ public final class RollingHighlandsContinent implements Continent {
             for (int k = 0; k < hits.count; k++) if (Math.abs(hits.water[k] - lake.water()) > .25) channelDistance = Math.min(channelDistance, hits.distance[k]);
             height = shapeLake(cell, x, z, index, lake, height, raw, channelDistance);
         }
+        double ceiling0 = levels.worldHeight - levels.waterY - CEILING_BAND;
+        if (!cell.hasRiverWater) {
+            var tarn = index.relief.tarn(x, z);
+            if (tarn != null) height = shapeTarn(cell, index, tarn, height, ceiling0);
+        }
         // Soft compression in the last CEILING_BAND blocks below the world top (RH7 M): tall ranges flatten toward
         // CEILING_GAP blocks below the top instead of being cut off.
         double ceiling = levels.worldHeight - levels.waterY - CEILING_BAND;
@@ -295,6 +300,35 @@ public final class RollingHighlandsContinent implements Continent {
         rangeBands(cell, height, blend * cell.highlandFoot - incision);
         classify(cell);
     }
+    /**
+     * RH7 G2 tarn in a cirque floor. The water sits at the tarn's level above the land under the range, taken once at
+     * the tarn's centre so the surface is flat. Inside its footprint, ground below the water is flooded (bed at least
+     * one block, up to TARN_BED toward the middle, below the water); at the footprint's edge, ground lower than one
+     * block above the water is raised to that, so the water is always contained.
+     */
+    private double shapeTarn(Cell cell, HighlandPlanIndex index, HighlandRangeRelief.Tarn tarn, double height, double ceiling) {
+        double water = index.relief.tarnWater(tarn, t -> {
+            var site = coast.sample(t.centerX(), t.centerZ());
+            var scratch = new Cell();
+            land.apply(scratch, t.centerX(), t.centerZ());
+            double incision = index.incision(t.centerX(), t.centerZ()) * (1 - land.rangeCore(t.centerX(), t.centerZ()));
+            return drainage.landBlend(site.edge()) * (scratch.highlandFoot + t.level()) - incision;
+        });
+        if (water <= 1 || water + 2 > ceiling) return height;
+        // The shoreline follows the ground's own contour at the water level inside the tarn's footprint; at the
+        // footprint's outer edge (TARN_RIM) low ground is raised instead, so water never reaches its edge.
+        if (tarn.weight() > TARN_RIM && height < water) {
+            height = Math.min(height, water - 1 - TARN_BED * smooth(.5, 1, tarn.weight()));
+            cell.riverWaterLevel = normalized(water); cell.hasRiverWater = true;
+            cell.terrain = TerrainType.RIVER; cell.riverZone = RiverZone.Riverbed;
+            cell.riverMask = 0;
+            return height;
+        }
+        return tarn.weight() > TARN_RIM ? height : Math.max(height, water + 1);
+    }
+    /** RH7 G2: extra tarn bed depth toward its middle (blocks), and the footprint weight below which ground is a rim. */
+    static final double TARN_BED = 4, TARN_RIM = .15;
+
     /**
      * Lake bed and shore. Below the surface the bed follows the planning depth (at most 16 deep). Around it the
      * ground descends to one block above the water over a band whose depth range grows with the height it has to

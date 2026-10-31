@@ -141,3 +141,14 @@ Gates at 400 now: slope 30-38°, gentle ≤ 13%, crest width ≤ 36, dissection 
 - Relief cost: priority flood now uses the Barnes pit queue and the hillslope Dijkstra skips re-evaluating a node
   from its own source (relief 545 ms vs plan 588 ms).
 - Needs the in-game check (V): the surface path runs only with the scree decorator on.
+
+### G2 tarns (follow-up to G)
+- Cirque floors are overdeepened by 12 blocks and closed downvalley by a rock lip rising 2 blocks above the head
+  floor. Each cirque gets a local priority flood (window 1.5 × cirque radius); a closed depression at least 3 deep
+  at its centre becomes a tarn at its spill level less 1.
+- Columns: the absolute water level is resolved once per tarn at its centre (land under the range + level), so the
+  surface is flat. Inside the footprint (bilinear node weight > 0.15) ground below the water floods, bed ≥ 1 (up to 5
+  toward the middle) below; at the footprint edge, low ground is raised to one block above the water. Shorelines
+  follow the ground's contour.
+- At 400: 36 tarns from 162 cirques (22%), 0 spills (every water column's 8 neighbours are water at the same level or
+  dry at least at the water surface); relief 538 ms vs plan 586 ms. Gate: ≥ 10 tarns, 0 spills, none without glaciation.
