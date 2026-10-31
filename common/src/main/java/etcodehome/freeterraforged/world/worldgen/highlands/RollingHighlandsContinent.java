@@ -228,6 +228,8 @@ public final class RollingHighlandsContinent implements Continent {
         return depth * keep;
     }
     static final double DISSECTION_CLEAR = 160;
+    /** RH7 M: soft-compression band below the world top and the gap it approaches (blocks). */
+    static final double CEILING_BAND = 32, CEILING_GAP = 4;
     /** D4 detail amplitude (blocks, ±) and the carved heights over which it fades in. */
     static final double DETAIL = 20, DETAIL_FLOOR = 15, DETAIL_FULL = 70, DETAIL_PROBE = 12, DETAIL_BEND = 6;
     private static double softMax(double a, double b) {
@@ -265,7 +267,10 @@ public final class RollingHighlandsContinent implements Continent {
         // Rendered land = legacy land lowered by the plan's smooth stream-power incision: uplands keep every legacy
         // detail, and valleys deepen exactly where the drainage computed on this same land says they should.
         var hits = index.near(x, z);
-        double raw = blend * (land.apply(cell, x, z) - dissection(index, x, z, hits)) - index.incision(x, z);
+        // RH7 D: on ranges the drainage relief cuts the valleys, so the plan's incision (computed on the uncarved range)
+        // fades out toward the range core instead of stacking on it.
+        double incision = index.incision(x, z) * (1 - land.rangeCore(x, z));
+        double raw = blend * (land.apply(cell, x, z) - dissection(index, x, z, hits)) - incision;
         var lake = index.lake(x, z);
         double surface = floored(blend, raw, hits);
         double height = carveValleys(cell, x, z, location.edge(), index, hits, surface);
@@ -280,9 +285,10 @@ public final class RollingHighlandsContinent implements Continent {
             for (int k = 0; k < hits.count; k++) if (Math.abs(hits.water[k] - lake.water()) > .25) channelDistance = Math.min(channelDistance, hits.distance[k]);
             height = shapeLake(cell, x, z, index, lake, height, raw, channelDistance);
         }
-        // Reserve ceiling headroom before any water/bed is handed to final generation.
-        double ceiling = levels.worldHeight - levels.waterY - 24;
-        if (height > ceiling) height = ceiling + 16 * (1 - Math.exp(-(height - ceiling) / 16));
+        // Soft compression in the last CEILING_BAND blocks below the world top (RH7 M): tall ranges flatten toward
+        // CEILING_GAP blocks below the top instead of being cut off.
+        double ceiling = levels.worldHeight - levels.waterY - CEILING_BAND;
+        if (height > ceiling) height = ceiling + (CEILING_BAND - CEILING_GAP) * (1 - Math.exp(-(height - ceiling) / (CEILING_BAND - CEILING_GAP)));
         cell.height = normalized(height);
         cell.climateHeight = normalized(Math.min(ceiling, index.climateHeight(x, z)));
         classify(cell);

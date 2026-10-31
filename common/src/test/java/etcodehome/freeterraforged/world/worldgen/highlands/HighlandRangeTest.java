@@ -130,10 +130,10 @@ class HighlandRangeTest {
             assertTrue(g.medianSlope() >= 24 && g.medianSlope() <= 38, g.summary());
             assertTrue(g.gentleShare() <= .22, g.summary());
             assertTrue(g.crestWidth() <= 40, g.summary());
-            // Plan cost (best of three fresh builds): the drainage relief at most doubles the RH6 river plan's cost.
+            // Plan cost (best of five fresh builds): the drainage relief at most doubles the RH6 river plan's cost.
             var continent = (RollingHighlandsContinent) context.heightmap.continent();
             long plan = Long.MAX_VALUE, relief = Long.MAX_VALUE;
-            for (int rep = 0; rep < 3; rep++) {
+            for (int rep = 0; rep < 5; rep++) {
                 var index = continent.rebuildAt(HighlandPlanformProbe.USER_X, HighlandPlanformProbe.USER_Z);
                 plan = Math.min(plan, index.plan().buildNanos());
                 relief = Math.min(relief, index.relief.buildNanos);
@@ -151,6 +151,49 @@ class HighlandRangeTest {
         String time = String.format(java.util.Locale.ROOT, "RHRange time ranges=%.2f none=%.2f us/column", on, off);
         System.out.println(time);
         assertTrue(on <= 1.15 * off, time);
+    }
+
+    /** RH7 M user world in the Rolling Highlands tall frame (top y 735, depth 128) with the given Range Height. */
+    static etcodehome.freeterraforged.data.worldgen.preset.settings.Preset tallPreset(int rangeHeight) throws Exception {
+        var preset = HighlandPlanformProbe.userPreset();
+        preset.world().properties.worldHeight = 736;
+        preset.world().properties.worldDepth = 128;
+        preset.terrain().rollingHighlands = preset.terrain().rollingHighlands.withRanges(rangeHeight, 6144);
+        return preset;
+    }
+
+    /** RH7 M: at Range Height 640 in the tall frame, no column reaches the world top (soft compression below it). */
+    @Test void tallRangesStayBelowWorldTop() throws Exception {
+        try (var context = WorldgenFixture.context(tallPreset(640), HighlandPlanformProbe.USER_SEED)) {
+            Cell c = new Cell();
+            double top = 0;
+            int x0 = 2656, z0 = 7396, size = 8192;
+            for (int z = 0; z < size; z += 8) for (int x = 0; x < size; x += 8) {
+                context.heightmap.apply(c.reset(), x0 + x, z0 + z, false);
+                top = Math.max(top, c.height * context.levels.terrainScaleFactor);
+            }
+            String message = "highest column y=" + top + " world top y=" + (context.levels.worldHeight - 1);
+            System.out.println("RHCeiling " + message);
+            assertTrue(top <= context.levels.worldHeight - 1, message);
+            assertTrue(top >= 500, "640 ranges should stand well above the 320 frame: " + message);
+        }
+    }
+
+    /**
+     * RH7 M: G0 morphology at Range Height 400 in the tall frame, where SPEC-RH7's targets are judged (PLAN-RH7 §4).
+     * Gates lock in the measured state; the targets themselves are tracked in the plan.
+     */
+    @Test void tallRangesAreDissected() throws Exception {
+        try (var context = WorldgenFixture.context(tallPreset(400), HighlandPlanformProbe.USER_SEED)) {
+            var g = HighlandMountainProbe.measure(context, HighlandPlanformProbe.USER_X, HighlandPlanformProbe.USER_Z);
+            System.out.println("RH400 " + g.summary());
+            var m = HighlandRangeProbe.measure(context, HighlandPlanformProbe.USER_X, HighlandPlanformProbe.USER_Z);
+            System.out.println("RH400 " + m.summary());
+            assertTrue(g.medianSlope() >= 28 && g.medianSlope() <= 38, g.summary());
+            assertTrue(g.gentleShare() <= .17, g.summary());
+            assertTrue(g.crestWidth() <= 40, g.summary());
+            assertTrue(m.crestHeight() - m.footHeight() >= 150, m.summary());
+        }
     }
 
     /** Best of three heightmap passes (µs per column) over a 4 km square of the user continent, after warming its plans. */

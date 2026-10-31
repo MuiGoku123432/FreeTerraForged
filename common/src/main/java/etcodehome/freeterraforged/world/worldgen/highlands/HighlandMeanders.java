@@ -334,7 +334,22 @@ final class HighlandMeanders {
         if (emitted.size() < 3) return emitted;
         var anchor = samples.get(nearest);
         double wMain = 2 * drainage.halfWidth(anchor.area(), anchor.head());
-        double length = Math.min(stretch * clamp(MOUTH_WIDTHS * wMain, MOUTH_MIN, MOUTH_MAX), .85 * emitted.get(emitted.size() - 1)[2]);
+        double length = stretch * clamp(MOUTH_WIDTHS * wMain, MOUTH_MIN, MOUTH_MAX);
+        // The tributary's own path may cross the parent above the mouth stretch (the parent meandered over it): the
+        // mouth then starts beyond the last such crossing, so the rebuilt curve replaces it.
+        for (int i = emitted.size() - 2; i >= 0; i--) {
+            double[] a = emitted.get(i), b = emitted.get(i + 1);
+            if (b[2] <= length) break;
+            boolean crossing = false;
+            for (int c = pFirst; c <= pLast && !crossing; c++) {
+                var node = samples.get(c);
+                if (node.parent() < 0) continue;
+                var next = samples.get(node.parent());
+                crossing = intersects(a[0], a[1], b[0], b[1], node.x(), node.z(), next.x(), next.z());
+            }
+            if (crossing) { length = b[2] + MOUTH_SPACING; break; }
+        }
+        length = Math.min(length, .85 * emitted.get(emitted.size() - 1)[2]);
         int iA = 0;
         while (iA < emitted.size() - 2 && emitted.get(iA)[2] < length) iA++;
         if (iA < 1) return emitted;

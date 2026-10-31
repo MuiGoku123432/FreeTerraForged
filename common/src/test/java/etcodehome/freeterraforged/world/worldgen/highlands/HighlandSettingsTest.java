@@ -57,7 +57,9 @@ class HighlandSettingsTest {
         json.remove("rangeHeight"); json.remove("rangeLength");
         var ranges = RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).getOrThrow();
         assertEquals(0, ranges.rangeHeight()); assertEquals(6144, ranges.rangeLength());
-        json.addProperty("rangeHeight", 241);
+        json.addProperty("rangeHeight", 640);
+        assertEquals(640, RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).getOrThrow().rangeHeight());
+        json.addProperty("rangeHeight", 641);
         assertTrue(RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).error().isPresent());
         json.addProperty("rangeHeight", 120); json.addProperty("rangeLength", 2047);
         assertTrue(RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).error().isPresent());

@@ -20,6 +20,8 @@ public final class HighlandRangeRelief {
      * area at which a channel starts (smaller areas are hillslopes rising at HILLSLOPE along the flow path).
      */
     static final double CHANNEL_SLOPE = .35, THETA = .5, REFERENCE_AREA = 1e4, CHANNEL_AREA = 1.5e4;
+    /** Range Height (blocks) at which CHANNEL_SLOPE applies; taller ranges scale it up. */
+    static final double REFERENCE_HEIGHT = 200;
     /** Routing perturbation (blocks) and its wavelength, so flow on the smooth envelope breaks into branches. */
     static final double ROUGHNESS = 14, ROUGHNESS_WAVELENGTH = 260;
 
@@ -151,9 +153,13 @@ public final class HighlandRangeRelief {
             surface[i] = envelope[i] + rough[i];
         }
         double[] carved = envelope.clone();
+        // Steady-state channel gradient scales with uplift (S ∝ U for n = 1), so taller ranges keep their relief.
+        double channelSlope = CHANNEL_SLOPE * Math.max(1, land.rangeHeight() / REFERENCE_HEIGHT);
         int count = 0;
+        boolean[] seen = new boolean[n];
+        double[] filled = new double[n];
         for (int it = 0; it < ITERATIONS; it++) {
-            count = route(surface, range, width, depth, order, receiver);
+            count = route(surface, range, width, depth, order, receiver, seen, filled);
             Arrays.fill(area, 0);
             for (int k = count - 1; k >= 0; k--) {
                 int i = order[k];
@@ -165,7 +171,7 @@ public final class HighlandRangeRelief {
                 if (r < 0) { carved[i] = Math.min(envelope[i], 0); continue; }
                 int dx = i % width - r % width, dz = i / width - r / width;
                 double distance = STEP * Math.sqrt(dx * dx + dz * dz);
-                double slope = area[i] < CHANNEL_AREA ? HILLSLOPE : Math.min(HILLSLOPE, CHANNEL_SLOPE * Math.pow(area[i] / REFERENCE_AREA, -THETA));
+                double slope = area[i] < CHANNEL_AREA ? HILLSLOPE : Math.min(HILLSLOPE, channelSlope * Math.pow(area[i] / REFERENCE_AREA, -THETA));
                 carved[i] = Math.min(envelope[i], carved[r] + distance * slope);
             }
             for (int i = 0; i < n; i++) if (range[i]) surface[i] = carved[i] + rough[i];
@@ -203,21 +209,24 @@ public final class HighlandRangeRelief {
      * Dijkstra-style over the grid (each node keeps the source giving it the lowest surface).
      */
     private static void hillslopes(double[] carved, double[] envelope, double[] area, int[] receiver, boolean[] range, int width, int depth, long seed, int originX, int originZ) {
-        int n = width * depth;
+        int n = width * depth, m = 0;
+        int[] nodes = new int[n];
+        for (int i = 0; i < n; i++) if (range[i]) nodes[m++] = i;
         boolean[] channel = new boolean[n];
-        for (int i = 0; i < n; i++) channel[i] = range[i] && area[i] >= CHANNEL_AREA;
+        for (int k = 0; k < m; k++) { int i = nodes[k]; channel[i] = area[i] >= CHANNEL_AREA; }
         // Main upstream donor (largest channel donor) of each channel node.
         int[] main = new int[n];
         Arrays.fill(main, -1);
-        for (int i = 0; i < n; i++) {
-            int r = receiver[i];
+        for (int k = 0; k < m; k++) {
+            int i = nodes[k], r = receiver[i];
             if (!channel[i] || r < 0 || !channel[r]) continue;
             if (main[r] < 0 || area[i] > area[main[r]]) main[r] = i;
         }
         double[] px = new double[n], pz = new double[n], qx = new double[n], qz = new double[n];
-        for (int i = 0; i < n; i++) { px[i] = i % width; pz[i] = i / width; }
+        for (int k = 0; k < m; k++) { int i = nodes[k]; px[i] = i % width; pz[i] = i / width; }
         for (int pass = 0; pass < CHANNEL_SMOOTHING; pass++) {
-            for (int i = 0; i < n; i++) {
+            for (int k = 0; k < m; k++) {
+                int i = nodes[k];
                 qx[i] = px[i]; qz[i] = pz[i];
                 int r = receiver[i], u = main[i];
                 if (!channel[i] || r < 0 || !channel[r] || u < 0) continue;
@@ -227,7 +236,8 @@ public final class HighlandRangeRelief {
             double[] t = px; px = qx; qx = t; t = pz; pz = qz; qz = t;
         }
         // Wander: channel centre lines are displaced by smooth noise so long valleys are not grid-straight.
-        for (int i = 0; i < n; i++) if (channel[i]) {
+        for (int k = 0; k < m; k++) if (channel[nodes[k]]) {
+            int i = nodes[k];
             double wx = originX + px[i] * STEP, wz = originZ + pz[i] * STEP;
             px[i] += CHANNEL_WANDER * (2 * HighlandMath.noise(seed + 7411, wx, wz, WANDER_WAVELENGTH) - 1);
             pz[i] += CHANNEL_WANDER * (2 * HighlandMath.noise(seed + 7412, wx, wz, WANDER_WAVELENGTH) - 1);
@@ -236,9 +246,9 @@ public final class HighlandRangeRelief {
         double[] best = new double[n];
         Arrays.fill(source, -1);
         Arrays.fill(best, Double.POSITIVE_INFINITY);
-        MinHeap queue = new MinHeap(n);
-        for (int i = 0; i < n; i++) {
-            if (!range[i]) continue;
+        MinHeap queue = new MinHeap(Math.max(16, m));
+        for (int k = 0; k < m; k++) {
+            int i = nodes[k];
             boolean foot = receiver[i] < 0;
             if (!channel[i] && !foot) continue;
             source[i] = i;
@@ -268,17 +278,19 @@ public final class HighlandRangeRelief {
         // smooth minimum, rounding the divides slightly.
         double[] joined = new double[n];
         int[] seen = new int[9];
-        for (int i = 0; i < n; i++) {
-            if (!range[i] || best[i] == Double.POSITIVE_INFINITY) continue;
+        for (int k = 0; k < m; k++) {
+            int i = nodes[k];
+            if (best[i] == Double.POSITIVE_INFINITY) continue;
             int ix = i % width, iz = i / width, count = 0;
             double h = Double.NaN;
             for (int d = -1; d < 8; d++) {
-                int j = d < 0 ? i : i + DX[d] + DZ[d] * width;
                 int jx = d < 0 ? ix : ix + DX[d], jz = d < 0 ? iz : iz + DZ[d];
-                if (jx < 0 || jz < 0 || jx >= width || jz >= depth || source[j] < 0) continue;
+                if (jx < 0 || jz < 0 || jx >= width || jz >= depth) continue;
+                int j = jz * width + jx;
+                if (source[j] < 0) continue;
                 int s = source[j];
                 boolean repeat = false;
-                for (int k = 0; k < count && !repeat; k++) repeat = seen[k] == s;
+                for (int q = 0; q < count && !repeat; q++) repeat = seen[q] == s;
                 if (repeat) continue;
                 seen[count++] = s;
                 double v = surface(s, ix, iz, carved, receiver, channel, px, pz);
@@ -286,7 +298,7 @@ public final class HighlandRangeRelief {
             }
             joined[i] = h;
         }
-        for (int i = 0; i < n; i++) if (range[i] && best[i] < Double.POSITIVE_INFINITY) carved[i] = Math.min(envelope[i], HighlandMath.smin(envelope[i], joined[i], ENVELOPE_SOFTNESS));
+        for (int k = 0; k < m; k++) { int i = nodes[k]; if (best[i] < Double.POSITIVE_INFINITY) carved[i] = Math.min(envelope[i], HighlandMath.smin(envelope[i], joined[i], ENVELOPE_SOFTNESS)); }
     }
 
     /** Height of the cone (hillslope) from source s's channel segment (or point) at grid position (x, z). */
@@ -307,10 +319,9 @@ public final class HighlandRangeRelief {
      * Priority flood from the range foot (range nodes next to non-range nodes, which drain out of the range): each
      * node's receiver is the neighbour it was reached from. Returns the node count in order (outlets first).
      */
-    private static int route(double[] surface, boolean[] range, int width, int depth, int[] order, int[] receiver) {
-        int n = width * depth;
-        boolean[] seen = new boolean[n];
-        var heap = new MinHeap(n);
+    private static int route(double[] surface, boolean[] range, int width, int depth, int[] order, int[] receiver, boolean[] seen, double[] filled) {
+        Arrays.fill(seen, false);
+        var heap = new MinHeap(1 << 16);
         for (int iz = 0; iz < depth; iz++) for (int ix = 0; ix < width; ix++) {
             int i = iz * width + ix;
             if (!range[i]) continue;
@@ -318,10 +329,9 @@ public final class HighlandRangeRelief {
             for (int d = 0; d < 4 && !edge; d++) edge = !range[i + DX[d] + DZ[d] * width];
             if (!edge) continue;
             seen[i] = true; receiver[i] = -1;
-            heap.push(i, surface[i]);
+            heap.pushGrow(i, surface[i]);
         }
         int count = 0;
-        double[] filled = new double[n];
         while (heap.size > 0) {
             double level = heap.topKey();
             int i = heap.pop();
@@ -334,7 +344,7 @@ public final class HighlandRangeRelief {
                 int j = jz * width + jx;
                 if (!range[j] || seen[j]) continue;
                 seen[j] = true; receiver[j] = i;
-                heap.push(j, Math.max(surface[j], level));
+                heap.pushGrow(j, Math.max(surface[j], level));
             }
         }
         // Steepest descent on the filled surface (the flood parent only across flats), so flow converges into the

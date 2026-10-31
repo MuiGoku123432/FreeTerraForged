@@ -426,7 +426,7 @@
   "gui.ftf.highlands.valleys": "Dry valley width (blocks)",
   "gui.ftf.highlands.valleys.tooltip": "Reference width of the flat valley floor; larger rivers widen it, confined valleys narrow it.",
   "gui.ftf.highlands.rangeHeight": "Range height (blocks)",
-  "gui.ftf.highlands.rangeHeight.tooltip": "Crest height of long, continuous mountain ranges with foothills. Rivers route around them and cross at passes. 0 turns ranges off.",
+  "gui.ftf.highlands.rangeHeight.tooltip": "Crest height of long, continuous mountain ranges with foothills. Rivers route around them and cross at passes. Up to 640; tall ranges need a tall world (Rolling Highlands sets top y 735), and peaks near the world top are compressed. 0 turns ranges off.",
   "gui.ftf.highlands.rangeLength": "Range length (blocks)",
   "gui.ftf.highlands.rangeLength.tooltip": "Length scale of the mountain ranges: longer values give longer, more widely spaced ranges.",
   "gui.ftf.highlands.rangesReplaceMountains": "Ranges replace mountains",

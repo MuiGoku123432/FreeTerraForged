@@ -40,8 +40,7 @@ public final class HighlandLand {
         var terrain = context.preset.terrain();
         float chains = 1;
         if (settings.replacesMountains()) {
-            // RH6 D-b: ranges are where the mountains live. The legacy mountain terrain keeps a small share of its
-            // weight, and the legacy mountain chains (worley-edge mask) mostly stay below the Blender's threshold.
+            // Ranges are where the mountains live (RH7 D-c): no legacy mountain terrain and no legacy mountain chains.
             terrain = terrain.copy();
             terrain.mountains.weight *= etcodehome.freeterraforged.data.worldgen.preset.settings.RollingHighlandsSettings.REPLACED_MOUNTAIN_WEIGHT;
             chains = REPLACED_CHAIN_STRENGTH;
@@ -206,8 +205,8 @@ public final class HighlandLand {
     }
     static final int ORIENTATIONS = 16;
     private static final double TAU = 2 * Math.PI;
-    /** RH6 D-b: legacy mountain-chain mask strength when ranges replace mountains (the Blender starts chains at 0.3). */
-    static final float REPLACED_CHAIN_STRENGTH = .4F;
+    /** Legacy mountain-chain mask strength when ranges replace mountains (RH7 D-c: none). */
+    static final float REPLACED_CHAIN_STRENGTH = 0F;
     /** Share of the range height carried by the foothills; the rest is the main ridge. */
     static final double RANGE_FOOTHILLS = .3;
     /** RH6 R1: share of legacy height above RANGE_LEGACY_CAP blocks removed on the crest line. */

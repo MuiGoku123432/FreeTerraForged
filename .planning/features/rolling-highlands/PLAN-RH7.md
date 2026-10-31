@@ -56,3 +56,32 @@ Targets not met at Range Height 200: dissection, spacing, gentle share, crest wi
 an ~860-block half width the geometric ceiling for dissection is ~0.49 and flanks average ~13°, so the SPEC targets
 (set for Rockies-scale relief) are re-measured at Range Height 400 in phase M, where `MAX_RANGE_HEIGHT` rises to 640.
 The gates above lock in the G0+D gains without blocking on that.
+
+### M (model 7)
+Built: Range Height 0-640 (codec, slider, tooltip); soft compression in the last 32 blocks below the world top
+(asymptote 4 below it); choosing Rolling Highlands in the World page raises a lower world to top y 735 / depth 128;
+legacy mountain weight and chain strength 0 under ranges (D-c). Range relief at heights above 200 scales the channel
+gradient with Range Height (steady state S ∝ U), and the plan's stream-power incision fades out toward the range
+core (it was computed on the uncarved range and stacked on the relief, leaving flat-floored troughs at 400). Planner:
+a tributary whose own path crosses its parent above the mouth (the parent meandered over it) starts its mouth beyond
+the crossing (1 crossing in the user world after D-c).
+
+Gates: codec 640 accepted / 641 rejected; at 640 in the tall frame the highest column is y 591 (top 735, no column
+above top - 1); RH400 morphology locked in (below). Plan cost gate now best of five builds (parallel-suite noise).
+
+Range Height 400, tall frame (SPEC targets are judged here, user decision):
+
+| Metric | RH7 at 200 | RH7 at 400 | Target |
+|---|---|---|---|
+| half width / valley spacing | 1.36 | 0.91 (spacing 947) | 1.7-2.5 |
+| dissection | 0.23 | 0.15 | ≥ 0.4 |
+| median flank slope | 25.4° | 30.4° | 25-38° (met) |
+| flank < 10° | 19% | 14% | ≤ 10% |
+| crest width | 32 | 36 | ≤ 12 |
+| convex share | 46% | 44% | ≤ 35% |
+| crest / foot | 204 / 76 | 263 / 71 | — |
+
+At 400 the slope target is met; spacing, dissection, crest width and convexity are not. Valleys space out at 400
+(steeper channels need more area to stay below the threshold slope) and relief reaches only ~190 of the 400 (the
+threshold hillslope caps how far divides rise above channels). Follow-up before G: denser channel heads and a
+height-scaled hillslope at 400, then re-measure.

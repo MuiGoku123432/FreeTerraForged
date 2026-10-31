@@ -27,16 +27,16 @@ public record RollingHighlandsSettings(int modelVersion, int uplandSpacing, int 
      * 5 = RH5 (flat routing friction, creek-to-river hierarchy, structural lakes independent of River Count, tarns,
      * contour shorelines, smoothed climate height, mountain ranges); 6 = RH6 (water-relative floor, tilted valley
      * floors, thalweg-following valley axes, valley lakes with clean junctions, ranges that replace the legacy
-     * mountains).
+     * mountains); 7 = RH7 (drainage-carved ranges, Range Height up to 640, no legacy mountains under ranges).
      */
     public static final int MODEL_VERSION = 7;
     public static final int DEFAULT_MEANDERS = 100;
     /** RH5 mountain ranges: off by default (0 blocks); length scale 6144 blocks. */
     public static final int DEFAULT_RANGE_HEIGHT = 0, DEFAULT_RANGE_LENGTH = 6144;
-    public static final int MAX_RANGE_HEIGHT = 240, MIN_RANGE_LENGTH = 2048, MAX_RANGE_LENGTH = 16384;
+    public static final int MAX_RANGE_HEIGHT = 640, MIN_RANGE_LENGTH = 2048, MAX_RANGE_LENGTH = 16384;
     public static final RollingHighlandsSettings DEFAULT = new RollingHighlandsSettings(MODEL_VERSION, 4096, 80, 100, 256, DEFAULT_MEANDERS);
-    /** Share of the legacy mountain terrain weight kept when ranges replace mountains. */
-    public static final float REPLACED_MOUNTAIN_WEIGHT = .2F;
+    /** Share of the legacy mountain terrain weight kept when ranges replace mountains (RH7 D-c: none). */
+    public static final float REPLACED_MOUNTAIN_WEIGHT = 0F;
 
     /** Profile with the default meander strength and no ranges. */
     public RollingHighlandsSettings(int modelVersion, int uplandSpacing, int uplandHeight, int valleyDepth, int valleyWidth) {
