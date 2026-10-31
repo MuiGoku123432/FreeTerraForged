@@ -19,10 +19,11 @@ public final class HighlandLand {
     private final float frequency;
     private final Levels levels;
     private final long seed;
-    private final double spacing, uplandRange, rangeHeight, rangeLength;
+    private final double spacing, uplandRange, rangeHeight, rangeLength, snowline;
     private final ThreadLocal<Cell> scratch = ThreadLocal.withInitial(Cell::new);
 
-    private HighlandLand(Heightmap.Land composed, Levels levels, long seed, double spacing, double uplandRange, double rangeHeight, double rangeLength) {
+    private HighlandLand(Heightmap.Land composed, Levels levels, long seed, double spacing, double uplandRange, double rangeHeight, double rangeLength, double snowline) {
+        this.snowline = snowline;
         this.spacing = spacing;
         this.uplandRange = uplandRange;
         this.rangeHeight = rangeHeight;
@@ -47,11 +48,13 @@ public final class HighlandLand {
         }
         return new HighlandLand(Heightmap.makeLand(context, new Seed(root), terrain, chains), context.levels,
             root + context.preset.terrain().general.terrainSeedOffset, settings.uplandSpacing(), settings.uplandHeight(),
-            settings.rangeHeight(), settings.rangeLength());
+            settings.rangeHeight(), settings.rangeLength(), settings.snowline() / 100.0);
     }
 
     long seed() { return seed; }
     double rangeHeight() { return rangeHeight; }
+    /** RH7 G: snowline height above the range foot (blocks); at or above the Range Height there is no glaciation. */
+    double snowlineHeight() { return snowline * rangeHeight; }
 
     /**
      * Applies the legacy region and land populators to the cell (terrain type, erosion, weirdness, region fields)

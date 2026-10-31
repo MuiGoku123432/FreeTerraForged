@@ -19,7 +19,7 @@ final class HighlandRangeProbe {
     static final double CREST_CORE = .95, FOOT_LOW = .02, FOOT_HIGH = .15, MIN_CREST = 2000, LOCAL = 1000, GAP = 96;
 
     record Metrics(int crests, double longest, double evenness, double nearMax, double spurAlignment, int spurWindows, double crestHeight,
-                   double footHeight) {
+                   double footHeight, double totalLength) {
         String summary() {
             return String.format(Locale.ROOT,
                 "RHRange crests=%d longest=%.0f crestStd/relief=%.2f within25%%OfLocalMax=%.0f%% spursAcrossStrike=%.0f%% (n=%d) crest=%.0f foot=%.0f",
@@ -51,7 +51,7 @@ final class HighlandRangeProbe {
         Cell c = new Cell();
         boolean[] seen = new boolean[w * d];
         int crests = 0;
-        double longest = 0, evenSum = 0, evenWeight = 0, crestSum = 0, footSum = 0;
+        double longest = 0, totalLength = 0, evenSum = 0, evenWeight = 0, crestSum = 0, footSum = 0;
         long near = 0, total = 0;
         for (int start = 0; start < w * d; start++) {
             if (!crest[start] || seen[start]) continue;
@@ -72,6 +72,7 @@ final class HighlandRangeProbe {
             }
             double length = Math.hypot(maxX - minX, maxZ - minZ) * STEP;
             longest = Math.max(longest, length);
+            totalLength += length;
             if (length < MIN_CREST) continue;
             crests++;
             // Rendered crest heights (dry columns only: a river crossing at a pass is not the crest).
@@ -156,7 +157,7 @@ final class HighlandRangeProbe {
             if (difference <= Math.toRadians(30)) aligned++;
         }
         return new Metrics(crests, longest, evenWeight == 0 ? Double.NaN : evenSum / evenWeight, total == 0 ? Double.NaN : (double) near / total,
-            windows == 0 ? Double.NaN : (double) aligned / windows, windows, evenWeight == 0 ? 0 : crestSum / evenWeight, evenWeight == 0 ? 0 : footSum / evenWeight);
+            windows == 0 ? Double.NaN : (double) aligned / windows, windows, evenWeight == 0 ? 0 : crestSum / evenWeight, evenWeight == 0 ? 0 : footSum / evenWeight, totalLength);
     }
 
     /** Least-squares fit h = q0 + q1 dx + q2 dz + q3 dx² + q4 dz² + q5 dx dz over a (2r+1)² window. */

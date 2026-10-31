@@ -197,6 +197,30 @@ class HighlandRangeTest {
         }
     }
 
+    /**
+     * RH7 G: glacial overprint at Range Height 400 (default snowline) against the same world without glaciation:
+     * cirques per 10 km of crest, and the flank and valley morphology both ways.
+     */
+    @Test void tallRangesAreGlaciated() throws Exception {
+        String[] lines = new String[2];
+        double[] cirquesPer10km = new double[2];
+        for (int run = 0; run < 2; run++) {
+            var preset = tallPreset(400);
+            if (run == 1) preset.terrain().rollingHighlands = preset.terrain().rollingHighlands.withSnowline(100);
+            try (var context = WorldgenFixture.context(preset, HighlandPlanformProbe.USER_SEED)) {
+                var g = HighlandMountainProbe.measure(context, HighlandPlanformProbe.USER_X, HighlandPlanformProbe.USER_Z);
+                var m = HighlandRangeProbe.measure(context, HighlandPlanformProbe.USER_X, HighlandPlanformProbe.USER_Z);
+                var index = ((RollingHighlandsContinent) context.heightmap.continent()).rebuildAt(HighlandPlanformProbe.USER_X, HighlandPlanformProbe.USER_Z);
+                cirquesPer10km[run] = index.relief.cirques * 1e4 / m.totalLength();
+                lines[run] = String.format(java.util.Locale.ROOT, "RHGlacial snowline=%s cirques=%d (%.1f per 10 km crest) glacialChannels=%d %s crest=%.0f foot=%.0f",
+                    run == 0 ? "60" : "off", index.relief.cirques, cirquesPer10km[run], index.relief.glacialChannels, g.summary(), m.crestHeight(), m.footHeight());
+                System.out.println(lines[run]);
+            }
+        }
+        assertEquals(0, cirquesPer10km[1], lines[1]);
+        assertTrue(cirquesPer10km[0] >= 30, lines[0]);
+    }
+
     /** Best of three heightmap passes (µs per column) over a 4 km square of the user continent, after warming its plans. */
     private static double columnTime(etcodehome.freeterraforged.world.worldgen.GeneratorContext context) {
         Cell c = new Cell();

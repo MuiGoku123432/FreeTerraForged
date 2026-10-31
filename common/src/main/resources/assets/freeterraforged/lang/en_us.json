@@ -430,6 +430,8 @@
   "gui.ftf.highlands.rangeLength": "Range length (blocks)",
   "gui.ftf.highlands.rangeLength.tooltip": "Length scale of the mountain ranges: longer values give longer, more widely spaced ranges.",
   "gui.ftf.highlands.rangesReplaceMountains": "Ranges replace mountains",
+  "gui.ftf.highlands.snowline": "Snowline (% of range height)",
+  "gui.ftf.highlands.snowline.tooltip": "Height above the range foot, as a percentage of Range Height, above which glaciers have shaped the ranges: U-shaped valleys, cirques at valley heads and sharp ridges between them. 100 turns glaciation off.",
   "gui.ftf.highlands.rangesReplaceMountains.tooltip": "With Range height above 0, the regular mountain terrain becomes rare and mountains form in the long ranges instead. Turn off to keep both.",
   "gui.ftf.highlands.meanders": "Meanders (%)",
   "gui.ftf.highlands.meanders.tooltip": "How strongly rivers wind across gentle valley floors: 0 keeps channels on the valley line, 100 is natural (lazy loops, straighter stretches and occasional oxbow lakes), 200 is strongly meandering. Steep reaches stay nearly straight.",

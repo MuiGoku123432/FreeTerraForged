@@ -25,15 +25,17 @@ public final class HighlandRangeRelief {
     /** Routing perturbation (blocks) and its wavelength, so flow on the smooth envelope breaks into branches. */
     static final double ROUGHNESS = 14, ROUGHNESS_WAVELENGTH = 260;
 
-    public static final HighlandRangeRelief EMPTY = new HighlandRangeRelief(0, 0, 0, 0, null, 0);
+    public static final HighlandRangeRelief EMPTY = new HighlandRangeRelief(0, 0, 0, 0, null, 0, 0, 0);
 
     private final int originX, originZ, width, depth;
     private final float[] cut;
     final long buildNanos;
+    /** Diagnostics: cirques (G2) and glaciated channel nodes (G1) in this grid. */
+    final int cirques, glacialChannels;
 
-    private HighlandRangeRelief(int originX, int originZ, int width, int depth, float[] cut, long buildNanos) {
+    private HighlandRangeRelief(int originX, int originZ, int width, int depth, float[] cut, long buildNanos, int cirques, int glacialChannels) {
         this.originX = originX; this.originZ = originZ; this.width = width; this.depth = depth; this.cut = cut;
-        this.buildNanos = buildNanos;
+        this.buildNanos = buildNanos; this.cirques = cirques; this.glacialChannels = glacialChannels;
     }
 
     /** Diagnostic: grayscale image of the cut grid. */
@@ -182,10 +184,12 @@ public final class HighlandRangeRelief {
             for (int i = 0; i < n; i++) if (range[i]) surface[i] = carved[i] + rough[i];
         }
 
-        hillslopes(carved, envelope, area, receiver, range, width, depth, seed, originX, originZ, hillslope);
+        Net net = hillslopes(carved, envelope, area, receiver, range, width, depth, seed, originX, originZ, hillslope, land.snowlineHeight(), land.rangeHeight());
         float[] cut = new float[n];
         for (int i = 0; i < n; i++) if (range[i]) cut[i] = (float) carved[i];
-        return new HighlandRangeRelief(originX, originZ, width, depth, cut, System.nanoTime() - started);
+        int cirques = 0, glacial = 0;
+        if (net.glacier != null) for (int i = 0; i < n; i++) { if (net.cirque[i] > .5) cirques++; if (net.glacier[i] > .5) glacial++; }
+        return new HighlandRangeRelief(originX, originZ, width, depth, cut, System.nanoTime() - started, cirques, glacial);
     }
 
     /**
@@ -213,7 +217,8 @@ public final class HighlandRangeRelief {
      * stream profile interpolated along them; the range foot is a point source at its own height. Sources propagate
      * Dijkstra-style over the grid (each node keeps the source giving it the lowest surface).
      */
-    private static void hillslopes(double[] carved, double[] envelope, double[] area, int[] receiver, boolean[] range, int width, int depth, long seed, int originX, int originZ, double hillslope) {
+    private static Net hillslopes(double[] carved, double[] envelope, double[] area, int[] receiver, boolean[] range, int width, int depth, long seed, int originX, int originZ, double hillslope,
+                                   double snowline, double rangeHeight) {
         int n = width * depth, m = 0;
         int[] nodes = new int[n];
         for (int i = 0; i < n; i++) if (range[i]) nodes[m++] = i;
@@ -247,6 +252,8 @@ public final class HighlandRangeRelief {
             px[i] += CHANNEL_WANDER * (2 * HighlandMath.noise(seed + 7411, wx, wz, WANDER_WAVELENGTH) - 1);
             pz[i] += CHANNEL_WANDER * (2 * HighlandMath.noise(seed + 7412, wx, wz, WANDER_WAVELENGTH) - 1);
         }
+        var net = new Net(carved, receiver, channel, px, pz, hillslope);
+        glaciate(net, nodes, m, main, area, snowline, rangeHeight);
         int[] source = new int[n];
         double[] best = new double[n];
         Arrays.fill(source, -1);
@@ -257,7 +264,7 @@ public final class HighlandRangeRelief {
             boolean foot = receiver[i] < 0;
             if (!channel[i] && !foot) continue;
             source[i] = i;
-            best[i] = Math.min(carved[i], surface(i, i % width, i / width, carved, receiver, channel, px, pz, hillslope));
+            best[i] = Math.min(carved[i], surface(i, i % width, i / width, net));
             queue.pushGrow(i, best[i]);
         }
         boolean[] done = new boolean[n];
@@ -271,7 +278,7 @@ public final class HighlandRangeRelief {
                 if (jx < 0 || jz < 0 || jx >= width || jz >= depth) continue;
                 int j = jz * width + jx;
                 if (!range[j] || done[j]) continue;
-                double h = surface(s, jx, jz, carved, receiver, channel, px, pz, hillslope);
+                double h = surface(s, jx, jz, net);
                 if (h < best[j]) {
                     best[j] = h; source[j] = s;
                     queue.pushGrow(j, h);
@@ -298,24 +305,112 @@ public final class HighlandRangeRelief {
                 for (int q = 0; q < count && !repeat; q++) repeat = seen[q] == s;
                 if (repeat) continue;
                 seen[count++] = s;
-                double v = surface(s, ix, iz, carved, receiver, channel, px, pz, hillslope);
-                h = Double.isNaN(h) ? v : HighlandMath.smin(h, v, RIDGE_SOFTNESS);
+                double v = surface(s, ix, iz, net);
+                // G3: divides between glacial sources stay knife-edged (arêtes).
+                double soft = RIDGE_SOFTNESS * (1 - ARETE * (net.glacier == null ? 0 : net.glacier[s]));
+                h = Double.isNaN(h) ? v : HighlandMath.smin(h, v, soft);
             }
             joined[i] = h;
         }
         for (int k = 0; k < m; k++) { int i = nodes[k]; if (best[i] < Double.POSITIVE_INFINITY) carved[i] = Math.min(envelope[i], HighlandMath.smin(envelope[i], joined[i], ENVELOPE_SOFTNESS)); }
+        return net;
     }
 
+    /** Channel network and glacial overprint the hillslope cones are built from. */
+    private static final class Net {
+        final double[] floor, px, pz; final int[] receiver; final boolean[] channel; final double hillslope;
+        /** G: glacier weight, U-valley floor half width (blocks) per channel node; cirque weight, centre, radius per head. */
+        double[] glacier, uWidth, cirque, cx, cz, cr, ux, uz;
+        Net(double[] carved, int[] receiver, boolean[] channel, double[] px, double[] pz, double hillslope) {
+            this.floor = carved.clone(); this.receiver = receiver; this.channel = channel; this.px = px; this.pz = pz; this.hillslope = hillslope;
+        }
+    }
+
+    /**
+     * G: glacial overprint above the snowline. Channels fed from above the snowline carry a glacier down to
+     * GLACIER_REACH of the Range Height below it: their valleys get a U cross-section (a floor half width growing with
+     * drainage area, walls rising from its edge) and an overdeepened floor (G1). Channel heads above the snowline get a
+     * cirque: a bowl centred upslope of the head with a gentle floor and a steep headwall (G2).
+     */
+    private static void glaciate(Net net, int[] nodes, int m, int[] main, double[] area, double snowline, double rangeHeight) {
+        if (rangeHeight <= 0 || snowline >= rangeHeight) return;
+        int n = net.floor.length;
+        double reach = GLACIER_REACH * rangeHeight;
+        // Highest floor upstream of each channel node (donors before receivers: floors rise upstream).
+        int count = 0;
+        for (int k = 0; k < m; k++) if (net.channel[nodes[k]]) count++;
+        double[] floor = net.floor;
+        Integer[] order = new Integer[count];
+        for (int k = 0, c = 0; k < m; k++) if (net.channel[nodes[k]]) order[c++] = nodes[k];
+        Arrays.sort(order, (a, b) -> Double.compare(floor[b], floor[a]));
+        double[] top = new double[n];
+        for (int c = 0; c < count; c++) { int i = order[c]; top[i] = Math.max(top[i], floor[i]); }
+        for (int c = 0; c < count; c++) {
+            int i = order[c], r = net.receiver[i];
+            if (r >= 0 && net.channel[r]) top[r] = Math.max(top[r], top[i]);
+        }
+        net.glacier = new double[n]; net.uWidth = new double[n];
+        net.cirque = new double[n]; net.cx = new double[n]; net.cz = new double[n]; net.cr = new double[n];
+        net.ux = new double[n]; net.uz = new double[n];
+        double radius = HighlandMath.clamp(CIRQUE_RADIUS * rangeHeight, CIRQUE_MIN, CIRQUE_MAX);
+        for (int c = 0; c < count; c++) {
+            int i = order[c];
+            double g = HighlandMath.smooth(snowline - reach, snowline - .3 * reach, floor[i]) * HighlandMath.smooth(snowline - .1 * reach, snowline, top[i]);
+            if (g <= 0) continue;
+            net.glacier[i] = g;
+            double w = g * Math.min(U_MAX, U_WIDTH * Math.sqrt(area[i] / REFERENCE_AREA));
+            net.uWidth[i] = w;
+            net.floor[i] = floor[i] - U_DEEPEN * w;
+            int r = net.receiver[i];
+            // A cirque heads each glacial valley: the node where the valley first reaches CIRQUE_AREA.
+            if (r >= 0 && area[i] >= CIRQUE_AREA && (main[i] < 0 || area[main[i]] < CIRQUE_AREA)) {
+                double cg = g;
+                double dx = net.px[i] - net.px[r], dz = net.pz[i] - net.pz[r], dl = Math.max(1e-9, Math.hypot(dx, dz));
+                net.cirque[i] = cg; net.cr[i] = radius; net.ux[i] = dx / dl; net.uz[i] = dz / dl;
+                net.cx[i] = net.px[i] + dx / dl * CIRQUE_OFFSET * radius / STEP;
+                net.cz[i] = net.pz[i] + dz / dl * CIRQUE_OFFSET * radius / STEP;
+            }
+        }
+    }
+    /** G: glacier reach below the snowline (share of Range Height). */
+    static final double GLACIER_REACH = .25;
+    /** G1: U floor half width at REFERENCE_AREA (blocks), its maximum, the floor rise across it and overdeepening (shares of the half width). */
+    static final double U_WIDTH = 16, U_MAX = 120, U_RISE = .25, U_DEEPEN = .35;
+    /** G2: drainage area (blocks²) at which a glacial valley's cirque sits. */
+    static final double CIRQUE_AREA = 6e4;
+    /** G2: cirque radius (share of Range Height, clamped in blocks), centre offset upslope, floor gradient, headwall gradient. */
+    static final double CIRQUE_RADIUS = .4, CIRQUE_MIN = 60, CIRQUE_MAX = 200, CIRQUE_OFFSET = .6, CIRQUE_FLOOR = .12, CIRQUE_WALL = 1.6;
+    /** G3: share of the divide softness removed between glacial sources. */
+    static final double ARETE = .8;
+
     /** Height of the cone (hillslope) from source s's channel segment (or point) at grid position (x, z). */
-    private static double surface(int s, double x, double z, double[] carved, int[] receiver, boolean[] channel, double[] px, double[] pz, double hillslope) {
-        int r = receiver[s];
-        if (!channel[s] || r < 0 || !channel[r])
-            return carved[s] + wall(STEP * Math.hypot(x - px[s], z - pz[s]), hillslope);
-        double ax = px[s], az = pz[s], bx = px[r] - ax, bz = pz[r] - az;
-        double length = bx * bx + bz * bz;
-        double t = length <= 0 ? 0 : HighlandMath.clamp(((x - ax) * bx + (z - az) * bz) / length, 0, 1);
-        double floor = carved[s] + (carved[r] - carved[s]) * t;
-        return floor + wall(STEP * Math.hypot(x - ax - t * bx, z - az - t * bz), hillslope);
+    private static double surface(int s, double x, double z, Net net) {
+        int r = net.receiver[s];
+        double w = net.uWidth == null ? 0 : net.uWidth[s], base;
+        if (!net.channel[s] || r < 0 || !net.channel[r]) {
+            base = net.floor[s] + valleyWall(STEP * Math.hypot(x - net.px[s], z - net.pz[s]), w, net.hillslope);
+        } else {
+            double ax = net.px[s], az = net.pz[s], bx = net.px[r] - ax, bz = net.pz[r] - az;
+            double length = bx * bx + bz * bz;
+            double t = length <= 0 ? 0 : HighlandMath.clamp(((x - ax) * bx + (z - az) * bz) / length, 0, 1);
+            double floor = net.floor[s] + (net.floor[r] - net.floor[s]) * t;
+            if (net.uWidth != null) w += (net.uWidth[r] - w) * t;
+            base = floor + valleyWall(STEP * Math.hypot(x - ax - t * bx, z - az - t * bz), w, net.hillslope);
+        }
+        if (net.cirque == null || net.cirque[s] <= 0) return base;
+        // Horseshoe: the headwall rises upslope and to the sides of the centre; downvalley the bowl opens into the valley.
+        double ox = STEP * (x - net.cx[s]), oz = STEP * (z - net.cz[s]);
+        double along = ox * net.ux[s] + oz * net.uz[s], across = -ox * net.uz[s] + oz * net.ux[s];
+        double cg = net.cirque[s], radius = net.cr[s], d = Math.hypot(Math.max(0, along), across);
+        double inner = .6 * radius;
+        double bowl = net.floor[s] + CIRQUE_FLOOR * Math.min(d, inner) + CIRQUE_WALL * Math.max(0, d - inner) + (1 - cg) * radius * net.hillslope;
+        return Math.min(base, bowl);
+    }
+    /** Valley wall at a distance from the centre line: V (rounded floor) or, with a U half width, a parabolic floor then walls. */
+    private static double valleyWall(double distance, double uWidth, double hillslope) {
+        if (uWidth <= 0) return wall(distance, hillslope);
+        double inside = Math.min(distance, uWidth) / uWidth;
+        return U_RISE * uWidth * inside * inside + wall(Math.max(0, distance - uWidth), hillslope);
     }
 
     private static final int[] DX = {1, -1, 0, 0, 1, 1, -1, -1}, DZ = {0, 0, 1, -1, 1, -1, 1, -1};

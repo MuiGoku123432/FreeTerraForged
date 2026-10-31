@@ -108,3 +108,20 @@ dissection metric (max within a 300-block window) is bounded by hillslope × 150
 these slopes, so ≥ 0.4 needs slopes over 45°; valley spacing is set by how the routing organises basins, not by the
 channel-head area. Both are left to G (U valleys and cirques deepen and widen valley heads) and re-measured there.
 Gates at 400 now: slope 30-38°, gentle ≤ 13%, crest width ≤ 36, dissection ≥ 0.19, relief ≥ 300.
+
+### G results (glacial overprint)
+- **Snowline setting** `snowline` (percent of Range Height above the range foot, 20-100, default 60; 100 = off),
+  optional in the codec, slider on the terrain page.
+- **G1 U valleys:** channel nodes fed from above the snowline carry a glacier to 25% of Range Height below it
+  (weight fades over that reach). Their cones rise from a U floor: half width 16·√(area/10⁴) (≤ 120 blocks), a
+  parabolic floor rising 25% of the half width, then the threshold walls; floors are overdeepened by 35% of it.
+- **G2 cirques:** at the node where each glacial valley first reaches 6·10⁴ blocks² of drainage, a horseshoe bowl
+  centred upslope (radius 40% of Range Height, 60-200 blocks): gentle floor, headwall at gradient 1.6, open
+  downvalley. **Tarns deferred:** cirque floors are not closed, so no dry pits; tarns need the lake model to see the
+  relief (planned with S or a later pass).
+- **G3 arêtes/horns:** divide smoothing between glacial sources is cut by 80%; horns emerge where cirques meet.
+- Measured at 400 (default snowline vs off): 164 cirques on the continent, 51 per 10 km of measured crest (gate ≥ 30;
+  off = 0); crest 376 vs 402 (glacial lowering), slope 36.4° vs 37.7°, spacing 828 vs 840, dissection 0.20 vs 0.21.
+  The probe metrics barely move: the G0 metrics sample flanks, not valley floors. U/V ratio is not measured
+  (needs a cross-section probe); visual check on the overview render shows scalloped amphitheatres along the crest.
+- Relief cost 560 ms vs plan 593 ms (gate relief ≤ plan; little headroom left).
