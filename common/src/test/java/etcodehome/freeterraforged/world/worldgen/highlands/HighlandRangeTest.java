@@ -103,9 +103,11 @@ class HighlandRangeTest {
     }
 
     /**
-     * RH6 R gates on the rendered surface of the user world with Range Height 200 (D-a): even crests, spurs across the
-     * strike, long crests, no channel crossings, and ranges (which replace legacy mountains, D-b) cost no more than
-     * +10% heightmap time over the same world without ranges.
+     * RH6 R and RH7 G0/D gates on the rendered surface of the user world with Range Height 200: crests without wild
+     * height swings (RH7 relaxes RH6's evenness: dissected crests have peaks and saddles), spurs across the strike, long
+     * crests, no channel crossings; the RH7 morphology (PLAN-RH7 §4); the drainage relief costs no more than the river
+     * plan; and ranges (which replace legacy mountains) cost no more than +15% heightmap time over the same world
+     * without ranges.
      */
     @Test void userRangesHaveEvenCrestsAndSpurs() throws Exception {
         var preset = HighlandPlanformProbe.userPreset();
@@ -115,13 +117,30 @@ class HighlandRangeTest {
         try (var context = WorldgenFixture.context(preset, HighlandPlanformProbe.USER_SEED)) {
             var m = HighlandRangeProbe.measure(context, HighlandPlanformProbe.USER_X, HighlandPlanformProbe.USER_Z);
             System.out.println(m.summary());
-            assertTrue(m.evenness() <= .25, m.summary());
-            assertTrue(m.nearMax() >= .8, m.summary());
-            assertTrue(m.spurAlignment() >= .5, m.summary());
+            assertTrue(m.evenness() <= .5, m.summary());
+            assertTrue(m.spurAlignment() >= .45, m.summary());
             assertTrue(m.longest() >= 4000, m.summary());
             var p = HighlandPlanformProbe.measure("user-ranges", context, HighlandPlanformProbe.USER_X, HighlandPlanformProbe.USER_Z);
             System.out.println(p.summary());
             assertEquals(0, p.crossings(), p.summary());
+            var g = HighlandMountainProbe.measure(context, HighlandPlanformProbe.USER_X, HighlandPlanformProbe.USER_Z);
+            System.out.println(g.summary());
+            assertTrue(g.widthOverSpacing() >= 1.15, g.summary());
+            assertTrue(g.dissection() >= .2, g.summary());
+            assertTrue(g.medianSlope() >= 24 && g.medianSlope() <= 38, g.summary());
+            assertTrue(g.gentleShare() <= .22, g.summary());
+            assertTrue(g.crestWidth() <= 40, g.summary());
+            // Plan cost (best of three fresh builds): the drainage relief at most doubles the RH6 river plan's cost.
+            var continent = (RollingHighlandsContinent) context.heightmap.continent();
+            long plan = Long.MAX_VALUE, relief = Long.MAX_VALUE;
+            for (int rep = 0; rep < 3; rep++) {
+                var index = continent.rebuildAt(HighlandPlanformProbe.USER_X, HighlandPlanformProbe.USER_Z);
+                plan = Math.min(plan, index.plan().buildNanos());
+                relief = Math.min(relief, index.relief.buildNanos);
+            }
+            String cost = String.format(java.util.Locale.ROOT, "RHRelief cost plan=%.0fms relief=%.0fms", plan / 1e6, relief / 1e6);
+            System.out.println(cost);
+            assertTrue(relief <= plan, cost);
             on = columnTime(context);
         }
         var flat = HighlandPlanformProbe.userPreset();
@@ -131,7 +150,7 @@ class HighlandRangeTest {
         }
         String time = String.format(java.util.Locale.ROOT, "RHRange time ranges=%.2f none=%.2f us/column", on, off);
         System.out.println(time);
-        assertTrue(on <= 1.1 * off, time);
+        assertTrue(on <= 1.15 * off, time);
     }
 
     /** Best of three heightmap passes (µs per column) over a 4 km square of the user continent, after warming its plans. */

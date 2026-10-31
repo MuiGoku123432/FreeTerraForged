@@ -52,8 +52,12 @@ public final class HighlandPlanIndex {
     /** Oxbow arcs by bucket (indices into plan.oxbows()). */
     private final Map<Long, int[]> oxbowBuckets;
 
-    public HighlandPlanIndex(HighlandDrainage.Plan plan) {
+    /** RH7 D: the carved relief of this owner's ranges. */
+    public final HighlandRangeRelief relief;
+    public HighlandPlanIndex(HighlandDrainage.Plan plan) { this(plan, HighlandRangeRelief.EMPTY); }
+    public HighlandPlanIndex(HighlandDrainage.Plan plan, HighlandRangeRelief relief) {
         this.plan = plan;
+        this.relief = relief;
         var nodes = plan.nodes();
         this.confinement = new double[nodes.size()];
         for (int i = 0; i < nodes.size(); i++) {

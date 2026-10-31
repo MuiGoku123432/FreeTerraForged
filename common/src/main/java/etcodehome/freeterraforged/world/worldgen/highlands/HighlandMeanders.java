@@ -308,6 +308,17 @@ final class HighlandMeanders {
     private List<double[]> buildMouth(int[] pts, double[] u, List<double[]> emitted, int parentStem, double junctionU, int[] stemFirst,
                                       int[] stemLast, List<HighlandDrainage.Node> samples, List<Double> sampleU, List<Double> levels, int[] joined,
                                       Set<Integer> junctions, List<int[]> siblings) {
+        return buildMouth(pts, u, emitted, parentStem, junctionU, stemFirst, stemLast, samples, sampleU, levels, joined, junctions, siblings, 1, new double[1]);
+    }
+    /**
+     * As above with the mouth stretch scaled by {@code stretch}; {@code violation[0]} receives the chosen curve's
+     * violation. When every curve crosses the parent (the tributary's last stretch hugs or overlaps the parent), the
+     * mouth is rebuilt from further upstream (up to 4× the length).
+     */
+    private List<double[]> buildMouth(int[] pts, double[] u, List<double[]> emitted, int parentStem, double junctionU, int[] stemFirst,
+                                      int[] stemLast, List<HighlandDrainage.Node> samples, List<Double> sampleU, List<Double> levels, int[] joined,
+                                      Set<Integer> junctions, List<int[]> siblings, double stretch, double[] violationOut) {
+        violationOut[0] = Double.POSITIVE_INFINITY;
         int pFirst = stemFirst[parentStem], pLast = stemLast[parentStem];
         double wTrib = width(pts[Math.min(1, pts.length - 1)]);
         // Parent node nearest the junction (the fallback, as before R4).
@@ -323,7 +334,7 @@ final class HighlandMeanders {
         if (emitted.size() < 3) return emitted;
         var anchor = samples.get(nearest);
         double wMain = 2 * drainage.halfWidth(anchor.area(), anchor.head());
-        double length = Math.min(clamp(MOUTH_WIDTHS * wMain, MOUTH_MIN, MOUTH_MAX), .85 * emitted.get(emitted.size() - 1)[2]);
+        double length = Math.min(stretch * clamp(MOUTH_WIDTHS * wMain, MOUTH_MIN, MOUTH_MAX), .85 * emitted.get(emitted.size() - 1)[2]);
         int iA = 0;
         while (iA < emitted.size() - 2 && emitted.get(iA)[2] < length) iA++;
         if (iA < 1) return emitted;
@@ -399,7 +410,17 @@ final class HighlandMeanders {
             }
             if (bestViolation == 0) break;
         }
+        if (bestViolation >= 1000 && stretch < 4 && length < .85 * emitted.get(emitted.size() - 1)[2]) {
+            int[] retryJoined = new int[2];
+            double[] retryViolation = new double[1];
+            var retry = buildMouth(pts, u, emitted, parentStem, junctionU, stemFirst, stemLast, samples, sampleU, levels, retryJoined, junctions, siblings, 2 * stretch, retryViolation);
+            if (retryViolation[0] < bestViolation) {
+                joined[0] = retryJoined[0]; joined[1] = retryJoined[1]; violationOut[0] = retryViolation[0];
+                return retry;
+            }
+        }
         if (best == null) return emitted;
+        violationOut[0] = bestViolation;
         joined[0] = bestNode;
         joined[1] = best.size();
         List<double[]> out = new ArrayList<>(best);

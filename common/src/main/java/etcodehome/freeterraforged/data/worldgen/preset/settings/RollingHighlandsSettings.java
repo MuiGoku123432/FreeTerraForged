@@ -29,7 +29,7 @@ public record RollingHighlandsSettings(int modelVersion, int uplandSpacing, int 
      * floors, thalweg-following valley axes, valley lakes with clean junctions, ranges that replace the legacy
      * mountains).
      */
-    public static final int MODEL_VERSION = 6;
+    public static final int MODEL_VERSION = 7;
     public static final int DEFAULT_MEANDERS = 100;
     /** RH5 mountain ranges: off by default (0 blocks); length scale 6144 blocks. */
     public static final int DEFAULT_RANGE_HEIGHT = 0, DEFAULT_RANGE_LENGTH = 6144;

@@ -52,6 +52,7 @@ public final class HighlandLand {
     }
 
     long seed() { return seed; }
+    double rangeHeight() { return rangeHeight; }
 
     /**
      * Applies the legacy region and land populators to the cell (terrain type, erosion, weirdness, region fields)
@@ -90,7 +91,7 @@ public final class HighlandLand {
     }
 
     /** Range core weight (1 on the crest line, 0 beyond the foothills), crest-line strike angle and this flank's width factor. */
-    record RangeFrame(double core, double strike, double width) {}
+    record RangeFrame(double core, double strike, double width, double distance, double presence) {}
 
     /**
      * RH5 mountain ranges: long continuous ridges along the iso-line of a warped low-frequency noise (iso-lines of a
@@ -104,7 +105,10 @@ public final class HighlandLand {
         double gz = (rangeField(x, z + e) - rangeField(x, z - e)) / (2 * e);
         double gradient = Math.hypot(gx, gz);
         if (gradient < 1e-9) return null;
-        double side = n >= .5 ? 1 : -1;
+        // Which flank (smoothed across the crest over a few percent of the half width, so the flank width, and the
+        // height through it, do not step at the crest line).
+        double side = Math.max(-1, Math.min(1, (n - .5) / gradient / (RANGE_SIDE_BLEND * rangeHalfWidth())));
+        side *= 1.5 - .5 * side * side;
         double asymmetry = RANGE_ASYMMETRY * (2 * HighlandMath.noise(seed + 6211, x, z, 1.5 * l) - 1);
         // Approximate distance (blocks) to the crest line n = 0.5, in units of this flank's half width.
         double width = 1 + asymmetry * side;
@@ -112,7 +116,7 @@ public final class HighlandLand {
         if (t >= 1) return null;
         double presence = HighlandMath.smooth(.38, .58, HighlandMath.noise(seed + 6151, x, z, 2.2 * l));
         double core = presence * (1 - HighlandMath.smooth(0, 1, t));
-        return core <= 0 ? null : new RangeFrame(core, Math.atan2(gz, gx) + Math.PI / 2, width);
+        return core <= 0 ? null : new RangeFrame(core, Math.atan2(gz, gx) + Math.PI / 2, width, t * rangeHalfWidth() * width, presence);
     }
 
     /** The range's core weight at a position (0 outside ranges). */
@@ -147,18 +151,33 @@ public final class HighlandLand {
         double core = frame.core(), strike = frame.strike();
         // Passes are rare deep notches (the low tail of a smooth noise).
         double pass = .35 + .65 * HighlandMath.smooth(RANGE_PASS_LOW, RANGE_PASS_HIGH, HighlandMath.noise(seed + 6197, x, z, .55 * rangeLength));
-        double main = HighlandMath.smooth(.45, 1, core);
+        // RH7 D: the main ridge falls almost linearly from the crest line (a sharp divide, straight upper flanks) instead
+        // of RH6's rounded bell top; foothills as RH6.
+        double t = frame.distance() / (rangeHalfWidth() * frame.width());
+        double main = HighlandMath.smooth(.45, 1, frame.presence()) * Math.pow(Math.max(0, 1 - t / RANGE_MAIN_REACH), RANGE_MAIN_SHAPE);
         double foothills = HighlandMath.smooth(0, .6, core);
         double crest = 1 - RANGE_CREST_VARIATION + 2 * RANGE_CREST_VARIATION * oriented(seed + 6173, x, z, strike, RANGE_CREST_STRETCH, RANGE_CREST_WAVELENGTH, 2);
         double parallel = oriented(seed + 6241, x, z, strike, RANGE_CREST_STRETCH, RANGE_FOOTHILL_WAVELENGTH, 2);
-        double spur = oriented(seed + 6229, x, z, strike + Math.PI / 2, RANGE_SPUR_STRETCH, RANGE_SPUR_WAVELENGTH, 2);
-        // Spurs run from the foothills up to just below the crest, deeper on the steep (narrow) flank, so a steep face is
-        // ribbed by spurs and gullies rather than one uniform wall.
-        double flank = HighlandMath.smooth(.05, .45, core) * (1 - HighlandMath.smooth(.86, .98, core)) / frame.width();
-        double h = RANGE_FOOTHILLS * foothills * (.7 + .3 * parallel) + (1 - RANGE_FOOTHILLS) * main * main * pass * crest
-            + RANGE_SPURS * flank * (spur - .35);
-        return rangeHeight * Math.max(0, h);
+        return rangeHeight * Math.max(0, RANGE_FOOTHILLS * foothills * (.7 + .3 * parallel) + (1 - RANGE_FOOTHILLS) * main * pass * crest);
     }
+    /** RH7 D: the main ridge reaches this share of the half width and falls with this exponent (1 = straight). */
+    static final double RANGE_MAIN_REACH = .75, RANGE_MAIN_SHAPE = 1.3;
+
+    /**
+     * RH7 D4: mid-scale range detail in [-1, 1]: smooth noise stretched along the local fall line {@code fall} (the
+     * caller's carved-surface gradient direction), so hillslopes carry ribs and gullies running downhill.
+     */
+    double rangeDetail(double x, double z, double fall) {
+        // Symmetric in the fall direction (θ and θ + π give the same detail), so it does not step where the gradient
+        // flips across ridges and valley floors.
+        double a = oriented(seed + 7501, x, z, fall, RANGE_DETAIL_STRETCH, RANGE_DETAIL_WAVELENGTH, 3);
+        double b = oriented(seed + 7501, x, z, fall + Math.PI, RANGE_DETAIL_STRETCH, RANGE_DETAIL_WAVELENGTH, 3);
+        return 1.4 * (a + b - 1);
+    }
+    static final double RANGE_DETAIL_STRETCH = 2.5, RANGE_DETAIL_WAVELENGTH = 80;
+
+    /** Width (share of the frame) over which the two flank sides blend at the crest. */
+    static final double RANGE_SIDE_BLEND = .08;
 
     /**
      * Ridged noise stretched {@code stretch} times along direction {@code angle}, evaluated in rigidly rotated
@@ -176,7 +195,14 @@ public final class HighlandLand {
     private static double rotated(long seed, double x, double z, int k, double stretch, double wavelength, int octaves) {
         double angle = k * TAU / ORIENTATIONS, cos = Math.cos(angle), sin = Math.sin(angle);
         double along = x * cos + z * sin, across = -x * sin + z * cos;
-        return HighlandMath.ridge(seed + 977L * k, along / stretch, across, wavelength, octaves);
+        // RH7 D: smooth (not ridged) fBm. Ridged noise has creases along its ridge lines, which the steeper RH7 flanks
+        // turn into visible straight seams along the strike.
+        double sum = 0, weight = 1, weights = 0;
+        for (int i = 0; i < octaves; i++) {
+            sum += weight * HighlandMath.noise(seed + 977L * k + i * 7919L, along / stretch, across, wavelength);
+            weights += weight; weight *= .5; wavelength *= .5;
+        }
+        return sum / weights;
     }
     static final int ORIENTATIONS = 16;
     private static final double TAU = 2 * Math.PI;
@@ -190,8 +216,8 @@ public final class HighlandLand {
     static final double RANGE_PASS_LOW = .1, RANGE_PASS_HIGH = .25;
     /** RH6 R2: crest height variation (±share), crest feature stretch along the strike and wavelength across it. */
     static final double RANGE_CREST_VARIATION = .15, RANGE_CREST_STRETCH = 4, RANGE_CREST_WAVELENGTH = 700, RANGE_FOOTHILL_WAVELENGTH = 360;
-    /** RH6 R3: spur ridges (share of range height, stretch across the strike, wavelength) and flank asymmetry. */
-    static final double RANGE_SPURS = .3, RANGE_SPUR_STRETCH = 3, RANGE_SPUR_WAVELENGTH = 260, RANGE_ASYMMETRY = .25;
+    /** RH6 R3: flank asymmetry (± share of the half width). */
+    static final double RANGE_ASYMMETRY = .25;
     /** RH6 R4: mountain classification fades in between these shares of the range height. */
     static final double RANGE_CLASS_LOW = .2, RANGE_CLASS_HIGH = .45;
     static final double RANGE_CREST_LOW = .45, RANGE_CREST_HIGH = .9;

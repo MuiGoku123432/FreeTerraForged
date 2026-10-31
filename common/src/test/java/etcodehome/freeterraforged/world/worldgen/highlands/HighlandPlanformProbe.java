@@ -290,7 +290,10 @@ final class HighlandPlanformProbe {
         BufferedImage image = new BufferedImage(px, px, BufferedImage.TYPE_INT_RGB);
         for (int z = 1; z < px - 1; z++) for (int x = 1; x < px - 1; x++) {
             double gx = (h[x + 1][z] - h[x - 1][z]) / (2.0 * res), gz = (h[x][z + 1] - h[x][z - 1]) / (2.0 * res);
-            double shade = Math.max(0, Math.min(1, .55 + (-gx - gz) * 1.1));
+            // Lambert shading of the surface normal, light from the north-west at 45 degrees (does not saturate on steep
+            // mountain slopes).
+            double norm = Math.sqrt(gx * gx + gz * gz + 1);
+            double shade = .25 + .75 * Math.max(0, (-gx * .5 - gz * .5 + .7071) / norm) / .7071 * .8;
             int rgb = switch (kind[x][z]) {
                 case 0 -> 0x163a65;
                 case 2 -> 0x2a7fd4;

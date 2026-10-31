@@ -126,7 +126,7 @@ public final class RollingHighlandsContinent implements Continent {
     }
     private HighlandPlanIndex buildIndex(int x, int z) {
         try {
-            return new HighlandPlanIndex(drainage.build(x, z));
+            return new HighlandPlanIndex(drainage.build(x, z), HighlandRangeRelief.build(land, coast, x, z));
         } catch (java.util.concurrent.CancellationException cancelled) {
             throw cancelled;
         } catch (RuntimeException failure) {
@@ -157,6 +157,8 @@ public final class RollingHighlandsContinent implements Continent {
     HighlandCoast coast() { return coast; }
     HighlandDrainage drainage() { return drainage; }
     HighlandPlanIndex planOf(int ownerX, int ownerZ) { return plan(ownerX, ownerZ); }
+    /** Test access: builds the owner plan at a block position afresh (uncached), for cost measurements. */
+    HighlandPlanIndex rebuildAt(double x, double z) { var s = coast.sample(x, z); return buildIndex(s.ownerX(), s.ownerZ()); }
     /** Diagnostics: the land surface before any valley, lake or wetland shaping, in blocks above sea level. */
     double uncarvedLand(double x, double z) {
         var location = coast.sample(x, z);
@@ -196,6 +198,38 @@ public final class RollingHighlandsContinent implements Continent {
         }
         return height;
     }
+    /**
+     * RH7 D: range dissection, faded out within DISSECTION_CLEAR blocks of a drawn channel's banks (the channel's own
+     * valley takes over there, and the channel's water level was planned on the undissected surface).
+     */
+    private double dissection(HighlandPlanIndex index, double x, double z, HighlandPlanIndex.Hits hits) {
+        double carved = index.relief.surface(x, z);
+        if (Double.isNaN(carved)) return 0;
+        var frame = land.rangeFrame(x, z);
+        double depth = (frame == null ? 0 : land.range(x, z, frame)) - carved;
+        if (depth == 0 && carved <= 0) return 0;
+        // D4: mid-scale ribs and gullies running down the fall line on hillslopes and crests, none on low valley floors.
+        double weight = frame == null ? 0 : smooth(DETAIL_FLOOR, DETAIL_FULL, carved);
+        if (weight > 0) {
+            double east = index.relief.surface(x + DETAIL_PROBE, z), west = index.relief.surface(x - DETAIL_PROBE, z);
+            double south = index.relief.surface(x, z + DETAIL_PROBE), north = index.relief.surface(x, z - DETAIL_PROBE);
+            double gx = east - west, gz = south - north;
+            // Fades out where the carved surface is flat (no fall line) and on divides and valley lines, where the fall
+            // line turns sharply (strong curvature); NaN off the grid edge counts as flat.
+            double bend = Math.abs(east + west + south + north - 4 * carved);
+            double steep = Double.isNaN(gx + gz) ? 0 : smooth(.05, .25, Math.hypot(gx, gz) / (2 * DETAIL_PROBE)) * (1 - smooth(DETAIL_BEND * .3, DETAIL_BEND, bend));
+            if (steep > 0) depth -= weight * steep * DETAIL * land.rangeDetail(x, z, Math.atan2(gz, gx));
+        }
+        double keep = 1;
+        for (int k = 0; k < hits.count; k++) {
+            double beyond = hits.distance[k] - drainage.halfWidth(hits.area[k], hits.head[k]);
+            keep = Math.min(keep, smooth(DISSECTION_CLEAR * .25, DISSECTION_CLEAR, beyond));
+        }
+        return depth * keep;
+    }
+    static final double DISSECTION_CLEAR = 160;
+    /** D4 detail amplitude (blocks, ±) and the carved heights over which it fades in. */
+    static final double DETAIL = 20, DETAIL_FLOOR = 15, DETAIL_FULL = 70, DETAIL_PROBE = 12, DETAIL_BEND = 6;
     private static double softMax(double a, double b) {
         double h = Math.max(FLOOR_SOFTNESS - Math.abs(a - b), 0) / FLOOR_SOFTNESS;
         return Math.max(a, b) + h * h * FLOOR_SOFTNESS * .25;
@@ -230,9 +264,9 @@ public final class RollingHighlandsContinent implements Continent {
         var index = plan(location.ownerX(), location.ownerZ());
         // Rendered land = legacy land lowered by the plan's smooth stream-power incision: uplands keep every legacy
         // detail, and valleys deepen exactly where the drainage computed on this same land says they should.
-        double raw = blend * land.apply(cell, x, z) - index.incision(x, z);
-        var lake = index.lake(x, z);
         var hits = index.near(x, z);
+        double raw = blend * (land.apply(cell, x, z) - dissection(index, x, z, hits)) - index.incision(x, z);
+        var lake = index.lake(x, z);
         double surface = floored(blend, raw, hits);
         double height = carveValleys(cell, x, z, location.edge(), index, hits, surface);
         if (!cell.hasRiverWater) {
