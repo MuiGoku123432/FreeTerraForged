@@ -51,6 +51,10 @@ public class Cell {
     public boolean rollingHighlands;
     /** RH5: smoothed landscape height (same units as height) that climate reads instead of the column height. */
     public float climateHeight;
+    /** RH7 S: range weight (0 off the ranges, 1 on the crest line), snowline and treeline heights (same units as height). */
+    public float highlandRange, highlandSnowline, highlandTreeline;
+    /** RH7 S: scratch, land height under the range (blocks above sea level) while a Rolling Highlands column is built. */
+    public float highlandFoot;
     public boolean hasRiverWater;
     public int continentX;
     public int continentZ;
@@ -112,6 +116,9 @@ public class Cell {
         this.riverWaterLevel = other.riverWaterLevel;
         this.rollingHighlands = other.rollingHighlands;
         this.climateHeight = other.climateHeight;
+        this.highlandRange = other.highlandRange;
+        this.highlandSnowline = other.highlandSnowline;
+        this.highlandTreeline = other.highlandTreeline;
         this.hasRiverWater = other.hasRiverWater;
         this.riverZone = other.riverZone;
         this.waterTable = other.waterTable;

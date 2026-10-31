@@ -184,7 +184,7 @@ public final class HighlandRangeRelief {
             for (int i = 0; i < n; i++) if (range[i]) surface[i] = carved[i] + rough[i];
         }
 
-        Net net = hillslopes(carved, envelope, area, receiver, range, width, depth, seed, originX, originZ, hillslope, land.snowlineHeight(), land.rangeHeight());
+        Net net = hillslopes(carved, envelope, area, receiver, range, width, depth, seed, originX, originZ, hillslope, land.snowlineHeight(), land.rangeHeight(), order, count);
         float[] cut = new float[n];
         for (int i = 0; i < n; i++) if (range[i]) cut[i] = (float) carved[i];
         int cirques = 0, glacial = 0;
@@ -218,7 +218,7 @@ public final class HighlandRangeRelief {
      * Dijkstra-style over the grid (each node keeps the source giving it the lowest surface).
      */
     private static Net hillslopes(double[] carved, double[] envelope, double[] area, int[] receiver, boolean[] range, int width, int depth, long seed, int originX, int originZ, double hillslope,
-                                   double snowline, double rangeHeight) {
+                                   double snowline, double rangeHeight, int[] routed, int routedCount) {
         int n = width * depth, m = 0;
         int[] nodes = new int[n];
         for (int i = 0; i < n; i++) if (range[i]) nodes[m++] = i;
@@ -253,7 +253,7 @@ public final class HighlandRangeRelief {
             pz[i] += CHANNEL_WANDER * (2 * HighlandMath.noise(seed + 7412, wx, wz, WANDER_WAVELENGTH) - 1);
         }
         var net = new Net(carved, receiver, channel, px, pz, hillslope);
-        glaciate(net, nodes, m, main, area, snowline, rangeHeight);
+        glaciate(net, routed, routedCount, main, area, snowline, rangeHeight);
         int[] source = new int[n];
         double[] best = new double[n];
         Arrays.fill(source, -1);
@@ -277,7 +277,8 @@ public final class HighlandRangeRelief {
                 int jx = ix + DX[d], jz = iz + DZ[d];
                 if (jx < 0 || jz < 0 || jx >= width || jz >= depth) continue;
                 int j = jz * width + jx;
-                if (!range[j] || done[j]) continue;
+                // Already reached from this source: its surface there is already best[j].
+                if (!range[j] || done[j] || source[j] == s) continue;
                 double h = surface(s, jx, jz, net);
                 if (h < best[j]) {
                     best[j] = h; source[j] = s;
@@ -332,21 +333,19 @@ public final class HighlandRangeRelief {
      * drainage area, walls rising from its edge) and an overdeepened floor (G1). Channel heads above the snowline get a
      * cirque: a bowl centred upslope of the head with a gentle floor and a steep headwall (G2).
      */
-    private static void glaciate(Net net, int[] nodes, int m, int[] main, double[] area, double snowline, double rangeHeight) {
+    private static void glaciate(Net net, int[] routed, int routedCount, int[] main, double[] area, double snowline, double rangeHeight) {
         if (rangeHeight <= 0 || snowline >= rangeHeight) return;
         int n = net.floor.length;
         double reach = GLACIER_REACH * rangeHeight;
-        // Highest floor upstream of each channel node (donors before receivers: floors rise upstream).
-        int count = 0;
-        for (int k = 0; k < m; k++) if (net.channel[nodes[k]]) count++;
         double[] floor = net.floor;
-        Integer[] order = new Integer[count];
-        for (int k = 0, c = 0; k < m; k++) if (net.channel[nodes[k]]) order[c++] = nodes[k];
-        Arrays.sort(order, (a, b) -> Double.compare(floor[b], floor[a]));
+        // Highest floor upstream of each channel node: the routing order lists receivers before donors.
+        int count = 0;
+        int[] order = new int[routedCount];
+        for (int k = routedCount - 1; k >= 0; k--) if (net.channel[routed[k]]) order[count++] = routed[k];
         double[] top = new double[n];
-        for (int c = 0; c < count; c++) { int i = order[c]; top[i] = Math.max(top[i], floor[i]); }
         for (int c = 0; c < count; c++) {
             int i = order[c], r = net.receiver[i];
+            top[i] = Math.max(top[i], floor[i]);
             if (r >= 0 && net.channel[r]) top[r] = Math.max(top[r], top[i]);
         }
         net.glacier = new double[n]; net.uWidth = new double[n];
@@ -432,10 +431,16 @@ public final class HighlandRangeRelief {
             heap.pushGrow(i, surface[i]);
         }
         int count = 0;
-        while (heap.size > 0) {
-            double level = heap.topKey();
-            int i = heap.pop();
-            filled[i] = level;
+        // Barnes et al. (2014) priority flood: nodes raised to the current level (pit cells) go through a FIFO
+        // instead of the heap; the order stays receivers before donors.
+        int[] pit = new int[64];
+        int pitHead = 0, pitTail = 0;
+        while (heap.size > 0 || pitHead < pitTail) {
+            int i;
+            double level;
+            if (pitHead < pitTail) { i = pit[pitHead++]; level = filled[i]; }
+            else { level = heap.topKey(); i = heap.pop(); filled[i] = level; }
+            if (pitHead == pitTail) { pitHead = 0; pitTail = 0; }
             order[count++] = i;
             int ix = i % width, iz = i / width;
             for (int d = 0; d < 8; d++) {
@@ -444,7 +449,11 @@ public final class HighlandRangeRelief {
                 int j = jz * width + jx;
                 if (!range[j] || seen[j]) continue;
                 seen[j] = true; receiver[j] = i;
-                heap.pushGrow(j, Math.max(surface[j], level));
+                if (surface[j] <= level) {
+                    filled[j] = level;
+                    if (pitTail == pit.length) pit = Arrays.copyOf(pit, pitTail * 2);
+                    pit[pitTail++] = j;
+                } else heap.pushGrow(j, surface[j]);
             }
         }
         // Steepest descent on the filled surface (the flood parent only across flats), so flow converges into the
@@ -501,3 +510,4 @@ public final class HighlandRangeRelief {
         private static boolean less(double a, int ai, double b, int bi) { return a < b || a == b && ai < bi; }
     }
 }
+

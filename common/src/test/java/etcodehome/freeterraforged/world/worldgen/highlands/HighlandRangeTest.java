@@ -221,6 +221,68 @@ class HighlandRangeTest {
         assertTrue(cirquesPer10km[0] >= 30, lines[0]);
     }
 
+    /**
+     * RH7 S: at Range Height 400, range columns are classed by the same slope/snowline rule the surface feature uses.
+     * Mountain biome parameters sit above the treeline, snow only on gentle ground, rock on the steepest ground.
+     */
+    @Test void tallRangeSurfacesFollowSlopeAndSnowline() throws Exception {
+        try (var context = WorldgenFixture.context(tallPreset(400), HighlandPlanformProbe.USER_SEED)) {
+            var levels = context.levels;
+            Cell c = new Cell(), e = new Cell();
+            int x0 = 2656, z0 = 7396, size = 8192;
+            int[] count = new int[HighlandSurface.Cover.values().length];
+            double[] slopeSum = new double[count.length];
+            long mountains = 0, mountainsAbove = 0, range = 0, snowSteep = 0;
+            java.util.function.BiFunction<Double, Double, Double> h = (x, z) -> {
+                context.heightmap.apply(e.reset(), x.floatValue(), z.floatValue(), false);
+                return (double) (e.height - levels.water) * levels.terrainScaleFactor;
+            };
+            for (int z = 0; z < size; z += 16) for (int x = 0; x < size; x += 16) {
+                double wx = x0 + x, wz = z0 + z;
+                context.heightmap.apply(c.reset(), (float) wx, (float) wz, false);
+                if (!c.rollingHighlands || c.hasRiverWater || c.highlandRange < HighlandSurface.MIN_RANGE) continue;
+                range++;
+                double y = (c.height - levels.water) * levels.terrainScaleFactor;
+                double dx = (h.apply(wx + 2, wz) - h.apply(wx - 2, wz)) / 4, dz = (h.apply(wx, wz + 2) - h.apply(wx, wz - 2)) / 4;
+                double slope = Math.toDegrees(Math.atan(Math.hypot(dx, dz)));
+                double snow = (c.highlandSnowline - levels.water) * levels.terrainScaleFactor, tree = (c.highlandTreeline - levels.water) * levels.terrainScaleFactor;
+                var cover = HighlandSurface.choose(slope, y, snow, tree, c.highlandRange, 0);
+                count[cover.ordinal()]++;
+                slopeSum[cover.ordinal()] += slope;
+                if (cover == HighlandSurface.Cover.SNOW && slope > 45) snowSteep++;
+                if (c.terrain == etcodehome.freeterraforged.world.worldgen.cell.terrain.TerrainType.MOUNTAIN_CHAIN) {
+                    mountains++;
+                    if (y >= tree - 2 * RollingHighlandsContinent.BAND_BLEND) mountainsAbove++;
+                }
+            }
+            var text = new StringBuilder("RHSurface range=" + range);
+            for (var cover : HighlandSurface.Cover.values()) {
+                int k = cover.ordinal();
+                text.append(String.format(java.util.Locale.ROOT, " %s=%.0f%%(%.0fdeg)", cover, 100.0 * count[k] / range, count[k] == 0 ? 0 : slopeSum[k] / count[k]));
+            }
+            text.append(String.format(java.util.Locale.ROOT, " mountainAboveTreeline=%.1f%% (n=%d)", 100.0 * mountainsAbove / Math.max(1, mountains), mountains));
+            System.out.println(text);
+            assertEquals(0, snowSteep, text.toString());
+            assertTrue(mountains > 0 && mountainsAbove >= .95 * mountains, text.toString());
+            int cliff = HighlandSurface.Cover.CLIFF.ordinal(), scree = HighlandSurface.Cover.SCREE.ordinal(), meadow = HighlandSurface.Cover.MEADOW.ordinal(), snow = HighlandSurface.Cover.SNOW.ordinal();
+            assertTrue(count[snow] > 0 && count[meadow] > 0 && count[cliff] > 0 && count[scree] > 0, text.toString());
+            assertTrue(slopeSum[cliff] / count[cliff] > slopeSum[scree] / count[scree] && slopeSum[scree] / count[scree] > slopeSum[meadow] / count[meadow], text.toString());
+        }
+    }
+
+    @Test void surfaceRuleBands() {
+        assertEquals(HighlandSurface.Cover.BIOME, HighlandSurface.choose(10, 500, 300, 200, .1, 0));
+        assertEquals(HighlandSurface.Cover.SNOW, HighlandSurface.choose(10, 320, 300, 200, 1, 0));
+        assertEquals(HighlandSurface.Cover.MEADOW, HighlandSurface.choose(10, 250, 300, 200, 1, 0));
+        assertEquals(HighlandSurface.Cover.BIOME, HighlandSurface.choose(10, 150, 300, 200, 1, 0));
+        assertEquals(HighlandSurface.Cover.SCREE, HighlandSurface.choose(35, 320, 300, 200, 1, 0));
+        assertEquals(HighlandSurface.Cover.CLIFF, HighlandSurface.choose(50, 320, 300, 200, 1, 0));
+        assertEquals(HighlandSurface.Cover.CLIFF, HighlandSurface.choose(55, 150, 300, 200, 1, 0));
+        assertEquals(HighlandSurface.Cover.BIOME, HighlandSurface.choose(47, 150, 300, 200, 1, 0));
+        for (double slope = 0; slope <= 90; slope += 1) for (double y = 0; y < 600; y += 7)
+            assertTrue(slope <= 45 || HighlandSurface.choose(slope, y, 300, 200, 1, 1) != HighlandSurface.Cover.SNOW);
+    }
+
     /** Best of three heightmap passes (µs per column) over a 4 km square of the user continent, after warming its plans. */
     private static double columnTime(etcodehome.freeterraforged.world.worldgen.GeneratorContext context) {
         Cell c = new Cell();

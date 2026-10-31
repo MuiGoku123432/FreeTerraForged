@@ -73,15 +73,10 @@ public final class HighlandLand {
         // pyramids and the range, not the legacy land, sets the crest height. Lower legacy detail stays.
         if (legacy > RANGE_LEGACY_CAP) legacy = RANGE_LEGACY_CAP + (legacy - RANGE_LEGACY_CAP) * (1 - RANGE_DAMP * core);
         double h = range(x, z, frame);
-        // Range crests read as mountains for biomes (RH6 R4: along the whole main ridge above a height fraction, so rock
-        // and snow form continuous bands): weirdness toward vanilla's peak slice (normal side) and erosion toward its
-        // lowest levels, in proportion to how close to the crest the column is.
-        double crest = HighlandMath.smooth(RANGE_CREST_LOW, RANGE_CREST_HIGH, core) * HighlandMath.smooth(RANGE_CLASS_LOW * rangeHeight, RANGE_CLASS_HIGH * rangeHeight, h);
-        if (crest > 0) {
-            cell.weirdness = (float) HighlandMath.lerp(cell.weirdness, HighlandMath.lerp(RANGE_SLOPE_WEIRDNESS, RANGE_PEAK_WEIRDNESS, crest), Math.min(1, 2 * crest));
-            cell.erosion = (float) HighlandMath.lerp(cell.erosion, HighlandMath.lerp(RANGE_SLOPE_EROSION, RANGE_PEAK_EROSION, crest), Math.min(1, 2 * crest));
-            if (crest > .4) cell.terrain = etcodehome.freeterraforged.world.worldgen.cell.terrain.TerrainType.MOUNTAIN_CHAIN;
-        }
+        // RH7 S: biome bands and surfaces follow the final height against the snowline and treeline (classified in
+        // RollingHighlandsContinent once the height is carved); here only the range weight and foot are recorded.
+        cell.highlandRange = (float) core;
+        cell.highlandFoot = (float) (legacy + base);
         return legacy + base + h;
     }
 
@@ -220,9 +215,7 @@ public final class HighlandLand {
     static final double RANGE_CREST_VARIATION = .15, RANGE_CREST_STRETCH = 4, RANGE_CREST_WAVELENGTH = 700, RANGE_FOOTHILL_WAVELENGTH = 360;
     /** RH6 R3: flank asymmetry (± share of the half width). */
     static final double RANGE_ASYMMETRY = .25;
-    /** RH6 R4: mountain classification fades in between these shares of the range height. */
-    static final double RANGE_CLASS_LOW = .2, RANGE_CLASS_HIGH = .45;
-    static final double RANGE_CREST_LOW = .45, RANGE_CREST_HIGH = .9;
+    /** RH6 R4 / RH7 S: vanilla mountain-slope and peak parameters for range bands above the treeline and snowline. */
     static final double RANGE_SLOPE_WEIRDNESS = -.45, RANGE_PEAK_WEIRDNESS = -.66, RANGE_SLOPE_EROSION = -.45, RANGE_PEAK_EROSION = -.8;
 
     /**

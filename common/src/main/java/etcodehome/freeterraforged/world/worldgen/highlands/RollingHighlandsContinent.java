@@ -250,6 +250,7 @@ public final class RollingHighlandsContinent implements Continent {
         cell.hasFlow = false;
         cell.erosionMask = false;
         cell.waterTable = 0;
+        cell.highlandRange = 0; cell.highlandSnowline = 0; cell.highlandTreeline = 0; cell.highlandFoot = 0;
         cell.continentX = location.centerX(); cell.continentZ = location.centerZ();
         cell.continentId = (float) noise(971, location.ownerX(), location.ownerZ(), 1.37);
         cell.continentEdge = (float) location.edge();
@@ -291,6 +292,7 @@ public final class RollingHighlandsContinent implements Continent {
         if (height > ceiling) height = ceiling + (CEILING_BAND - CEILING_GAP) * (1 - Math.exp(-(height - ceiling) / (CEILING_BAND - CEILING_GAP)));
         cell.height = normalized(height);
         cell.climateHeight = normalized(Math.min(ceiling, index.climateHeight(x, z)));
+        rangeBands(cell, height, blend * cell.highlandFoot - incision);
         classify(cell);
     }
     /**
@@ -590,6 +592,29 @@ public final class RollingHighlandsContinent implements Continent {
      * weirdness (so shares match legacy worlds). Carved valleys pull weirdness toward vanilla's low slice and
      * erosion toward flatter values, so valley floors never keep a mountain classification.
      */
+    /**
+     * RH7 S: on ranges, the snowline sits Snowline% of the Range Height above the range foot and the treeline
+     * TREELINE_GAP of the Range Height below it. Biome parameters follow the column's own carved height: above the
+     * treeline toward vanilla's mountain-slope slice (meadow, grove, snowy slopes), above the snowline toward its peak
+     * slice; valleys cut below the treeline keep the land's own classification. Surfaces (ScreeFeature) read the same
+     * lines from the cell.
+     */
+    private void rangeBands(Cell cell, double height, double foot) {
+        double weight = smooth(RANGE_WEIGHT_LOW, RANGE_WEIGHT_HIGH, cell.highlandRange);
+        if (weight <= 0 || land.rangeHeight() <= 0) { cell.highlandRange = 0; return; }
+        double snow = foot + land.snowlineHeight(), tree = snow - TREELINE_GAP * land.rangeHeight();
+        cell.highlandSnowline = normalized(snow);
+        cell.highlandTreeline = normalized(tree);
+        double slope = weight * smooth(tree - BAND_BLEND, tree + BAND_BLEND, height);
+        double peak = weight * smooth(snow - BAND_BLEND, snow + BAND_BLEND, height);
+        if (slope <= 0) return;
+        cell.weirdness = (float) lerp(lerp(cell.weirdness, HighlandLand.RANGE_SLOPE_WEIRDNESS, slope), HighlandLand.RANGE_PEAK_WEIRDNESS, peak);
+        cell.erosion = (float) lerp(lerp(cell.erosion, HighlandLand.RANGE_SLOPE_EROSION, slope), HighlandLand.RANGE_PEAK_EROSION, peak);
+        if (slope > .5) cell.terrain = TerrainType.MOUNTAIN_CHAIN;
+    }
+    /** RH7 S: range weight band, treeline below the snowline (share of Range Height), band blending (blocks). */
+    static final double RANGE_WEIGHT_LOW = .15, RANGE_WEIGHT_HIGH = .45, TREELINE_GAP = .25, BAND_BLEND = 12;
+
     private void classify(Cell cell) {
         // Only channels, banks and the flat floor (not the fadeout slopes) count as valley bottom.
         double valley = 1 - smooth(0, .15, cell.riverMask);

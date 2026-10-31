@@ -125,3 +125,19 @@ Gates at 400 now: slope 30-38°, gentle ≤ 13%, crest width ≤ 36, dissection 
   The probe metrics barely move: the G0 metrics sample flanks, not valley floors. U/V ratio is not measured
   (needs a cross-section probe); visual check on the overview render shows scalloped amphitheatres along the crest.
 - Relief cost 560 ms vs plan 593 ms (gate relief ≤ plan; little headroom left).
+
+### S results (surfaces by slope and snowline)
+- Cell carries `highlandRange` (range weight), `highlandSnowline` and `highlandTreeline` (snowline = range foot +
+  Snowline% of Range Height; treeline 25% of Range Height below it).
+- **Biomes:** the RH6 crest classification (uncarved range height) is replaced by bands on the final carved height:
+  above the treeline toward vanilla's mountain-slope slice (MOUNTAIN_CHAIN), above the snowline toward its peak
+  slice; valleys cut below the treeline keep the land's classification.
+- **Surfaces** (`HighlandSurface.choose`, applied in `ScreeFeature` on RH range columns, slope from cell heights ±2
+  blocks): cliff rock ≥ 45° (≥ 50° below the treeline), scree 33-45° above the treeline (gravel, andesite,
+  cobblestone, tuff), snow block on gentler ground above the snowline, grass meadow between treeline and snowline,
+  biome surface below. Edges jittered ±6 blocks.
+- Measured at 400 (range columns, 16-block sampling): cliff 40% (mean 52°), scree 22% (40°), snow 4% (23°),
+  meadow 8% (22°), biome 26%; mountain biome columns above the treeline 100%; no snow above 45°.
+- Relief cost: priority flood now uses the Barnes pit queue and the hillslope Dijkstra skips re-evaluating a node
+  from its own source (relief 545 ms vs plan 588 ms).
+- Needs the in-game check (V): the surface path runs only with the scree decorator on.
