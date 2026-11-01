@@ -2,15 +2,90 @@ package etcodehome.freeterraforged.world.worldgen.structure;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.lang.reflect.Modifier;
+import java.util.ArrayList;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.ForkJoinTask;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+
+import etcodehome.freeterraforged.world.worldgen.cell.Cell;
 import etcodehome.freeterraforged.world.worldgen.cell.filter.ChunkFilterGrid;
+import etcodehome.freeterraforged.world.worldgen.cell.filter.RegionFilterGrid;
+import etcodehome.freeterraforged.world.worldgen.cell.terrain.Terrain;
 import etcodehome.freeterraforged.world.worldgen.densityfunction.CellSampler;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import org.junit.jupiter.api.Test;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Callable;
-import java.util.ArrayList;
+import org.junit.jupiter.api.Timeout;
 
 class FilteredDensitySamplingTest {
+    @Test
+    @Timeout(60)
+    void parallelPreparationAndCommonPoolFallbackMatchSerialFilters() throws Exception {
+        for (long seed : new long[]{42, 8675309}) {
+            try (var serial = StructureTestContext.create(seed); var prepared = StructureTestContext.create(seed)) {
+                for (int[] region : new int[][]{{6304, 5744}, {-8, -8}}) {
+                    var grid = new RegionFilterGrid();
+                    grid.init(region[0], region[1], serial);
+                    serial.filters.apply(grid);
+                    for (boolean commonPoolCaller : new boolean[]{false, true}) {
+                        prepared.filteredChunkCache.clear();
+                        prepared.rawChunkCache.clear();
+                        if (commonPoolCaller) {
+                            CompletableFuture.runAsync(() -> {
+                                if (ForkJoinPool.getCommonPoolParallelism() > 1) {
+                                    assertSame(ForkJoinPool.commonPool(), ForkJoinTask.getPool());
+                                }
+                                prepared.filteredChunkCache.getFilteredChunk(region[0], region[1]);
+                            }, ForkJoinPool.commonPool()).get(30, TimeUnit.SECONDS);
+                        }
+                        for (int cz = 0; cz < 4; cz++) for (int cx = 0; cx < 4; cx++) {
+                            var expected = grid.extractChunkCells(cx, cz);
+                            var actual = prepared.filteredChunkCache.getFilteredChunk(region[0] + cx, region[1] + cz);
+                            for (var field : Cell.class.getFields()) {
+                                if (Modifier.isStatic(field.getModifiers())) continue;
+                                for (int i = 0; i < expected.length; i++) {
+                                    Object before = field.get(expected[i]);
+                                    Object after = field.get(actual[i]);
+                                    if (before instanceof Terrain terrain) {
+                                        before = terrain.getName();
+                                        after = ((Terrain) after).getName();
+                                    }
+                                    assertEquals(before, after, field.getName());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    @Timeout(60)
+    void coldQueriesFromAnotherForkJoinPoolCompleteWithoutReenteringTheirRegion() throws Exception {
+        var workers = new ForkJoinPool(4);
+        try (var context = StructureTestContext.create(42)) {
+            var results = new ArrayList<Future<?>>();
+            // Minecraft uses a separate ForkJoinPool. Contending cold queries must
+            // finish without a waiting worker executing a query for its own region.
+            for (int repeat = 0; repeat < 8; repeat++) for (int region = 0; region < 4; region++) {
+                int x = 6304 + region * 4;
+                results.add(workers.submit(() -> {
+                    var cells = context.filteredChunkCache.getFilteredChunk(x, 5744);
+                    assertNotNull(cells);
+                    assertSame(cells, context.filteredChunkCache.getFilteredChunk(x, 5744));
+                }));
+            }
+            for (var result : results) result.get(30, TimeUnit.SECONDS);
+        } finally {
+            workers.shutdownNow();
+        }
+    }
+
     @Test
     void concurrentColdQueriesAndCacheClearsRetainCoordinateAndWorldOwnership() throws Exception {
         try (var first = StructureTestContext.create(42); var second = StructureTestContext.create(8675309);

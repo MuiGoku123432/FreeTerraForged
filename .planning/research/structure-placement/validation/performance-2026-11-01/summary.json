@@ -1,0 +1,145 @@
+{
+  "date": "2026-11-01",
+  "control_commit": "744c2f208cd17a33685d498691c71fd42cad56ec",
+  "candidate_parent": "744c2f208cd17a33685d498691c71fd42cad56ec",
+  "candidate_source_sha256": "c0d879e437abb12aea6d59051db3f4265b4829171506b438b32d6d502fe82082",
+  "command": "./gradlew :fabric:runBenchmarkServer -PftfBenchmarkRadius=4 -PftfBenchmarkSeed=42 --offline --no-daemon",
+  "pairs": [
+    {
+      "pair": 1,
+      "order": [
+        "control",
+        "candidate"
+      ],
+      "control": {
+        "wall_ms": 10307.7,
+        "chunks_per_second": 7.86,
+        "structure_stage_ms": 5410.5,
+        "grid_init_ms": 3980.1,
+        "regions": 90
+      },
+      "candidate": {
+        "wall_ms": 7648.5,
+        "chunks_per_second": 10.59,
+        "structure_stage_ms": 3036.9,
+        "grid_init_ms": 1934.8,
+        "regions": 90
+      },
+      "wall_time_reduction_percent": 25.79818970284351
+    },
+    {
+      "pair": 2,
+      "order": [
+        "candidate",
+        "control"
+      ],
+      "control": {
+        "wall_ms": 9920.5,
+        "chunks_per_second": 8.16,
+        "structure_stage_ms": 5283.8,
+        "grid_init_ms": 3975.4,
+        "regions": 90
+      },
+      "candidate": {
+        "wall_ms": 7608.3,
+        "chunks_per_second": 10.65,
+        "structure_stage_ms": 2970.0,
+        "grid_init_ms": 1761.5,
+        "regions": 90
+      },
+      "wall_time_reduction_percent": 23.307292979184513
+    },
+    {
+      "pair": 3,
+      "order": [
+        "control",
+        "candidate"
+      ],
+      "control": {
+        "wall_ms": 10357.1,
+        "chunks_per_second": 7.82,
+        "structure_stage_ms": 5661.9,
+        "grid_init_ms": 4166.2,
+        "regions": 90
+      },
+      "candidate": {
+        "wall_ms": 7468.0,
+        "chunks_per_second": 10.85,
+        "structure_stage_ms": 2929.0,
+        "grid_init_ms": 1613.4,
+        "regions": 90
+      },
+      "wall_time_reduction_percent": 27.89487404775468
+    },
+    {
+      "pair": 4,
+      "order": [
+        "candidate",
+        "control"
+      ],
+      "control": {
+        "wall_ms": 9871.4,
+        "chunks_per_second": 8.21,
+        "structure_stage_ms": 5316.9,
+        "grid_init_ms": 3972.3,
+        "regions": 90
+      },
+      "candidate": {
+        "wall_ms": 7469.8,
+        "chunks_per_second": 10.84,
+        "structure_stage_ms": 3015.3,
+        "grid_init_ms": 1515.8,
+        "regions": 90
+      },
+      "wall_time_reduction_percent": 24.32886925866644
+    },
+    {
+      "pair": 5,
+      "order": [
+        "control",
+        "candidate"
+      ],
+      "control": {
+        "wall_ms": 10092.6,
+        "chunks_per_second": 8.03,
+        "structure_stage_ms": 5477.9,
+        "grid_init_ms": 4112.3,
+        "regions": 90
+      },
+      "candidate": {
+        "wall_ms": 7164.8,
+        "chunks_per_second": 11.31,
+        "structure_stage_ms": 2809.9,
+        "grid_init_ms": 1284.4,
+        "regions": 90
+      },
+      "wall_time_reduction_percent": 29.009373204129762
+    }
+  ],
+  "control_median_wall_ms": 10092.6,
+  "control_median_chunks_per_second": 8.03,
+  "candidate_median_wall_ms": 7469.8,
+  "candidate_median_chunks_per_second": 10.84,
+  "median_wall_reduction_percent": 25.987357073499396,
+  "median_throughput_increase_percent": 34.99377334993774,
+  "larger_workload_single_pair": {
+    "control": {
+      "wall_ms": 20917.2,
+      "chunks_per_second": 13.82,
+      "structure_stage_ms": 8764.8,
+      "grid_init_ms": 5783.8,
+      "regions": 206
+    },
+    "candidate": {
+      "wall_ms": 19238.6,
+      "chunks_per_second": 15.02,
+      "structure_stage_ms": 6902.3,
+      "grid_init_ms": 2806.2,
+      "regions": 210
+    },
+    "seed": 8675309,
+    "radius": 8,
+    "target_chunks": 289,
+    "wall_time_reduction_percent": 8.02497466200066
+  }
+}

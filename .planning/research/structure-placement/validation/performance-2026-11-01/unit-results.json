@@ -1,0 +1,32 @@
+[
+  {
+    "check": "build-unit-fabric-probe-junit",
+    "tests": 5,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 4.292,
+    "test_cases": [
+      "coldDensityQueryUsesTheSameFilteredHeightAsTheGeneratedChunk()",
+      "coldQueriesFromAnotherForkJoinPoolCompleteWithoutReenteringTheirRegion()",
+      "paddedRegionBoundaryIsOwnedByTheSampledCoordinate()",
+      "concurrentColdQueriesAndCacheClearsRetainCoordinateAndWorldOwnership()",
+      "parallelPreparationAndCommonPoolFallbackMatchSerialFilters()"
+    ]
+  },
+  {
+    "check": "serial-fallback-unit-junit",
+    "tests": 5,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 4.727,
+    "test_cases": [
+      "coldDensityQueryUsesTheSameFilteredHeightAsTheGeneratedChunk()",
+      "coldQueriesFromAnotherForkJoinPoolCompleteWithoutReenteringTheirRegion()",
+      "paddedRegionBoundaryIsOwnedByTheSampledCoordinate()",
+      "concurrentColdQueriesAndCacheClearsRetainCoordinateAndWorldOwnership()",
+      "parallelPreparationAndCommonPoolFallbackMatchSerialFilters()"
+    ]
+  }
+]
