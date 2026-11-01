@@ -3,6 +3,8 @@ package etcodehome.freeterraforged.world.worldgen.cell.heightmap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.ForkJoinTask;
 import etcodehome.freeterraforged.world.worldgen.GeneratorContext;
 import etcodehome.freeterraforged.world.worldgen.cell.Cell;
 import etcodehome.freeterraforged.world.worldgen.cell.filter.ChunkFilterGrid;
@@ -110,7 +112,6 @@ public class FilteredChunkCache {
     }
 
     private Cell[] generateRegion(int regionChunkX, int regionChunkZ, int requestedX, int requestedZ) {
-        RegionFilterGrid grid = RegionFilterGrid.THREAD_LOCAL.get();
         boolean perfActive = WorldgenPerfTracker.ACTIVE;
         long t0 = perfActive ? System.nanoTime() : 0L;
         WorldgenPerfTracker.ThreadStats ts = perfActive ? WorldgenPerfTracker.stats() : null;
@@ -119,7 +120,31 @@ public class FilteredChunkCache {
             prevInside = ts.insideGridInit;
             ts.insideGridInit = true;
         }
+        RegionFilterGrid grid;
         try {
+            // RegionFilterGrid needs this fixed 6x6 raw-chunk rectangle. Height queries
+            // otherwise pay its entire cold cost on one structure-generation worker.
+            // Keep the parallel work on the common pool: no tasks load chunks or wait
+            // for filtered regions, and we acquire the thread-local grid only afterwards.
+            if (ForkJoinPool.getCommonPoolParallelism() > 1
+                    && ForkJoinTask.getPool() != ForkJoinPool.commonPool()) {
+                int rawSpan = REGION_CHUNKS + 2;
+                // A ForkJoinTask.join() can execute unrelated Minecraft tasks on the
+                // caller and re-enter this in-flight region. CompletableFuture.allOf
+                // waits for every independent batch, including when one fails.
+                CompletableFuture<?>[] batches = new CompletableFuture<?>[REGION_CHUNKS];
+                for (int batch = 0; batch < batches.length; batch++) {
+                    int first = batch;
+                    batches[batch] = CompletableFuture.runAsync(() -> {
+                        for (int index = first; index < rawSpan * rawSpan; index += REGION_CHUNKS) {
+                            this.context.rawChunkCache.getRawChunk(
+                                regionChunkX - 1 + index % rawSpan, regionChunkZ - 1 + index / rawSpan);
+                        }
+                    }, ForkJoinPool.commonPool());
+                }
+                CompletableFuture.allOf(batches).join();
+            }
+            grid = RegionFilterGrid.THREAD_LOCAL.get();
             grid.init(regionChunkX, regionChunkZ, this.context);
             this.context.biomeSurfaceEnvelope.prepopulateFromRegionGrid(
                 this.context, regionChunkX, regionChunkZ, grid.getBacking(),
