@@ -47,7 +47,9 @@ public record Climate(int randomSeed, Noise offsetX, Noise offsetZ, int offsetDi
 	}
 
 	private boolean usesEdgeClimate(Cell cell) {
-		return cell.biomeRegionEdge < EDGE_BLEND || cell.terrain == TerrainType.MOUNTAIN_CHAIN;
+		// Rolling Highlands reclassifies mountain-chain valley floors as hills, so the mountain-chain switch would
+		// jump the climate sample at every valley edge; RH climate uses the region edge blend only (RH5 C).
+		return cell.biomeRegionEdge < EDGE_BLEND || !cell.rollingHighlands && cell.terrain == TerrainType.MOUNTAIN_CHAIN;
 	}
 
 	private float edgeDistance(Cell cell) {

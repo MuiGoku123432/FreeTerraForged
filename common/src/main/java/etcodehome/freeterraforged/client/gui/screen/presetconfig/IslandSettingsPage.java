@@ -17,8 +17,13 @@ public class IslandSettingsPage extends PresetEditorPage {
 	@Override
 	public void init() {
 		super.init();
+        if (this.preset.getPreset().world().continent.continentType == etcodehome.freeterraforged.data.worldgen.preset.settings.ContinentType.ROLLING_HIGHLANDS) {
+            this.left.addWidget(PresetWidgets.createLabel("gui.ftf.highlands.islands"));
+            return;
+        }
 
-		IslandSettings s = PM.islandSettings;
+		IslandSettings s = this.preset.getPreset().island();
+		PM.islandSettings = s;
 
 		this.left.addWidget(PresetWidgets.createLabel(FTFTranslationKeys.GUI_LABEL_ISLAND));
 		this.left.addWidget(PresetWidgets.createToggle(s.spawnIslands, IslandSettings.spawnIslandsSetting, val -> s.spawnIslands = val, this::regenerate));

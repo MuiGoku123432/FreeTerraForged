@@ -31,6 +31,7 @@ import etcodehome.freeterraforged.world.worldgen.cell.Cell;
 import etcodehome.freeterraforged.world.worldgen.cell.heightmap.Levels;
 import etcodehome.freeterraforged.world.worldgen.cell.rivermap.ContinentalHydrology;
 import etcodehome.freeterraforged.world.worldgen.cell.terrain.TerrainType;
+import etcodehome.freeterraforged.world.worldgen.highlands.HighlandSurface;
 import etcodehome.freeterraforged.world.worldgen.feature.ScreeFeature.Config;
 import etcodehome.freeterraforged.world.worldgen.noise.module.Noise;
 import etcodehome.freeterraforged.world.worldgen.noise.module.Noises;
@@ -108,6 +109,21 @@ public class ScreeFeature extends Feature<Config> {
 
                     pos.set(worldX, surfaceY, worldZ);
 
+                    if (cell.rollingHighlands && cell.highlandRange >= HighlandSurface.MIN_RANGE && surfaceY <= scaledY
+                        && surfaceY >= generator.getSeaLevel() - 1 && !cell.terrain.isRiver() && !cell.terrain.isWetland()) {
+                        double slope = slope(generatorContext, levels, chunkCells, chunkPos, x, z);
+                        var cover = HighlandSurface.choose(slope, surfaceY, levels.scale(cell.highlandSnowline), levels.scale(cell.highlandTreeline),
+                            cell.highlandRange, 2 * clusterNoise.compute(worldX * .08F, worldZ * .08F, 31) - 1);
+                        if (cover != HighlandSurface.Cover.BIOME) {
+                            coverColumn(cover, rand, clusterNoise, warpX, warpZ, chunk, cell, pos, surfaceY);
+                            pos.setY(surfaceY);
+                            while(!level.getBlockState(pos.setY(pos.getY() + 1)).canSurvive(level, pos)) {
+                                level.setBlock(pos, Blocks.AIR.defaultBlockState(), 3);
+                            }
+                            continue;
+                        }
+                    }
+
                     if(biome.is(Biomes.DESERT)) {
                         erodeDesert(desertErosionVariance, levels, chunk, cell, pos, surfaceY);
                         continue;
@@ -129,6 +145,43 @@ public class ScreeFeature extends Feature<Config> {
 				return true;
         } else {
             return false;
+        }
+    }
+
+    /** RH7 S: scree on range flanks (no soil or moss). */
+    private static final WeightedBlockSelector RANGE_SCREE = new WeightedBlockSelector(List.of(
+            new WeightedBlockEntry(Blocks.GRAVEL.defaultBlockState(), 3),
+            new WeightedBlockEntry(Blocks.ANDESITE.defaultBlockState(), 2),
+            new WeightedBlockEntry(Blocks.COBBLESTONE.defaultBlockState(), 1),
+            new WeightedBlockEntry(Blocks.TUFF.defaultBlockState(), 1)
+    ));
+
+    /** RH7 S: surface slope (degrees) at a chunk column from the cell heights two blocks either side. */
+    private static double slope(GeneratorContext context, Levels levels, @Nullable Cell[] cells, ChunkPos chunk, int x, int z) {
+        int x0 = Math.max(0, x - 2), x1 = Math.min(15, x + 2), z0 = Math.max(0, z - 2), z1 = Math.min(15, z + 2);
+        double dx = (blocks(context, levels, cells, chunk, x1, z) - blocks(context, levels, cells, chunk, x0, z)) / (x1 - x0);
+        double dz = (blocks(context, levels, cells, chunk, x, z1) - blocks(context, levels, cells, chunk, x, z0)) / (z1 - z0);
+        return Math.toDegrees(Math.atan(Math.hypot(dx, dz)));
+    }
+    private static double blocks(GeneratorContext context, Levels levels, @Nullable Cell[] cells, ChunkPos chunk, int x, int z) {
+        Cell cell = cells != null ? cells[z * 16 + x] : context.lookup.lookup(chunk.getBlockX(x), chunk.getBlockZ(z));
+        return (cell.height - levels.water) * levels.terrainScaleFactor;
+    }
+
+    /** RH7 S: writes the range cover chosen by HighlandSurface into the column's top blocks. */
+    private static void coverColumn(HighlandSurface.Cover cover, Noise rand, Noise clusterNoise, Noise warpX, Noise warpZ, ChunkAccess chunk, Cell cell, BlockPos.MutableBlockPos pos, int surfaceY) {
+        BlockState top = chunk.getBlockState(pos.setY(surfaceY));
+        if (top.isAir() || !top.getFluidState().isEmpty()) return;
+        switch (cover) {
+            case CLIFF -> erodeRock(chunk, cell, pos, surfaceY);
+            case SCREE -> ColumnDecorator.fillDownSolid(chunk, pos, surfaceY, surfaceY - 2,
+                sampleMaterial(RANGE_SCREE, pos.getX(), pos.getZ(), clusterNoise, warpX, warpZ, rand, 5, Blocks.GRAVEL.defaultBlockState()));
+            case SNOW -> ColumnDecorator.fillDownSolid(chunk, pos, surfaceY, surfaceY - 2, Blocks.SNOW_BLOCK.defaultBlockState());
+            case MEADOW -> {
+                ColumnDecorator.fillDownSolid(chunk, pos, surfaceY - 1, surfaceY - 3, Blocks.DIRT.defaultBlockState());
+                chunk.setBlockState(pos.setY(surfaceY), Blocks.GRASS_BLOCK.defaultBlockState(), false);
+            }
+            default -> {}
         }
     }
 
@@ -245,7 +298,7 @@ public class ScreeFeature extends Feature<Config> {
         );
 
         // Uplift baseline in normalized float space (sea level + uplift)
-        float upliftBaselineNormalized = levels.water + upliftNormalized;
+        float upliftBaselineNormalized = cell.rollingHighlands ? cell.riverWaterLevel : levels.water + upliftNormalized;
 
         // Add config relative offsets (converted from 0..255 scale to 0.0..1.0 float scale)
         float effectiveRockBias = upliftBaselineNormalized + (config.rockMin() / 255.0f);

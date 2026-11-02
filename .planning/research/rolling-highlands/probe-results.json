@@ -1,0 +1,86 @@
+{
+  "scope": "Synthetic 65x65 coastal terrain; no FTF code, water placement, erosion, or V3 baseline executed",
+  "units": "synthetic vertical blocks; grid spacing deliberately unspecified",
+  "seeds": [
+    {
+      "seed": 0,
+      "land_nodes": 3969,
+      "raw_local_sinks": 17,
+      "all_nodes_reach_ocean": true,
+      "routing_cycles": 0,
+      "repeat_identical": true,
+      "filled_land_fraction": 0.14663643235071808,
+      "filled_flat_parent_edge_fraction": 0.14663643235071808,
+      "max_fill_blocks": 115.45639892326774,
+      "max_naive_cut_blocks": 115.45639892326774,
+      "naive_cut_over_48_blocks_fraction": 0.014109347442680775,
+      "naive_cut_downstream_rises": 0,
+      "routing_sha256": "1b887cc81ada1e9e0cca89bf05cd0d0d488b57d272f2ad6d94f08bbe1d2688bc"
+    },
+    {
+      "seed": 1,
+      "land_nodes": 3969,
+      "raw_local_sinks": 14,
+      "all_nodes_reach_ocean": true,
+      "routing_cycles": 0,
+      "repeat_identical": true,
+      "filled_land_fraction": 0.15570672713529857,
+      "filled_flat_parent_edge_fraction": 0.15570672713529857,
+      "max_fill_blocks": 90.06172816933702,
+      "max_naive_cut_blocks": 90.06172816933702,
+      "naive_cut_over_48_blocks_fraction": 0.01562106324011086,
+      "naive_cut_downstream_rises": 0,
+      "routing_sha256": "247c31375c3cacf4f9dbc2540d6d4893cf29b5e9b1b457fda2bf5912a7e7e498"
+    },
+    {
+      "seed": 42,
+      "land_nodes": 3969,
+      "raw_local_sinks": 22,
+      "all_nodes_reach_ocean": true,
+      "routing_cycles": 0,
+      "repeat_identical": true,
+      "filled_land_fraction": 0.14613252708490804,
+      "filled_flat_parent_edge_fraction": 0.14613252708490804,
+      "max_fill_blocks": 114.51414828812102,
+      "max_naive_cut_blocks": 114.51414828812102,
+      "naive_cut_over_48_blocks_fraction": 0.01436130007558579,
+      "naive_cut_downstream_rises": 0,
+      "routing_sha256": "b146dc511c23c67d20e32243ab3e6b2fb2ac12fc031b7f8b6f7804881a3cbdef"
+    },
+    {
+      "seed": 8675309,
+      "land_nodes": 3969,
+      "raw_local_sinks": 23,
+      "all_nodes_reach_ocean": true,
+      "routing_cycles": 0,
+      "repeat_identical": true,
+      "filled_land_fraction": 0.15469891660367852,
+      "filled_flat_parent_edge_fraction": 0.15469891660367852,
+      "max_fill_blocks": 54.59655460658058,
+      "max_naive_cut_blocks": 54.59655460658058,
+      "naive_cut_over_48_blocks_fraction": 0.0045351473922902496,
+      "naive_cut_downstream_rises": 0,
+      "routing_sha256": "e341fbb6379a05c529040169f0c422e76420959697f5ebd9cda6ab8df0cdc2f4"
+    },
+    {
+      "seed": -314159,
+      "land_nodes": 3969,
+      "raw_local_sinks": 19,
+      "all_nodes_reach_ocean": true,
+      "routing_cycles": 0,
+      "repeat_identical": true,
+      "filled_land_fraction": 0.16427311665406905,
+      "filled_flat_parent_edge_fraction": 0.16427311665406905,
+      "max_fill_blocks": 73.02164564853345,
+      "max_naive_cut_blocks": 73.02164564853345,
+      "naive_cut_over_48_blocks_fraction": 0.013605442176870748,
+      "naive_cut_downstream_rises": 0,
+      "routing_sha256": "c7fb5c957c303835e356a8277a206a9658895468d2c642de5d2ed08d97fb33dc"
+    }
+  ],
+  "conclusions": [
+    "Acyclic ocean-connected routing does not guarantee shelf-free visible terrain.",
+    "Non-ascending carved profiles alone do not bound incision depth.",
+    "Production needs separate visible relief, routing state, and constrained river profiles."
+  ]
+}

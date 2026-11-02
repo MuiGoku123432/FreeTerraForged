@@ -14,9 +14,18 @@ public class TerrainSettings {
 		Terrain.CODEC.fieldOf("badlands").forGetter((o) -> o.badlands),
 		Terrain.CODEC.fieldOf("torridonian").forGetter((o) -> o.torridonian),
 		Terrain.CODEC.fieldOf("mountains").forGetter((o) -> o.mountains),
-		Terrain.CODEC.fieldOf("volcano").forGetter((o) -> o.volcano)		
+		Terrain.CODEC.fieldOf("volcano").forGetter((o) -> o.volcano),
+        RollingHighlandsSettings.CODEC.optionalFieldOf("rollingHighlands").forGetter(o -> java.util.Optional.ofNullable(o.rollingHighlands))
 	).apply(instance, TerrainSettings::new));
 	
+    public RollingHighlandsSettings rollingHighlands;
+    public RollingHighlandsSettings highlands() { return rollingHighlands == null ? RollingHighlandsSettings.DEFAULT : rollingHighlands; }
+
+    public TerrainSettings(General general, Terrain steppe, Terrain plains, Terrain hills, Terrain dales, Terrain plateau, Terrain badlands, Terrain torridonian, Terrain mountains, Terrain volcano, java.util.Optional<RollingHighlandsSettings> rollingHighlands) {
+        this(general, steppe, plains, hills, dales, plateau, badlands, torridonian, mountains, volcano);
+        this.rollingHighlands = rollingHighlands.orElse(null);
+    }
+
     public General general;
     public Terrain steppe;
     public Terrain plains;
@@ -42,7 +51,7 @@ public class TerrainSettings {
     }
     
     public TerrainSettings copy() {
-    	return new TerrainSettings(this.general.copy(), this.steppe.copy(), this.plains.copy(), this.hills.copy(), this.dales.copy(), this.plateau.copy(), this.badlands.copy(), this.torridonian.copy(), this.mountains.copy(), this.volcano.copy());
+        return new TerrainSettings(this.general.copy(), this.steppe.copy(), this.plains.copy(), this.hills.copy(), this.dales.copy(), this.plateau.copy(), this.badlands.copy(), this.torridonian.copy(), this.mountains.copy(), this.volcano.copy(), java.util.Optional.ofNullable(this.rollingHighlands));
     }
     
     public static class General {

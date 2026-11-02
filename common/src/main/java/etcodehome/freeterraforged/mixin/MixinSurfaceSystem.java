@@ -9,7 +9,7 @@ import etcodehome.freeterraforged.world.worldgen.GeneratorContext;
 import etcodehome.freeterraforged.world.worldgen.FTFRandomState;
 import etcodehome.freeterraforged.world.worldgen.IChunkCellsHolder;
 import etcodehome.freeterraforged.world.worldgen.cell.Cell;
-import etcodehome.freeterraforged.world.worldgen.cell.rivermap.ContinentalHydrology;
+import etcodehome.freeterraforged.world.worldgen.cell.rivermap.RiverWater;
 import etcodehome.freeterraforged.world.worldgen.cell.rivermap.river.RiverCarverSettings;
 import etcodehome.freeterraforged.world.worldgen.densityfunction.CellSampler;
 import etcodehome.freeterraforged.world.worldgen.perf.WorldgenPerfTracker;
@@ -77,7 +77,10 @@ class MixinSurfaceSystem {
 			argsOnly = true
 	)
 	private SurfaceRules.RuleSource freeterraforged$optimizeSurfaceRule(SurfaceRules.RuleSource ruleSource) {
-		return etcodehome.freeterraforged.world.worldgen.surface.rule.FastStrataSequenceRule.optimize(ruleSource);
+		if ((Object) this.randomState instanceof FTFRandomState ftfRandomState && ftfRandomState.generatorContext() != null) {
+			return etcodehome.freeterraforged.world.worldgen.surface.rule.FastStrataSequenceRule.optimize(ruleSource);
+		}
+		return ruleSource;
 	}
 
 	// INJECT AT HEAD to carve out rivers and lakes before surface rules run
@@ -175,17 +178,12 @@ class MixinSurfaceSystem {
 					: genCtx.lookup.lookup(globalX, globalZ);
 				// Wetland basins always hold water. Their riverWaterLevel is the continental uplift offset,
 				// which is exactly 0 on the lowest water table step, so it can't double as the "has water" flag.
-				boolean isWaterCell = cell.terrain.isWetland()
-						|| ((cell.terrain.isRiver() || cell.terrain.isLake()) && cell.riverWaterLevel > 0);
+				boolean isWaterCell = RiverWater.isWater(cell);
 				int scaledY = levels.scale(cell.height);
 
 				if (isWaterCell) {
 					int waterY = levels.scale(
-							(ContinentalHydrology.getComplexWaterHeight(
-									cell.waterTable,
-									cell.globalContinentScale,
-									cell.continentSizeModifier)
-							) + oceanLevel
+							RiverWater.level(cell, oceanLevel)
 					);
 
 					if (waterY < oceanY) waterY = oceanY;
@@ -203,15 +201,10 @@ class MixinSurfaceSystem {
 							var neighborCell = cellGetter.apply(nx, nz);
 
 							// Only consider the neighbor's water height if it is actually a water cell
-							boolean nIsWaterCell = neighborCell.terrain.isWetland()
-									|| ((neighborCell.terrain.isRiver() || neighborCell.terrain.isLake()) && neighborCell.riverWaterLevel > 0);
+							boolean nIsWaterCell = RiverWater.isWater(neighborCell);
 							if (nIsWaterCell) {
 								int nWaterY = levels.scale(
-										(ContinentalHydrology.getComplexWaterHeight(
-												neighborCell.waterTable,
-												neighborCell.globalContinentScale,
-												neighborCell.continentSizeModifier)
-										) + levels.water
+										RiverWater.level(neighborCell, levels.water)
 								);
 
 								if (nWaterY < oceanY) nWaterY = oceanY;
@@ -227,7 +220,7 @@ class MixinSurfaceSystem {
 						}
 
 						// adjust this column to be averaged so it makes the waterfalls more natural like.
-						if (isTransitionColumn && multiBlockDrop) {
+						if (!cell.rollingHighlands && isTransitionColumn && multiBlockDrop) {
 							scaledY = (scaledY + lowestNeighborWaterY) / 2;
 						}
 
@@ -244,6 +237,11 @@ class MixinSurfaceSystem {
 								if (biomeManager.getBiome(pos).value().coldEnoughToSnow(pos)) {
 									// Place Ice instead of liquid water to keep frozen rivers continuous
 									chunk.setBlockState(pos, Blocks.ICE.defaultBlockState(), false);
+								} else if (cell.rollingHighlands) {
+									// Rolling Highlands profiles descend in single-block steps along smooth channels. A flowing
+									// top block is only stable when an upstream source feeds it, which ragged step lines at bends
+									// and confluences do not guarantee, so the step keeps a source and forms a small riffle.
+									chunk.setBlockState(pos, water, false);
 								} else {
 									chunk.setBlockState(pos, flowingWater, false);
 								}
@@ -282,11 +280,7 @@ class MixinSurfaceSystem {
 
 							if ((neighborCell.terrain.isRiver() || neighborCell.terrain.isLake())) {
 								int nWaterY = levels.scale(
-									(ContinentalHydrology.getComplexWaterHeight(
-											neighborCell.waterTable,
-											neighborCell.globalContinentScale,
-											neighborCell.continentSizeModifier)
-									) + oceanLevel
+									RiverWater.level(neighborCell, oceanLevel)
 								);
 
 								if (nWaterY > maxNeighborWaterY) {
@@ -297,11 +291,7 @@ class MixinSurfaceSystem {
 
 						// If in river zone and lower than water table, we shouldn't be.
 						int waterTableCeil = levels.scale(
-							(ContinentalHydrology.getComplexWaterHeight(
-									cell.waterTable,
-									cell.globalContinentScale,
-									cell.continentSizeModifier)
-								) + oceanLevel
+							RiverWater.level(cell, oceanLevel)
 							);
 
 						boolean isInRiverZone = cell.riverZone == RiverCarverSettings.RiverZone.Banks

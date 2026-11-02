@@ -214,6 +214,34 @@ class RiverSettingsPage extends PresetEditorPage {
 			return value;
 		});
 
+		if (preset.world().continent.continentType == etcodehome.freeterraforged.data.worldgen.preset.settings.ContinentType.ROLLING_HIGHLANDS) {
+			// Rolling Highlands routes rivers from the terrain; these FTF settings shape what it builds.
+			this.left.addWidget(PresetWidgets.createLabel("gui.ftf.highlands.rivers"));
+			this.left.addWidget(this.riverCount);
+			var terrain = preset.terrain();
+			this.left.addWidget(PresetWidgets.createIntSlider(terrain.highlands().meanders(), 0, 200, "gui.ftf.highlands.meanders", (slider, value) -> {
+				terrain.rollingHighlands = terrain.highlands().withMeanders((int) slider.scaleValue(value));
+				this.regenerate();
+				return value;
+			}));
+			this.left.addWidget(PresetWidgets.createLabel(FTFTranslationKeys.GUI_LABEL_RIVER_FLOW_DYNAMICS));
+			this.left.addWidget(this.toggleFlowParticles);
+			this.left.addWidget(this.toggleBoatFlowDynamics);
+			this.left.addWidget(this.toggleNavigableWaterfalls);
+			this.left.addWidget(PresetWidgets.createLabel(FTFTranslationKeys.GUI_LABEL_MAIN_RIVERS));
+			this.left.addWidget(this.mainRiverBedDepth);
+			this.left.addWidget(this.mainRiverMinBankHeight);
+			this.left.addWidget(this.mainRiverMaxBankHeight);
+			this.left.addWidget(this.mainRiverBankWidth);
+			this.left.addWidget(PresetWidgets.createLabel(FTFTranslationKeys.GUI_LABEL_LAKES));
+			this.left.addWidget(this.lakeChance);
+			this.left.addWidget(this.lakeDepth);
+			this.left.addWidget(PresetWidgets.createLabel(FTFTranslationKeys.GUI_LABEL_WETLANDS));
+			this.left.addWidget(this.wetlandChance);
+			this.left.addWidget(PresetWidgets.createLabel("gui.ftf.highlands.rivers_settings"));
+			return;
+		}
+
 		this.left.addWidget(this.seedOffset);
 		this.left.addWidget(this.riverCount);
 

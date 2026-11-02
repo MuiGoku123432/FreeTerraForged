@@ -1,6 +1,7 @@
 package etcodehome.freeterraforged.data.worldgen.preset.settings;
 
 import com.mojang.serialization.Codec;
+import com.mojang.serialization.Lifecycle;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 
 import etcodehome.freeterraforged.registries.FTFRegistries;
@@ -12,6 +13,7 @@ import net.minecraft.core.registries.Registries;
 import net.minecraft.data.worldgen.BootstrapContext;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.RegistryDataLoader;
+import net.minecraft.tags.TagKey;
 
 import etcodehome.freeterraforged.data.worldgen.compat.terrablender.TBNoiseRouterData;
 import etcodehome.freeterraforged.data.worldgen.preset.PresetBiomeModifierData;
@@ -29,7 +31,7 @@ import java.util.*;
 import java.util.stream.Stream;
 
 public record Preset(WorldSettings world, SurfaceSettings surface, CaveSettings caves, ClimateSettings climate, TerrainSettings terrain, RiverSettings rivers, FlowSettings flow, IslandSettings island, ErosionFilterSettings erosionFilters, MiscellaneousSettings miscellaneous, PresentationSettings presentation) {
-	public static final Codec<Preset> DIRECT_CODEC = RecordCodecBuilder.create(instance -> instance.group(
+	public static final Codec<Preset> DIRECT_CODEC = RecordCodecBuilder.<Preset>create(instance -> instance.group(
 			WorldSettings.CODEC.fieldOf("world").forGetter(Preset::world),
 			SurfaceSettings.CODEC.optionalFieldOf("surface", new SurfaceSettings(new SurfaceSettings.Scree(30, 140, 40, 95, 0.65F, 0.475F, 0.4F))).forGetter(Preset::surface),
 			CaveSettings.CODEC.optionalFieldOf("caves", new CaveSettings(0.0F, 1.5625F, 1.0F, 1.0F, 1.0F, 0.14285715F, 0.07F, 0.02F, true, false)).forGetter(Preset::caves),
@@ -41,7 +43,17 @@ public record Preset(WorldSettings world, SurfaceSettings surface, CaveSettings 
 			ErosionFilterSettings.CODEC.optionalFieldOf("erosionFilters").xmap(optional -> optional.orElseGet(ErosionFilterSettings::makeDefault),Optional::of).forGetter(Preset::erosionFilters),
 			MiscellaneousSettings.CODEC.fieldOf("miscellaneous").forGetter(Preset::miscellaneous),
 			PresentationSettings.CODEC.optionalFieldOf("presentation").xmap(optional -> optional.orElseGet(PresentationSettings::makeDefault),Optional::of).forGetter(Preset::presentation)
-	).apply(instance, Preset::new));
+	).apply(instance, Preset::new)).validate(preset -> {
+        if (preset.world.continent.continentType == ContinentType.ROLLING_HIGHLANDS) {
+            try {
+                preset.terrain.rollingHighlands = preset.terrain.highlands();
+                preset.terrain.rollingHighlands.validate(preset.world);
+            } catch (IllegalArgumentException invalid) {
+                return com.mojang.serialization.DataResult.error(invalid::getMessage);
+            }
+        }
+        return com.mojang.serialization.DataResult.success(preset);
+    });
 
 	public static final ResourceKey<Preset> KEY = FTFRegistries.createKey(FTFRegistries.PRESET, "preset");
 
@@ -148,12 +160,58 @@ public record Preset(WorldSettings world, SurfaceSettings surface, CaveSettings 
 		return new HolderLookup.Provider() {
 			@Override
 			public <T> Optional<HolderLookup.RegistryLookup<T>> lookup(ResourceKey<? extends Registry<? extends T>> key) {
-				return armed.contains(key) ? original.lookup(key) : Optional.empty();
+				if (!armed.contains(key)) {
+					return Optional.empty();
+				}
+				Optional<HolderLookup.RegistryLookup<T>> found = original.lookup(key);
+				if (found.isPresent()) {
+					return found;
+				}
+				return Optional.of(createEmptyLookup(key));
 			}
 
 			@Override
 			public Stream<ResourceKey<? extends Registry<?>>> listRegistries() {
-				return original.listRegistries().filter(armed::contains);
+				return Stream.concat(original.listRegistries(), armed.stream()).filter(armed::contains).distinct();
+			}
+		};
+	}
+
+	private static <T> HolderLookup.RegistryLookup<T> createEmptyLookup(ResourceKey<? extends Registry<? extends T>> registryKey) {
+		return new HolderLookup.RegistryLookup<T>() {
+			@Override
+			public ResourceKey<? extends Registry<? extends T>> key() {
+				return registryKey;
+			}
+
+			@Override
+			public Lifecycle registryLifecycle() {
+				return Lifecycle.stable();
+			}
+
+			@Override
+			public Stream<Holder.Reference<T>> listElements() {
+				return Stream.empty();
+			}
+
+			@Override
+			public Stream<HolderSet.Named<T>> listTags() {
+				return Stream.empty();
+			}
+
+			@Override
+			public Optional<Holder.Reference<T>> get(ResourceKey<T> resourceKey) {
+				return Optional.empty();
+			}
+
+			@Override
+			public Optional<HolderSet.Named<T>> get(TagKey<T> tagKey) {
+				return Optional.empty();
+			}
+
+			@Override
+			public boolean canSerializeIn(HolderOwner<T> owner) {
+				return owner == this;
 			}
 		};
 	}

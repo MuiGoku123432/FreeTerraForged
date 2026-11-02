@@ -68,15 +68,22 @@ public class WorldSettingsPage extends PresetEditorPage {
 				ContinentType.MULTI,
 				ContinentType.SINGLE,
 				ContinentType.MULTI_IMPROVED,
-				ContinentType.UPLIFT
+				ContinentType.UPLIFT,
+                ContinentType.ROLLING_HIGHLANDS
 			),
 			continent.continentType, FTFTranslationKeys.GUI_BUTTON_CONTINENT_TYPE,
 			(button, value) -> {
 				continent.continentType = value;
+				if (value == ContinentType.ROLLING_HIGHLANDS) {
+					this.applyHighlandsHeight(properties);
+					// A preset switched to Rolling Highlands for the first time starts from the Rockies profile.
+					var terrain = this.preset.getPreset().terrain();
+					if (terrain.rollingHighlands == null) terrain.rollingHighlands = etcodehome.freeterraforged.data.worldgen.preset.settings.RollingHighlandsSettings.ROCKIES;
+				}
 				this.applyContinentType(value);
 				this.regenerate();
 			}, 
-			ContinentType::name
+			value -> value == ContinentType.ROLLING_HIGHLANDS ? "Rolling Highlands (Experimental)" : value.name()
 		);
 		this.continentShape = PresetWidgets.createCycle(DistanceFunction.values(), continent.continentShape, FTFTranslationKeys.GUI_BUTTON_CONTINENT_SHAPE, (button, value) -> {
 			continent.continentShape = value;
@@ -235,12 +242,32 @@ public class WorldSettingsPage extends PresetEditorPage {
 		return Optional.of(new SurfaceSettingsPage(this.screen));
 	}
 	
+	/**
+	 * RH7 M (D-b): choosing Rolling Highlands raises the world to its tall-range frame (top y 735, depth 128, 864
+	 * blocks) when it is lower; taller or deeper worlds are kept.
+	 */
+	private void applyHighlandsHeight(WorldSettings.Properties properties) {
+		if (properties.worldHeight < HIGHLANDS_WORLD_HEIGHT) {
+			properties.worldHeight = HIGHLANDS_WORLD_HEIGHT;
+			this.worldHeight.setValue(this.worldHeight.getSliderValue(HIGHLANDS_WORLD_HEIGHT));
+		}
+		if (properties.worldDepth < HIGHLANDS_WORLD_DEPTH) {
+			properties.worldDepth = HIGHLANDS_WORLD_DEPTH;
+			this.worldDepth.setValue(this.worldDepth.getSliderValue(HIGHLANDS_WORLD_DEPTH));
+		}
+		this.updateOceanDepthRange(properties);
+	}
+	static final int HIGHLANDS_WORLD_HEIGHT = 736, HIGHLANDS_WORLD_DEPTH = 128;
+
 	private void applyContinentType(ContinentType type) {
+        boolean highlands = type == ContinentType.ROLLING_HIGHLANDS;
+        this.continentScale.setRange(highlands ? 1000 : 100, highlands ? 5000 : 10000);
+        if (highlands) this.preset.getPreset().world().continent.continentScale = (int) this.continentScale.getLerpedValue();
 		this.continentShape.active = type == ContinentType.MULTI || type == ContinentType.SINGLE;
 		
 		boolean isMultiImproved = type == ContinentType.MULTI_IMPROVED || type == ContinentType.UPLIFT;
-		this.continentSkipping.active = isMultiImproved;
-		this.continentSizeVariance.active = isMultiImproved;
+		this.continentSkipping.active = isMultiImproved || type == ContinentType.ROLLING_HIGHLANDS;
+		this.continentSizeVariance.active = isMultiImproved || type == ContinentType.ROLLING_HIGHLANDS;
 		this.continentNoiseOctaves.active = isMultiImproved;
 		this.continentNoiseGain.active = isMultiImproved;
 		this.continentNoiseLacunarity.active = isMultiImproved;
