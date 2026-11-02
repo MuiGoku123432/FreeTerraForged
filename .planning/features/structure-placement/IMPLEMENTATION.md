@@ -57,7 +57,7 @@ This pair is too small for a release performance conclusion, and it does not pas
 
 Raw reports: `fabric-baseline-performance-smoke.txt`, `fabric-candidate-performance-smoke.txt`.
 
-**2026-11-01 follow-up:** independent raw-chunk preparation now runs in four batches before the unchanged filter pipeline, with serial fallbacks for common-pool callers and low parallelism. Five paired runs against `744c2f20` reduced median wall time by 26.0% and increased median throughput from 8.03 to 10.84 chunks/s. A separate 289-chunk, second-seed pair improved wall time by 8.0%. These are partial performance recoveries; the 95% gate against the older baseline remains open. See [PERFORMANCE.md](PERFORMANCE.md) for diagnosis, scheduling safeguards, raw measurements and current validation.
+**2026-11-01 follow-up:** independent raw-chunk preparation now runs in four batches before the unchanged filter pipeline, with serial fallbacks for common-pool callers and low parallelism. Five paired runs against `744c2f20` reduced median wall time by 26.0% and increased median throughput from 8.03 to 10.84 chunks/s. A separate 289-chunk, second-seed pair improved wall time by 8.0%. These are partial performance recoveries; the 95% gate against the older baseline remains open. See [PERFORMANCE.md](PERFORMANCE.md) for diagnosis, scheduling safeguards, raw measurements and current validation. A [further follow-up](PERFORMANCE-FOLLOWUP.md) reduces repeated erosion-noise work and parallelizes independent filter rows; the 289-chunk candidate median is 16.427 s versus 13.671 s for a fresh original control (83.2% throughput), with exact-output regression coverage.
 
 ## Reproduce
 

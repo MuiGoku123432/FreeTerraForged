@@ -1,0 +1,10 @@
+{
+  "source_commit": "f91b17f7df729c2331424cbbd60d7da80f3785e4",
+  "source_file": "common/src/main/java/etcodehome/freeterraforged/world/worldgen/noise/module/Erosion.java",
+  "source_sha256": "f4f0b59bf82082dc96ff56dd9c9e3b2083887a8fa2755f3f37a4945900ceae5a",
+  "samples": 17328,
+  "encoding": "SHA-256 of big-endian Float.floatToRawIntBits outputs in ErosionNoiseCacheTest iteration order",
+  "sha256": "0f5e65a8053df9b274a99ce666c6499b9538ce0001ace1b0e4b07ae31d9dd2c7",
+  "capture_command": "./gradlew :common:test --tests '*ErosionNoiseCacheTest' --offline --no-daemon",
+  "capture_before_optimization": true
+}

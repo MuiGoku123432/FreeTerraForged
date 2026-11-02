@@ -62,3 +62,7 @@ Gortex remained unavailable for this untracked checkout, including the post-chan
 This optimization addresses the scheduling cost of canonical region preparation. It does not remove the additional samples required by correct height/aquifer queries or the full-height fallback for terrain-adapting structures. The old `c5076eb8` single-run result (14.41 chunks/s) remains historical evidence, not a fresh paired control for this optimization. The proposed 95% release-throughput gate against that older baseline remains open.
 
 Shared-pool contention, allocation/GC and peak memory, larger modpacks, high-relief presets, structure-heavy full-height filling, natural placement density and visual/functional acceptance need separate coverage. Exact field equality at the tested coordinates is evidence of preserved filtering, not proof of unchanged output at every coordinate or compatibility with existing world boundaries. The PR remains a draft.
+
+## Subsequent investigation
+
+The [follow-up investigation](PERFORMANCE-FOLLOWUP.md) retains erosion drainage segments and evaluates independent filter rows concurrently. It includes fresh comparisons against the original baseline; its larger-workload median reaches 83.2% of original throughput, so the release gate remains open.

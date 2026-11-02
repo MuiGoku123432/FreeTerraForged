@@ -1,0 +1,71 @@
+================================================================================
+[FTF Perf Report] Context: Seed=42 | Target: radius=4 (81 FULL chunks) at CONTINENT_CENTER (101033, 91995) [terrain=flats-hills, continentEdge=1.000, surfaceY=280]
+================================================================================
+1. OVERALL THROUGHPUT & PARALLELISM:
+   Wall-Clock Time       :   5620.1 ms (5.62 s)
+   Target Chunks         : 81 completed / 81 requested (Total Full Chunks Touched: 121)
+   Throughput            :    14.41 chunks/sec | 69.38 ms/chunk (wall)
+   Cumulative Thread Work:  23389.9 ms across 11 active threads
+   Effective Parallelism :     4.16x (Available Processors: 12)
+   True Per-Chunk CPU Cost (sum of all stages per chunk, n=121):
+     Avg: 120.24 ms | Min: 63.62 ms | p50: 105.38 ms | p90: 182.25 ms | p95: 211.50 ms | p99: 244.76 ms | Max: 305.04 ms
+--------------------------------------------------------------------------------
+2. CHUNK STAGE BREAKDOWN (Worker Thread Execution Time):
+   Structures                         :    299.4 ms (  1.3%) |  961 chunks |   0.31 ms/chunk
+   Biomes (doCreateBiomes)            :   9647.4 ms ( 41.2%) |  225 chunks |  42.88 ms/chunk
+   Noise & Terrain (doFill)           :  10011.5 ms ( 42.8%) |  169 chunks |  59.24 ms/chunk
+     - Sky Density Cells Skipped            : 4634 / 16224 cells ( 28.6% skipped above terrain)
+   Surface & Rivers (buildSurface)    :   2748.6 ms ( 11.8%) |  169 chunks |  16.26 ms/chunk
+     - Surface Rules (super.buildSurface)   :   2708.4 ms ( 98.5% of surface)
+       * Underground Fast-Path (Rock)   : 11378005 hits, 10796523 base calls ( 51.3% bypassed)
+     - River & Lake (placeRiverWater)       :      6.1 ms (  0.2% of surface)
+     - Surface Columns (ScreeFeature)       :     39.9 ms (  1.5% of surface)
+   Carvers (applyCarvers)             :    268.7 ms (  1.1%) |  169 chunks |   1.59 ms/chunk
+   Features (applyBiomeDecoration)    :    414.3 ms (  1.8%) |  121 chunks |   3.42 ms/chunk
+--------------------------------------------------------------------------------
+3. REGION FILTER GRID (4x4 Chunks, 88x88 = 7,744 Cells) & FILTER PIPELINE:
+   RegionFilterGrid.generateRegion    :   1884.4 ms |   25 grids  |  75.38 ms/grid
+     - Grid Init (Raw Chunk Extraction):   1531.2 ms ( 81.3%) |  61.25 ms/grid
+       * FilteredChunkCache             : 200 hits, 25 misses ( 88.9% hit rate)
+       * RawChunkCache                  : 416 hits, 484 misses ( 46.2% hit rate)
+     - Filter 1: CliffRelaxation (Pre):     11.5 ms (  0.6%) |   0.46 ms/grid
+     - Filter 2: Erosion & Sediment   :    321.5 ms ( 17.1%) |  12.86 ms/grid
+     - Filter 3: CliffRelaxation(Post):      9.4 ms (  0.5%) |   0.38 ms/grid
+     - Filter 4: BeachDetect          :      1.8 ms (  0.1%) |   0.07 ms/grid
+     - Filter 5: Steepness (Gradient) :      4.9 ms (  0.3%) |   0.20 ms/grid
+--------------------------------------------------------------------------------
+4. CELL HEIGHTMAP & SUB-COMPONENT CALCULATIONS (All Heightmap.apply calls):
+   Total Heightmap.apply Calls        :    156,192 calls (  1731.2 ms | 11.08 us/call)
+     - From RegionFilterGrid (484/ch) :    193,600 calls
+     - Standalone (Outside Grid!)     :        944 calls (     9.1 ms)
+   Heightmap Component Breakdown:
+     - cell.height (Continent+Terrain):   1434.6 ms ( 82.9% of Heightmap.apply)
+     - Rivers (Rivermap+Carve)        :     53.3 ms (  3.1% of Heightmap.apply) [Rivermap gen: 0 calls, 0.0 ms]
+     - Climate (Temp+Moist+Region)    :    243.3 ms ( 14.1% of Heightmap.apply)
+   Standalone applyCell Call-Site Breakdown:
+     - CELL_SAMPLER_MISS              :        944 calls |      9.1 ms (100.0%)
+--------------------------------------------------------------------------------
+5. BIOME SAMPLING & CELL SAMPLER CACHE EFFICIENCY:
+   resolveBiome / resolveInCell       :    695,673 calls |   3513.1 ms (5.05 us/call)
+   WorldLookup.applyBiomeRegion       :      1,715 calls |      7.7 ms
+   Climate.Sampler.sample             :    784,159 calls |   1022.1 ms
+   BiomeSurfaceEnvelope (10x10 min Y) :    630,361 calls |    296.1 ms (Hits: 629,661, Misses: 700)
+   CellSampler Reads                  : 30,430,986 total
+     - ChunkCells Fast-Path Hits      : 29,156,233 ( 95.8%)
+     - Cache2d Hits                   :  1,273,809 (  4.2%)
+     - Cache2d Misses (re-evaluates!) :        944 (  0.0%)
+     - Field Reads                    : HEIGHT=25,709,241 CONTINENT=823,323 EROSION=837,224 WEIRDNESS=823,325 TEMPERATURE=784,151 MOISTURE=784,151
+--------------------------------------------------------------------------------
+6. PARALLEL THREAD UTILIZATION (Sorted by Work Time):
+   Worker-Main-3              :   2514.9 ms work ( 44.7% wall utilization) | grids=1, hmCalls=11,280, biomes=70,771
+   Worker-Main-7              :   2355.8 ms work ( 41.9% wall utilization) | grids=1, hmCalls=9,371, biomes=74,173
+   Worker-Main-4              :   2251.0 ms work ( 40.1% wall utilization) | grids=4, hmCalls=21,246, biomes=55,381
+   Worker-Main-5              :   2249.5 ms work ( 40.0% wall utilization) | grids=1, hmCalls=6,768, biomes=55,370
+   Worker-Main-6              :   2218.3 ms work ( 39.5% wall utilization) | grids=4, hmCalls=20,260, biomes=70,696
+   Worker-Main-2              :   2167.1 ms work ( 38.6% wall utilization) | grids=3, hmCalls=28,636, biomes=68,136
+   Worker-Main-1              :   2060.9 ms work ( 36.7% wall utilization) | grids=2, hmCalls=11,433, biomes=70,706
+   Worker-Main-11             :   1989.7 ms work ( 35.4% wall utilization) | grids=3, hmCalls=15,493, biomes=67,613
+   Worker-Main-10             :   1897.6 ms work ( 33.8% wall utilization) | grids=1, hmCalls=4,377, biomes=52,229
+   Worker-Main-8              :   1896.0 ms work ( 33.7% wall utilization) | grids=2, hmCalls=9,111, biomes=61,446
+   Worker-Main-9              :   1789.2 ms work ( 31.8% wall utilization) | grids=3, hmCalls=18,217, biomes=49,152
+================================================================================

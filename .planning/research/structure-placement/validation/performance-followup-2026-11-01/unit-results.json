@@ -1,0 +1,66 @@
+[
+  {
+    "check": "build-unit-fabric-probe-junit",
+    "suite": "etcodehome.freeterraforged.world.worldgen.structure.ErosionNoiseCacheTest",
+    "tests": 3,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "timestamp_utc": "2026-11-02T01:32:40",
+    "seconds": 2.5,
+    "test_cases": [
+      "reorderedConcurrentCallsKeepInstanceAndLargeCoordinateOwnership()",
+      "neighboringSamplesReuseDrainageSegmentsAndRecoverAfterFailure()",
+      "matchesOriginalFloatBitsAcrossLatticeBoundariesAndSettings()"
+    ]
+  },
+  {
+    "check": "build-unit-fabric-probe-junit",
+    "suite": "etcodehome.freeterraforged.world.worldgen.structure.FilteredDensitySamplingTest",
+    "tests": 5,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "timestamp_utc": "2026-11-02T01:32:43",
+    "seconds": 1.755,
+    "test_cases": [
+      "coldDensityQueryUsesTheSameFilteredHeightAsTheGeneratedChunk()",
+      "coldQueriesFromAnotherForkJoinPoolCompleteWithoutReenteringTheirRegion()",
+      "paddedRegionBoundaryIsOwnedByTheSampledCoordinate()",
+      "concurrentColdQueriesAndCacheClearsRetainCoordinateAndWorldOwnership()",
+      "parallelPreparationAndCommonPoolFallbackMatchSerialFilters()"
+    ]
+  },
+  {
+    "check": "serial-fallback-unit-junit",
+    "suite": "etcodehome.freeterraforged.world.worldgen.structure.ErosionNoiseCacheTest",
+    "tests": 3,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "timestamp_utc": "2026-11-02T01:51:39",
+    "seconds": 1.946,
+    "test_cases": [
+      "reorderedConcurrentCallsKeepInstanceAndLargeCoordinateOwnership()",
+      "neighboringSamplesReuseDrainageSegmentsAndRecoverAfterFailure()",
+      "matchesOriginalFloatBitsAcrossLatticeBoundariesAndSettings()"
+    ]
+  },
+  {
+    "check": "serial-fallback-unit-junit",
+    "suite": "etcodehome.freeterraforged.world.worldgen.structure.FilteredDensitySamplingTest",
+    "tests": 5,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "timestamp_utc": "2026-11-02T01:51:41",
+    "seconds": 1.775,
+    "test_cases": [
+      "coldDensityQueryUsesTheSameFilteredHeightAsTheGeneratedChunk()",
+      "coldQueriesFromAnotherForkJoinPoolCompleteWithoutReenteringTheirRegion()",
+      "paddedRegionBoundaryIsOwnedByTheSampledCoordinate()",
+      "concurrentColdQueriesAndCacheClearsRetainCoordinateAndWorldOwnership()",
+      "parallelPreparationAndCommonPoolFallbackMatchSerialFilters()"
+    ]
+  }
+]
