@@ -15,6 +15,7 @@ dependencies {
 	modCompileOnly "maven.modrinth:biolith:3.0.14-neoforge"
 	modCompileOnly "maven.modrinth:lithostitched:1.8.0+beta6-neoforge-21.1"
 	compileOnly "dev.architectury:architectury-injectables:1.0.13"
+	testImplementation "org.junit.jupiter:junit-jupiter:5.11.4"
 }
 
 test {
@@ -25,6 +26,7 @@ test {
 }
 
 repositories {
+    mavenCentral()
     maven { url "https://api.modrinth.com/maven" }
 }
 
@@ -50,17 +52,12 @@ subprojects {
     }
 }
 
-tasks.register("cleanStaleDefaultPresetResources", Delete) {
-    delete(layout.buildDirectory.dir("resources/main/ftf_default_preset"))
-}
-
-tasks.withType(Jar).configureEach {
-    exclude("ftf_default_preset/**")
-}
-
 processResources {
-    dependsOn tasks.named("cleanStaleDefaultPresetResources")
     filesMatching("pack.mcmeta") {
         expand project.properties
     }
+}
+
+test {
+    useJUnitPlatform()
 }
