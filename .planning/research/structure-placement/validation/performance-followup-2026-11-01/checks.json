@@ -1,0 +1,37 @@
+[
+  {
+    "check": "build-unit-fabric-probe",
+    "exit_code": 0,
+    "arguments": [
+      ":common:test",
+      ":fabric:build",
+      ":neoforge:build",
+      ":fabric:runBenchmarkServer",
+      "-PftfStructureProbe=true",
+      "-PftfBenchmarkSeed=8675309"
+    ],
+    "environment": {}
+  },
+  {
+    "check": "serial-fallback-unit",
+    "exit_code": 0,
+    "arguments": [
+      ":common:test",
+      "--rerun-tasks"
+    ],
+    "environment": {
+      "JAVA_TOOL_OPTIONS": "-Djava.util.concurrent.ForkJoinPool.common.parallelism=1"
+    }
+  },
+  {
+    "check": "neoforge-target-probe",
+    "exit_code": 0,
+    "arguments": [
+      ":neoforge:runBenchmarkServer",
+      "-Pneoforge_version=21.1.257",
+      "-PftfStructureProbe=true",
+      "-PftfBenchmarkSeed=42"
+    ],
+    "environment": {}
+  }
+]

@@ -17,6 +17,10 @@
 package etcodehome.freeterraforged.world.worldgen.cell.filter;
 
 import java.util.function.IntFunction;
+import java.util.function.IntConsumer;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.ForkJoinTask;
 
 import etcodehome.freeterraforged.data.worldgen.preset.PresetManager;
 import etcodehome.freeterraforged.data.worldgen.preset.settings.ErosionFilterSettings;
@@ -228,7 +232,6 @@ public class Erosion implements Filter {
         final float[] slopeZ = scratch.slopeZ;
         final float[] gateSlope = scratch.gateSlope;
         final float[] gateTmp = scratch.gateTmp;
-        final float[] phacelleOut = scratch.phacelleOut;
 
         // Store the pre-erosion heights (the terrain as this filter received it).
         for (Cell cell : cells) {
@@ -308,8 +311,9 @@ public class Erosion implements Filter {
 
         final float slopeGateRange = Math.max(1e-5f, FLAT_SLOPE_FULL - FLAT_SLOPE_START);
 
-        // Step 3: Single procedural, ADDITIVE pass over all cells
-        for (int z = 0; z < tileSize; ++z) {
+        // Step 3 reads only the completed snapshots and writes each cell independently.
+        IntConsumer applyRow = z -> {
+            final float[] phacelleOut = SCRATCH.get().phacelleOut;
             final int row = z * tileSize;
             final float worldZ = (float) (worldBlockZ + z);
 
@@ -486,6 +490,21 @@ public class Erosion implements Filter {
                 cell.heightErosion += change;
                 cell.height += change;
             }
+        };
+        // note: Same bounded scheduling/fallback policy as FilteredChunkCache. Avoid
+        // ForkJoinTask.join(): helping the caller's pool can re-enter its active grid.
+        if (map instanceof RegionFilterGrid && ForkJoinPool.getCommonPoolParallelism() > 1
+                && ForkJoinTask.getPool() != ForkJoinPool.commonPool()) {
+            CompletableFuture<?>[] batches = new CompletableFuture<?>[4];
+            for (int batch = 0; batch < batches.length; batch++) {
+                int firstRow = batch;
+                batches[batch] = CompletableFuture.runAsync(() -> {
+                    for (int z = firstRow; z < tileSize; z += batches.length) applyRow.accept(z);
+                }, ForkJoinPool.commonPool());
+            }
+            CompletableFuture.allOf(batches).join();
+        } else {
+            for (int z = 0; z < tileSize; z++) applyRow.accept(z);
         }
 
         // Keep land that was carved below the waterline at ground level, and keep heightErosion consistent.

@@ -1,0 +1,98 @@
+================================================================================
+[FTF Perf Report] Context: Seed=8675309 | Target: radius=8 (289 FULL chunks) at CONTINENT_CENTER (105995, 122901) [terrain=flats-hills, continentEdge=1.000, surfaceY=272]
+================================================================================
+1. OVERALL THROUGHPUT & PARALLELISM:
+   Wall-Clock Time       :  16426.8 ms (16.43 s)
+   Target Chunks         : 289 completed / 289 requested (Total Full Chunks Touched: 361)
+   Throughput            :    17.59 chunks/sec | 56.84 ms/chunk (wall)
+   Cumulative Thread Work:  70983.4 ms across 38 active threads
+   Effective Parallelism :     4.32x (Available Processors: 12)
+   True Per-Chunk CPU Cost (sum of all stages per chunk, n=361):
+     Avg: 149.23 ms | Min: 54.29 ms | p50: 130.94 ms | p90: 249.42 ms | p95: 293.89 ms | p99: 390.87 ms | Max: 438.79 ms
+--------------------------------------------------------------------------------
+2. CHUNK STAGE BREAKDOWN (Worker Thread Execution Time):
+   Structures                         :   4307.3 ms (  6.1%) | 1521 chunks |   2.83 ms/chunk
+   Biomes (doCreateBiomes)            :  23146.8 ms ( 32.6%) |  529 chunks |  43.76 ms/chunk
+   Noise & Terrain (doFill)           :  34654.7 ms ( 48.8%) |  441 chunks |  78.58 ms/chunk
+     - Sky Density Cells Skipped            : 12910 / 39264 cells ( 32.9% skipped above terrain)
+   Surface & Rivers (buildSurface)    :   6809.3 ms (  9.6%) |  441 chunks |  15.44 ms/chunk
+     - Surface Rules (super.buildSurface)   :   6678.3 ms ( 98.1% of surface)
+       * Underground Fast-Path (Rock)   : 23642364 hits, 28465937 base calls ( 45.4% bypassed)
+     - River & Lake (placeRiverWater)       :     18.4 ms (  0.3% of surface)
+     - Surface Columns (ScreeFeature)       :    130.4 ms (  1.9% of surface)
+   Carvers (applyCarvers)             :    466.2 ms (  0.7%) |  441 chunks |   1.06 ms/chunk
+   Features (applyBiomeDecoration)    :   1599.0 ms (  2.3%) |  361 chunks |   4.43 ms/chunk
+--------------------------------------------------------------------------------
+3. REGION FILTER GRID (4x4 Chunks, 88x88 = 7,744 Cells) & FILTER PIPELINE:
+   RegionFilterGrid.generateRegion    :   4040.9 ms |  207 grids  |  19.52 ms/grid
+     - Grid Init (Raw Chunk Extraction):   2231.7 ms ( 55.2%) |  10.78 ms/grid
+       * FilteredChunkCache             : 2361341 hits, 207 misses (100.0% hit rate)
+       * RawChunkCache                  : 11024 hits, 3880 misses ( 74.0% hit rate)
+     - Filter 1: CliffRelaxation (Pre):    100.7 ms (  2.5%) |   0.49 ms/grid
+     - Filter 2: Erosion & Sediment   :   1454.7 ms ( 36.0%) |   7.03 ms/grid
+     - Filter 3: CliffRelaxation(Post):    111.6 ms (  2.8%) |   0.54 ms/grid
+     - Filter 4: BeachDetect          :     40.0 ms (  1.0%) |   0.19 ms/grid
+     - Filter 5: Steepness (Gradient) :     56.3 ms (  1.4%) |   0.27 ms/grid
+--------------------------------------------------------------------------------
+4. CELL HEIGHTMAP & SUB-COMPONENT CALCULATIONS (All Heightmap.apply calls):
+   Total Heightmap.apply Calls        :  1,073,548 calls (  5614.2 ms | 5.23 us/call)
+     - From RegionFilterGrid (484/ch) :  1,603,008 calls
+     - Standalone (Outside Grid!)     :        920 calls (     4.7 ms)
+   Heightmap Component Breakdown:
+     - cell.height (Continent+Terrain):   3050.4 ms ( 54.3% of Heightmap.apply)
+     - Rivers (Rivermap+Carve)        :    410.3 ms (  7.3% of Heightmap.apply) [Rivermap gen: 0 calls, 0.0 ms]
+     - Climate (Temp+Moist+Region)    :   2153.4 ms ( 38.4% of Heightmap.apply)
+   Standalone applyCell Call-Site Breakdown:
+     - CELL_SAMPLER_MISS              :        920 calls |      4.7 ms (100.0%)
+--------------------------------------------------------------------------------
+5. BIOME SAMPLING & CELL SAMPLER CACHE EFFICIENCY:
+   resolveBiome / resolveInCell       :  1,637,522 calls |  20634.6 ms (12.60 us/call)
+   WorldLookup.applyBiomeRegion       :      5,919 calls |     10.9 ms
+   Climate.Sampler.sample             :  1,939,293 calls |   7548.3 ms
+   BiomeSurfaceEnvelope (10x10 min Y) :  1,605,102 calls |    720.8 ms (Hits: 1,603,033, Misses: 2,069)
+   CellSampler Reads                  : 86,394,380 total
+     - ChunkCells Fast-Path Hits      : 84,987,442 ( 98.4%)
+     - Cache2d Hits                   :  1,406,018 (  1.6%)
+     - Cache2d Misses (re-evaluates!) :        920 (  0.0%)
+     - Field Reads                    : HEIGHT=77,248,887 CONTINENT=2,086,052 EROSION=2,130,453 WEIRDNESS=2,086,048 TEMPERATURE=1,939,208 MOISTURE=1,939,208
+--------------------------------------------------------------------------------
+6. PARALLEL THREAD UTILIZATION (Sorted by Work Time):
+   Worker-Main-15             :   5232.6 ms work ( 31.9% wall utilization) | grids=50, hmCalls=3,560, biomes=86,157
+   Worker-Main-19             :   4524.5 ms work ( 27.5% wall utilization) | grids=53, hmCalls=1,096, biomes=27,821
+   Worker-Main-20             :   4195.2 ms work ( 25.5% wall utilization) | grids=12, hmCalls=7,850, biomes=120,445
+   Worker-Main-17             :   4174.0 ms work ( 25.4% wall utilization) | grids=2, hmCalls=2,914, biomes=76,899
+   Worker-Main-24             :   3679.6 ms work ( 22.4% wall utilization) | grids=7, hmCalls=6,625, biomes=116,747
+   Worker-Main-23             :   3573.5 ms work ( 21.8% wall utilization) | grids=6, hmCalls=1,441, biomes=73,738
+   Worker-Main-11             :   3218.0 ms work ( 19.6% wall utilization) | grids=6, hmCalls=4,026, biomes=95,322
+   Worker-Main-9              :   3191.6 ms work ( 19.4% wall utilization) | grids=8, hmCalls=2,304, biomes=76,807
+   Worker-Main-4              :   3173.7 ms work ( 19.3% wall utilization) | grids=1, hmCalls=2,004, biomes=24,725
+   Worker-Main-18             :   3098.6 ms work ( 18.9% wall utilization) | grids=1, hmCalls=2,197, biomes=67,619
+   Worker-Main-25             :   2963.8 ms work ( 18.0% wall utilization) | grids=9, hmCalls=2,629, biomes=95,240
+   Worker-Main-7              :   2854.1 ms work ( 17.4% wall utilization) | grids=3, hmCalls=4,248, biomes=74,178
+   Worker-Main-22             :   2729.5 ms work ( 16.6% wall utilization) | grids=31, hmCalls=17,517, biomes=108,587
+   Worker-Main-5              :   2695.4 ms work ( 16.4% wall utilization) | grids=2, hmCalls=1,649, biomes=46,162
+   Worker-Main-16             :   2690.7 ms work ( 16.4% wall utilization) | grids=1, hmCalls=3,132, biomes=101,376
+   Worker-Main-6              :   2634.4 ms work ( 16.0% wall utilization) | grids=4, hmCalls=2,996, biomes=37,050
+   Worker-Main-26             :   2232.5 ms work ( 13.6% wall utilization) | grids=1, hmCalls=2,160, biomes=86,016
+   Worker-Main-3              :   2170.7 ms work ( 13.2% wall utilization) | grids=0, hmCalls=687, biomes=33,800
+   Worker-Main-2              :   2110.8 ms work ( 12.8% wall utilization) | grids=2, hmCalls=834, biomes=15,388
+   Worker-Main-12             :   2105.7 ms work ( 12.8% wall utilization) | grids=2, hmCalls=3,132, biomes=110,592
+   Worker-Main-27             :   2058.7 ms work ( 12.5% wall utilization) | grids=1, hmCalls=994, biomes=30,747
+   Worker-Main-1              :   1809.1 ms work ( 11.0% wall utilization) | grids=1, hmCalls=2,196, biomes=76,800
+   Worker-Main-10             :   1488.6 ms work (  9.1% wall utilization) | grids=1, hmCalls=468, biomes=12,293
+   Worker-Main-8              :   1373.6 ms work (  8.4% wall utilization) | grids=2, hmCalls=325, biomes=9,221
+   Worker-Main-13             :    510.7 ms work (  3.1% wall utilization) | grids=0, hmCalls=360, biomes=24,576
+   Worker-Main-14             :    253.0 ms work (  1.5% wall utilization) | grids=0, hmCalls=72, biomes=3,072
+   Worker-Main-21             :    240.9 ms work (  1.5% wall utilization) | grids=1, hmCalls=36, biomes=6,144
+   ForkJoinPool.commonPool-worker-4 :      0.0 ms work (  0.0% wall utilization) | grids=0, hmCalls=159,232, biomes=0
+   ForkJoinPool.commonPool-worker-7 :      0.0 ms work (  0.0% wall utilization) | grids=0, hmCalls=87,296, biomes=0
+   ForkJoinPool.commonPool-worker-2 :      0.0 ms work (  0.0% wall utilization) | grids=0, hmCalls=97,536, biomes=0
+   ForkJoinPool.commonPool-worker-6 :      0.0 ms work (  0.0% wall utilization) | grids=0, hmCalls=155,392, biomes=0
+   ForkJoinPool.commonPool-worker-8 :      0.0 ms work (  0.0% wall utilization) | grids=0, hmCalls=70,144, biomes=0
+   ForkJoinPool.commonPool-worker-5 :      0.0 ms work (  0.0% wall utilization) | grids=0, hmCalls=14,336, biomes=0
+   ForkJoinPool.commonPool-worker-1 :      0.0 ms work (  0.0% wall utilization) | grids=0, hmCalls=119,040, biomes=0
+   ForkJoinPool.commonPool-worker-3 :      0.0 ms work (  0.0% wall utilization) | grids=0, hmCalls=129,024, biomes=0
+   ForkJoinPool.commonPool-worker-11 :      0.0 ms work (  0.0% wall utilization) | grids=0, hmCalls=33,024, biomes=0
+   ForkJoinPool.commonPool-worker-10 :      0.0 ms work (  0.0% wall utilization) | grids=0, hmCalls=97,280, biomes=0
+   ForkJoinPool.commonPool-worker-9 :      0.0 ms work (  0.0% wall utilization) | grids=0, hmCalls=33,792, biomes=0
+================================================================================

@@ -1,0 +1,100 @@
+[
+  {
+    "id": "SP-01",
+    "text": "Correct height-query semantics. In FTF generators, `getBaseHeight` returns the first free Y above the highest state matching the requested heightmap predicate within the configured/accessor intersection, or the normal minimum for an empty column. `getBaseColumn` and height helpers use the same canonical pre-structure density/fluid model. Preserve non-FTF behavior.",
+    "shapes": [
+      "numeric-range"
+    ]
+  },
+  {
+    "id": "SP-02",
+    "text": "Sampling stage is explicit and independent of cache warmth. Placement and base-column evaluation obtain canonical filtered terrain independent of cache warmth and exploration order. Raw/filtered/stage values cannot share an indistinguishable cache entry. Provide a distinct conservative planned final-surface/fluid envelope where post-NOISE work changes placement support; do not redefine the base-height API as a final decorated-world query.",
+    "shapes": [
+      "stateful",
+      "io"
+    ]
+  },
+  {
+    "id": "SP-03",
+    "text": "Noise-fill optimization preserves all density effects. Optimized fill is block-for-block equivalent to full configured-height fill, including structure terrain adaptations, junctions, interpolation and fluids. Use a conservative bound or full-height fallback whenever equivalence cannot be established.",
+    "shapes": [
+      "numeric-range",
+      "stateful"
+    ]
+  },
+  {
+    "id": "SP-04",
+    "text": "Explicit profiles and deterministic precedence. World-owned, versioned profiles select exact registry IDs or explicitly authored tags, with per-template support/clearance/air/blending metadata. Exact-ID rules override tag rules; equal-priority conflicting rules are rejected during validation with the conflicting IDs. Disable/passthrough rules can opt a structure out. Absent optional mods are harmless; a present but incompatible template fingerprint leaves its advanced profile inactive with a diagnostic. No namespace/name/height-based automatic classification.",
+    "shapes": [
+      "collection",
+      "text",
+      "stateful"
+    ]
+  },
+  {
+    "id": "SP-05",
+    "text": "Rigid surface placement has bounded support and clearance. Evaluate the actual transformed support mask, intended buried regions, occupied blocks and entry clearances. Keep the original candidate if valid. Otherwise choose a deterministic feasible rigid height or bounded same-start-chunk candidate, then reject with a reason if no legal fit exists. Do not twist individual columns, stretch machinery, edit the template, or bypass biome/exclusion constraints.",
+    "shapes": [
+      "numeric-range",
+      "collection"
+    ]
+  },
+  {
+    "id": "SP-06",
+    "text": "Natural landmarks preserve terrain outside their declared local effect. Reviewed natural profiles distinguish root/stem support from canopy clearance, intentional voids and blending domains. Root placement uses an explicit anchor rather than assuming the canopy center. Replace/restrict inherited full-box blending only for enrolled profiles. Suppress unwanted explicit air only where the reviewed profile declares terrain preservation; retain declared intentional cavities and distinguish omitted coordinates from air.",
+    "shapes": [
+      "numeric-range",
+      "collection"
+    ]
+  },
+  {
+    "id": "SP-07",
+    "text": "Airborne structures clear terrain within world limits. For explicitly enrolled airborne IDs, keep the original altitude if valid; otherwise lift the entire structure by the minimum legal amount satisfying occupied-footprint clearance. Honor maximum lift, actual occupied height, world bounds and dimension padding. Skip when no feasible altitude exists. Preserve Create's own disable/eligibility decisions.",
+    "shapes": [
+      "numeric-range",
+      "collection"
+    ]
+  },
+  {
+    "id": "SP-08",
+    "text": "Foundations are optional, local and budgeted. Additional foundation work is off by default. An enrolled profile may enable bounded material support/local blending within explicit masks, depth and volume limits, accounting for inherited beard effects and template writes. Work must preserve protected wet channels, shorelines, caves outside declared embedding and neighboring structures. If the fit exceeds budget, reject or retain upstream behavior in observation mode; never silently exceed the limit.",
+    "shapes": [
+      "numeric-range",
+      "collection",
+      "stateful"
+    ]
+  },
+  {
+    "id": "SP-09",
+    "text": "Determinism and complete structure state survive lifecycle changes. Results depend only on world/epoch, seed, structure selection, pinned profile/template data and coordinates. Bounded extra choices use their own stable salt without extra draws from upstream RNG. Apply one coherent transform; persist any policy decisions required by later chunks. Do not re-run selection when loading saved starts. Reload/cache invalidation is epoch-owned; in-flight starts retain one immutable policy snapshot.",
+    "shapes": [
+      "stateful",
+      "collection"
+    ]
+  },
+  {
+    "id": "SP-10",
+    "text": "Mod and loader behavior composes correctly. Respect the resolved mod/pack definitions and cancellations, preserve direct-holder compatibility, block entities, entities, liquid settings, processors, loot and machinery. No blanket early-return replacement that skips another mod's eligibility/placement work. Non-FTF dimensions and uninvolved structures retain behavior.",
+    "shapes": [
+      "stateful",
+      "collection"
+    ]
+  },
+  {
+    "id": "SP-11",
+    "text": "FTF quality and exploration density remain measurable constraints. Preserve terrain algorithms/parameters and demonstrate the quality gates in section 6. Compare installed baseline, correctness reference and policy candidate separately. Improved defect rates cannot be credited if valid structure density collapses. Keep existing village, trail-ruin, monument and subterranean protections under regression coverage.",
+    "shapes": [
+      "numeric-range",
+      "collection"
+    ]
+  },
+  {
+    "id": "SP-12",
+    "text": "Bounded cost and actionable diagnostics. Bound candidates, sampled columns, occupied-template analysis, memory and concurrency; precompute immutable template metadata per epoch. Capture original/resolved heights, sampling stage, profile identity, attempted/accepted/rejected counts, budget exhaustion and upstream rejection separately. No timeout-dependent placement or unbounded search. Standard play has no per-block log spam.",
+    "shapes": [
+      "numeric-range",
+      "stateful",
+      "io"
+    ]
+  }
+]

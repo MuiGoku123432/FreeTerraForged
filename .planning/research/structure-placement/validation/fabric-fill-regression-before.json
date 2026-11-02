@@ -1,0 +1,19 @@
+{
+  "seed": 42,
+  "passed": false,
+  "heightChecks": 144,
+  "blockChecks": 983040,
+  "failures": [
+    "fill BURY: 3328 blocks differ",
+    "fill BEARD_THIN: 537 blocks differ",
+    "fill BEARD_BOX: 277 blocks differ",
+    "fill ENCAPSULATE: 5888 blocks differ"
+  ],
+  "fillComparisons": [
+    "NONE: differences\u003d0, ground\u003d159",
+    "BURY: differences\u003d3328, ground\u003d159",
+    "BEARD_THIN: differences\u003d537, ground\u003d159",
+    "BEARD_BOX: differences\u003d277, ground\u003d159",
+    "ENCAPSULATE: differences\u003d5888, ground\u003d159"
+  ]
+}

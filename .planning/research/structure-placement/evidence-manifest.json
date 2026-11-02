@@ -1,0 +1,63 @@
+{
+  "date": "2026-10-27",
+  "checkout_head": "0f2da95bcdfc855adb39f9f4161682cbba8ae160",
+  "installed_ftf": {
+    "artifact": "freeterraforged-1.0.0014-custom-c5076eb8.jar",
+    "sha256": "1bee61bef338f24cca7f99421f48b0a01ec7aa06d6d17b639f746521f26d9af1"
+  },
+  "minecraft_bytecode": {
+    "artifact": "minecraft-merged-0a85100b89-1.21.1-loom.mappings.1_21_1.layered+hash.40359-v2.jar",
+    "sha256": "59eed89383eb473c8065d07189d11a311ac578255187ff8e179d61954f0a65e6"
+  },
+  "create_config": {
+    "file": "create_structures_arise-server.toml",
+    "sha256": "4982dc491e521afb0ccc0f1bc0dc6d7bad3ebaaf905d8416c7aa743ec5e0e959",
+    "airborne_avoid_steep_terrain": true,
+    "max_allowed_height_difference": 18,
+    "check_radius": 32
+  },
+  "sources": [
+    {
+      "path": "common/src/main/java/etcodehome/freeterraforged/world/worldgen/runtime/TerraForgedChunkGenerator.java",
+      "sha256": "e252ae2f088c6d66d5de3ba4e4bb25744015e27811d4cb3591005ebec8052ddd"
+    },
+    {
+      "path": "common/src/main/java/etcodehome/freeterraforged/world/worldgen/runtime/WorldgenPlans.java",
+      "sha256": "5e1fcfbd84505e230b7ae0e98c82252a6e9eeea9368815f4824254bd2c2f9f87"
+    },
+    {
+      "path": "common/src/main/java/etcodehome/freeterraforged/world/worldgen/runtime/NoiseFillExtent.java",
+      "sha256": "d4d2d39b6e48a1130077394303e124582e28b1ed466ab4907823d0f17f5ee377"
+    },
+    {
+      "path": "common/src/main/java/etcodehome/freeterraforged/world/worldgen/densityfunction/CellSampler.java",
+      "sha256": "bcc1798f5581d9e7e65db5ef18ea5dea884eee7a35ab4f673b4399ae85bd73e3"
+    },
+    {
+      "path": "common/src/main/java/etcodehome/freeterraforged/world/worldgen/cell/heightmap/WorldLookup.java",
+      "sha256": "49fe14b45faa0b484b15b7c593ff5aab509b15e87f6a150435985bb8498d99e1"
+    },
+    {
+      "path": "common/src/main/java/etcodehome/freeterraforged/world/worldgen/cell/heightmap/FilteredChunkCache.java",
+      "sha256": "69f64060914ad0c958498f57231dea3c6c613cd8f004cd6557a9ffc0b36e1133"
+    },
+    {
+      "path": "common/src/main/java/etcodehome/freeterraforged/mixin/MixinNoiseBasedChunkGenerator.java",
+      "sha256": "a11919e6d88e3e6a68fc0b7c037589bac5cf8e87dbfbb98fec8c4cf16a1b147a"
+    },
+    {
+      "path": "common/src/main/java/etcodehome/freeterraforged/mixin/MixinNoiseChunk.java",
+      "sha256": "0b8a7800814370225c9e18e5e33ed7dc46dc3875693458c8cf0e58071a39a43b"
+    },
+    {
+      "path": "common/src/main/java/etcodehome/freeterraforged/mixin/MixinJigsawStructure.java",
+      "sha256": "8e4ceef171c00298650628fef543e003e139ecd4e60ee1f4ae32478400be8ac7"
+    },
+    {
+      "path": "common/src/main/java/etcodehome/freeterraforged/mixin/MixinStructure.java",
+      "sha256": "e427c138472a3aa5b0bb3e7829b4e371d59fa3df72d78979c14d1850b253bb76"
+    }
+  ],
+  "upstream_create_commit": "59fa1eb18a586fb314be9a232a7efd2253c869b5",
+  "runtime_reproduction": false
+}

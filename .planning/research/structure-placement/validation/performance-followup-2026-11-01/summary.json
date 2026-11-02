@@ -1,0 +1,242 @@
+{
+  "date": "2026-11-01",
+  "original_commit": "c5076eb8130a28f10e625ed28d5a9d7aceeb7188",
+  "candidate_parent": "f91b17f7df729c2331424cbbd60d7da80f3785e4",
+  "source_sha256": {
+    "cell/filter/Erosion.java": "1b31d7b8071c69c0dc544e27b2d3b0ffe7b134c3984faaa005d488e7efffb59a",
+    "noise/module/Erosion.java": "b16f8333ae7a59723753392ec9999851fb59cd4baca07a5f060fa8f2d3e5074d"
+  },
+  "measurement_caveat": "Active developer workstation with observed pre-existing Java and desktop CPU load. All timings retained; medians are descriptive, not a clean release gate.",
+  "small": {
+    "seed": 42,
+    "radius": 4,
+    "target_chunks": 81,
+    "pairs": [
+      {
+        "pair": 1,
+        "order": [
+          "original",
+          "candidate"
+        ],
+        "original": {
+          "wall_ms": 5620.1,
+          "chunks_per_second": 14.41,
+          "structure_stage_ms": 299.4,
+          "grid_init_ms": 1531.2,
+          "erosion_filter_ms": 321.5,
+          "regions": 25
+        },
+        "candidate": {
+          "wall_ms": 6572.9,
+          "chunks_per_second": 12.32,
+          "structure_stage_ms": 1903.6,
+          "grid_init_ms": 1045.8,
+          "erosion_filter_ms": 540.8,
+          "regions": 90
+        },
+        "candidate_throughput_relative_to_original": 0.8550411538285994
+      },
+      {
+        "pair": 2,
+        "order": [
+          "candidate",
+          "original"
+        ],
+        "original": {
+          "wall_ms": 5303.9,
+          "chunks_per_second": 15.27,
+          "structure_stage_ms": 314.9,
+          "grid_init_ms": 1511.1,
+          "erosion_filter_ms": 349.3,
+          "regions": 25
+        },
+        "candidate": {
+          "wall_ms": 6345.2,
+          "chunks_per_second": 12.77,
+          "structure_stage_ms": 1948.2,
+          "grid_init_ms": 1088.8,
+          "erosion_filter_ms": 606.2,
+          "regions": 90
+        },
+        "candidate_throughput_relative_to_original": 0.8358916976612242
+      },
+      {
+        "pair": 3,
+        "order": [
+          "original",
+          "candidate"
+        ],
+        "original": {
+          "wall_ms": 8043.3,
+          "chunks_per_second": 10.07,
+          "structure_stage_ms": 550.5,
+          "grid_init_ms": 2510.3,
+          "erosion_filter_ms": 619.6,
+          "regions": 25
+        },
+        "candidate": {
+          "wall_ms": 6835.0,
+          "chunks_per_second": 11.85,
+          "structure_stage_ms": 1826.8,
+          "grid_init_ms": 1058.2,
+          "erosion_filter_ms": 601.5,
+          "regions": 90
+        },
+        "candidate_throughput_relative_to_original": 1.176781272860278
+      },
+      {
+        "pair": 4,
+        "order": [
+          "candidate",
+          "original"
+        ],
+        "original": {
+          "wall_ms": 15574.8,
+          "chunks_per_second": 5.2,
+          "structure_stage_ms": 778.9,
+          "grid_init_ms": 4189.6,
+          "erosion_filter_ms": 810.9,
+          "regions": 25
+        },
+        "candidate": {
+          "wall_ms": 15162.7,
+          "chunks_per_second": 5.34,
+          "structure_stage_ms": 4720.0,
+          "grid_init_ms": 2630.7,
+          "erosion_filter_ms": 1329.1,
+          "regions": 90
+        },
+        "candidate_throughput_relative_to_original": 1.027178536804131
+      },
+      {
+        "pair": 5,
+        "order": [
+          "original",
+          "candidate"
+        ],
+        "original": {
+          "wall_ms": 6789.4,
+          "chunks_per_second": 11.93,
+          "structure_stage_ms": 465.9,
+          "grid_init_ms": 2645.9,
+          "erosion_filter_ms": 501.1,
+          "regions": 25
+        },
+        "candidate": {
+          "wall_ms": 6364.3,
+          "chunks_per_second": 12.73,
+          "structure_stage_ms": 1641.4,
+          "grid_init_ms": 777.6,
+          "erosion_filter_ms": 368.4,
+          "regions": 90
+        },
+        "candidate_throughput_relative_to_original": 1.0667944628631585
+      }
+    ],
+    "command": "./gradlew :fabric:runBenchmarkServer -PftfBenchmarkRadius=4 -PftfBenchmarkSeed=42 --offline --no-daemon",
+    "original_median_wall_ms": 6789.4,
+    "original_wall_ms_range": [
+      5303.9,
+      15574.8
+    ],
+    "candidate_median_wall_ms": 6572.9,
+    "candidate_wall_ms_range": [
+      6345.2,
+      15162.7
+    ],
+    "ratio_of_median_throughputs": 1.0329382768640936,
+    "median_paired_throughput_ratio": 1.027178536804131
+  },
+  "larger": {
+    "seed": 8675309,
+    "radius": 8,
+    "target_chunks": 289,
+    "pairs": [
+      {
+        "pair": 1,
+        "order": [
+          "original",
+          "candidate"
+        ],
+        "original": {
+          "wall_ms": 13671.2,
+          "chunks_per_second": 21.14,
+          "structure_stage_ms": 961.6,
+          "grid_init_ms": 1093.0,
+          "erosion_filter_ms": 753.0,
+          "regions": 42
+        },
+        "candidate": {
+          "wall_ms": 16426.8,
+          "chunks_per_second": 17.59,
+          "structure_stage_ms": 4307.3,
+          "grid_init_ms": 2231.7,
+          "erosion_filter_ms": 1454.7,
+          "regions": 207
+        },
+        "candidate_throughput_relative_to_original": 0.8322497382326443
+      },
+      {
+        "pair": 2,
+        "order": [
+          "candidate",
+          "original"
+        ],
+        "original": {
+          "wall_ms": 13096.8,
+          "chunks_per_second": 22.07,
+          "structure_stage_ms": 949.6,
+          "grid_init_ms": 1192.8,
+          "erosion_filter_ms": 666.4,
+          "regions": 42
+        },
+        "candidate": {
+          "wall_ms": 15942.2,
+          "chunks_per_second": 18.13,
+          "structure_stage_ms": 4817.5,
+          "grid_init_ms": 1847.0,
+          "erosion_filter_ms": 1123.4,
+          "regions": 194
+        },
+        "candidate_throughput_relative_to_original": 0.8215177328097752
+      },
+      {
+        "pair": 3,
+        "order": [
+          "original",
+          "candidate"
+        ],
+        "original": {
+          "wall_ms": 13849.8,
+          "chunks_per_second": 20.87,
+          "structure_stage_ms": 997.0,
+          "grid_init_ms": 1146.1,
+          "erosion_filter_ms": 637.5,
+          "regions": 42
+        },
+        "candidate": {
+          "wall_ms": 17097.0,
+          "chunks_per_second": 16.9,
+          "structure_stage_ms": 5314.5,
+          "grid_init_ms": 2227.1,
+          "erosion_filter_ms": 1361.7,
+          "regions": 204
+        },
+        "candidate_throughput_relative_to_original": 0.8100719424460431
+      }
+    ],
+    "command": "./gradlew :fabric:runBenchmarkServer -PftfBenchmarkRadius=8 -PftfBenchmarkSeed=8675309 --offline --no-daemon",
+    "original_median_wall_ms": 13671.2,
+    "original_wall_ms_range": [
+      13096.8,
+      13849.8
+    ],
+    "candidate_median_wall_ms": 16426.8,
+    "candidate_wall_ms_range": [
+      15942.2,
+      17097.0
+    ],
+    "ratio_of_median_throughputs": 0.8322497382326443,
+    "median_paired_throughput_ratio": 0.8215177328097752
+  }
+}

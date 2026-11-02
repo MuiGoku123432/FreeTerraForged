@@ -25,6 +25,12 @@ test {
     testLogging { events 'passed', 'skipped', 'failed' }
 }
 
+test {
+    useJUnitPlatform()
+    maxHeapSize = '2G'
+    testLogging { events 'passed', 'skipped', 'failed' }
+}
+
 repositories {
     mavenCentral()
     maven { url "https://api.modrinth.com/maven" }

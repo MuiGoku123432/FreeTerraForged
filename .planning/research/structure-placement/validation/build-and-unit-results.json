@@ -1,0 +1,17 @@
+{
+  "suite": "etcodehome.freeterraforged.world.worldgen.structure.FilteredDensitySamplingTest",
+  "tests": 3,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "cases": [
+    "coldDensityQueryUsesTheSameFilteredHeightAsTheGeneratedChunk()",
+    "paddedRegionBoundaryIsOwnedByTheSampledCoordinate()",
+    "concurrentColdQueriesAndCacheClearsRetainCoordinateAndWorldOwnership()"
+  ],
+  "build_command": "./gradlew :common:test :fabric:build :neoforge:build :fabric:runBenchmarkServer -PftfStructureProbe=true -PftfBenchmarkSeed=8675309 --offline --no-daemon",
+  "build_result": "BUILD SUCCESSFUL",
+  "java": "Temurin 21",
+  "minecraft": "1.21.1",
+  "default_neoforge": "21.1.219"
+}

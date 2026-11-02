@@ -1,0 +1,2955 @@
+{
+  "method": "static installed-jar inventory; no world generation",
+  "artifacts": [
+    {
+      "artifact": "Create-Structures-Arise-1.21.1-NeoForge-176.49.49.jar",
+      "sha256": "a98c1853a4a3ab2b845f19617b8ed6aed682aa77e818c13bae4ab95ebff8bd6e",
+      "class_count": 22,
+      "structures": [
+        {
+          "path": "data/create_structures_arise/worldgen/structure/chocolate_pit.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "create_structures_arise:chocolate_pit",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "none",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": "#structures_arise:landbiomes",
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/structure/create_bastion.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "create_structures_arise:create_bastion",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_box",
+          "start_height": {
+            "type": "minecraft:uniform",
+            "min_inclusive": {
+              "absolute": 30
+            },
+            "max_inclusive": {
+              "absolute": 60
+            }
+          },
+          "biomes": "#minecraft:is_nether",
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/structure/create_copper_statue.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "create_structures_arise:create_copper_statue",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_thin",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": "#structures_arise:landbiomes",
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/structure/create_dungeon_base.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "create_structures_arise:create_dungeon_base",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "underground_structures",
+          "terrain_adaptation": "beard_box",
+          "start_height": {
+            "type": "minecraft:uniform",
+            "min_inclusive": {
+              "absolute": -50
+            },
+            "max_inclusive": {
+              "absolute": 0
+            }
+          },
+          "biomes": "#minecraft:is_overworld",
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/structure/create_ruined_castle.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "create_structures_arise:create_ruined_castle",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "none",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": "#structures_arise:landbiomes",
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/structure/createairdrop.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "create_structures_arise:createairdrop",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "none",
+          "start_height": {
+            "type": "minecraft:uniform",
+            "min_inclusive": {
+              "absolute": 100
+            },
+            "max_inclusive": {
+              "absolute": 200
+            }
+          },
+          "biomes": "#minecraft:is_overworld",
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/structure/createcontainer.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "create_structures_arise:createcontainer",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_thin",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": "#structures_arise:landbiomes",
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/structure/createcushercrane.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "create_structures_arise:createcushercrane",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_thin",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": "#structures_arise:landbiomes",
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/structure/createdesertwell.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "create_structures_arise:createdesertwell",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_thin",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": [
+            "desert",
+            "plains"
+          ],
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/structure/createfluidtank.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "create_structures_arise:createfluidtank",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_thin",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": "#structures_arise:landbiomes",
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/structure/createhouse.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "create_structures_arise:createhouse",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_thin",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": "#structures_arise:landbiomes",
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/structure/createlittleman.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "create_structures_arise:createlittleman",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_thin",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": "#structures_arise:landbiomes",
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/structure/createlosttrainstation.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "create_structures_arise:createlosttrainstation",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_thin",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": "#structures_arise:landbiomes",
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/structure/createminiskyvillage.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "create_structures_arise:createminiskyvillage",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "none",
+          "start_height": {
+            "type": "minecraft:uniform",
+            "min_inclusive": {
+              "absolute": 200
+            },
+            "max_inclusive": {
+              "absolute": 201
+            }
+          },
+          "biomes": "#structures_arise:landbiomes",
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/structure/createmonsterroom.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "create_structures_arise:createmonsterroom",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "none",
+          "start_height": {
+            "type": "minecraft:uniform",
+            "min_inclusive": {
+              "absolute": -40
+            },
+            "max_inclusive": {
+              "absolute": 70
+            }
+          },
+          "biomes": "#minecraft:is_overworld",
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/structure/createoldruine.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "create_structures_arise:createoldruine",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_thin",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": "#structures_arise:landbiomes",
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/structure/createpickaxestatue.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "create_structures_arise:createpickaxestatue",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_thin",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": "#structures_arise:landbiomes",
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/structure/createwitchhut.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "create_structures_arise:createwitchhut",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_thin",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": "swamp",
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/structure/crimsite_tower.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "create_structures_arise:crimsite_tower",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_thin",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": "#structures_arise:landbiomes",
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/structure/darkcastle.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "create_structures_arise:darkcastle",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_box",
+          "start_height": {
+            "type": "minecraft:uniform",
+            "min_inclusive": {
+              "absolute": 50
+            },
+            "max_inclusive": {
+              "absolute": 100
+            }
+          },
+          "biomes": "#minecraft:is_nether",
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/structure/deadlordshouse.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "create_structures_arise:deadlordshouse",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_box",
+          "start_height": {
+            "type": "minecraft:uniform",
+            "min_inclusive": {
+              "absolute": 30
+            },
+            "max_inclusive": {
+              "absolute": 120
+            }
+          },
+          "biomes": "#minecraft:is_nether",
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/structure/honey_pit.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "create_structures_arise:honey_pit",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "none",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": "#structures_arise:landbiomes",
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/structure/minetrain.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "create_structures_arise:minetrain",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_thin",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": "#structures_arise:landbiomes",
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/structure/obsidiantemple.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "create_structures_arise:obsidiantemple",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_box",
+          "start_height": {
+            "type": "minecraft:uniform",
+            "min_inclusive": {
+              "absolute": 30
+            },
+            "max_inclusive": {
+              "absolute": 100
+            }
+          },
+          "biomes": "#minecraft:is_nether",
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/structure/pillager_boat.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "create_structures_arise:pillager_boat",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "none",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": "#structures_arise:oceans",
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/structure/pillagersteampunkairship.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "create_structures_arise:pillagersteampunkairship",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "none",
+          "start_height": {
+            "type": "minecraft:uniform",
+            "min_inclusive": {
+              "absolute": 160
+            },
+            "max_inclusive": {
+              "absolute": 190
+            }
+          },
+          "biomes": "#minecraft:is_overworld",
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/structure/towerofochrum.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "create_structures_arise:towerofochrum",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_thin",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": "#structures_arise:landbiomes",
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/structure/windmill.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "create_structures_arise:windmill",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_thin",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": "#structures_arise:landbiomes",
+          "use_expansion_hack": false
+        }
+      ],
+      "pools": [
+        {
+          "path": "data/create_structures_arise/worldgen/template_pool/chocolate_pit.json",
+          "name": "create_structures_arise:chocolate_pit",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "create_structures_arise:chocolate_pit",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/template_pool/create_bastion.json",
+          "name": "create_structures_arise:create_bastion",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "create_structures_arise:create_bastion",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/template_pool/create_copper_statue.json",
+          "name": "create_structures_arise:create_copper_statue",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "create_structures_arise:create_arise_copper_golem",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/template_pool/create_dungeon_base.json",
+          "name": "create_structures_arise:create_dungeon_base",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "create_structures_arise:create_dungeon_base_update1",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/template_pool/create_ruined_castle.json",
+          "name": "create_structures_arise:create_ruined_castle",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "create_structures_arise:ruined_castle3",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/template_pool/createairdrop.json",
+          "name": "create_structures_arise:createairdrop",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "create_structures_arise:airdrop444",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/template_pool/createcontainer.json",
+          "name": "create_structures_arise:createcontainer",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "create_structures_arise:smart_container",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/template_pool/createcushercrane.json",
+          "name": "create_structures_arise:createcushercrane",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "create_structures_arise:smart_crusher_crane",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/template_pool/createdesertwell.json",
+          "name": "create_structures_arise:createdesertwell",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "create_structures_arise:create_desert_well",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/template_pool/createfluidtank.json",
+          "name": "create_structures_arise:createfluidtank",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "create_structures_arise:smart_fluitank",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/template_pool/createhouse.json",
+          "name": "create_structures_arise:createhouse",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "create_structures_arise:smart_house",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/template_pool/createlittleman.json",
+          "name": "create_structures_arise:createlittleman",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "create_structures_arise:smart_littleman",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/template_pool/createlosttrainstation.json",
+          "name": "create_structures_arise:createlosttrainstation",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "create_structures_arise:smart_train_station",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/template_pool/createminiskyvillage.json",
+          "name": "create_structures_arise:createminiskyvillage",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "create_structures_arise:create_mini_sky_village_new",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/template_pool/createmonsterroom.json",
+          "name": "create_structures_arise:createmonsterroom",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "create_structures_arise:create_monsterroom",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/template_pool/createoldruine.json",
+          "name": "create_structures_arise:createoldruine",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "create_structures_arise:ruinegp",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/template_pool/createpickaxestatue.json",
+          "name": "create_structures_arise:createpickaxestatue",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "create_structures_arise:create_arise_pickaxe",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/template_pool/createwitchhut.json",
+          "name": "create_structures_arise:createwitchhut",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "create_structures_arise:create_witch_hut",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/template_pool/crimsite_tower.json",
+          "name": "create_structures_arise:crimsite_tower",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "create_structures_arise:crimsite_tower",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/template_pool/darkcastle.json",
+          "name": "create_structures_arise:darkcastle",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "create_structures_arise:darkest_castle111",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/template_pool/deadlordshouse.json",
+          "name": "create_structures_arise:deadlordshouse",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "create_structures_arise:dead_lords_house1",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/template_pool/honey_pit.json",
+          "name": "create_structures_arise:honey_pit",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "create_structures_arise:honey_pit",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/template_pool/minetrain.json",
+          "name": "create_structures_arise:minetrain",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "create_structures_arise:smart_mine_train",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/template_pool/obsidiantemple.json",
+          "name": "create_structures_arise:obsidiantemple",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "create_structures_arise:obsidian_temple",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/template_pool/pillager_boat.json",
+          "name": "create_structures_arise:pillager_boat",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "create_structures_arise:pillager_boat",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/template_pool/pillagersteampunkairship.json",
+          "name": "create_structures_arise:pillagersteampunkairship",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "create_structures_arise:pillager_massive_warship1",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/template_pool/towerofochrum.json",
+          "name": "create_structures_arise:towerofochrum",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "create_structures_arise:tower_of_ochem_new",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/create_structures_arise/worldgen/template_pool/windmill.json",
+          "name": "create_structures_arise:windmill",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "create_structures_arise:create_arise_windmill",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "templates": [
+        {
+          "path": "data/create_structures_arise/structure/airdrop444.nbt",
+          "size": [
+            17,
+            45,
+            16
+          ],
+          "stored_blocks": 1783,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 87,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/chocolate_pit.nbt",
+          "size": [
+            13,
+            3,
+            13
+          ],
+          "stored_blocks": 284,
+          "explicit_air_blocks": 115,
+          "structure_void_blocks": 0,
+          "block_entities": 0,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/containergp.nbt",
+          "size": [
+            15,
+            6,
+            7
+          ],
+          "stored_blocks": 381,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 131,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/copper_golem_2025updated.nbt",
+          "size": [
+            14,
+            14,
+            10
+          ],
+          "stored_blocks": 559,
+          "explicit_air_blocks": 1,
+          "structure_void_blocks": 0,
+          "block_entities": 26,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/create_arise_copper_golem.nbt",
+          "size": [
+            14,
+            14,
+            10
+          ],
+          "stored_blocks": 524,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 27,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/create_arise_crane.nbt",
+          "size": [
+            28,
+            9,
+            12
+          ],
+          "stored_blocks": 263,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 39,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/create_arise_fluittank.nbt",
+          "size": [
+            5,
+            8,
+            5
+          ],
+          "stored_blocks": 89,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 73,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/create_arise_house.nbt",
+          "size": [
+            19,
+            17,
+            24
+          ],
+          "stored_blocks": 1381,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 76,
+          "entities": 3,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/create_arise_littleman.nbt",
+          "size": [
+            6,
+            9,
+            8
+          ],
+          "stored_blocks": 100,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 54,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/create_arise_minetrain.nbt",
+          "size": [
+            9,
+            5,
+            8
+          ],
+          "stored_blocks": 54,
+          "explicit_air_blocks": 1,
+          "structure_void_blocks": 0,
+          "block_entities": 23,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/create_arise_pickaxe.nbt",
+          "size": [
+            15,
+            16,
+            13
+          ],
+          "stored_blocks": 287,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 2,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/create_arise_train_station.nbt",
+          "size": [
+            20,
+            10,
+            17
+          ],
+          "stored_blocks": 1026,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 79,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/create_arise_windmill.nbt",
+          "size": [
+            27,
+            36,
+            18
+          ],
+          "stored_blocks": 1680,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 95,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/create_bastion.nbt",
+          "size": [
+            38,
+            48,
+            38
+          ],
+          "stored_blocks": 32114,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 155,
+          "entities": 3,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/create_desert_well.nbt",
+          "size": [
+            5,
+            12,
+            5
+          ],
+          "stored_blocks": 112,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 16,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/create_dungeon_base_update1.nbt",
+          "size": [
+            38,
+            27,
+            37
+          ],
+          "stored_blocks": 33182,
+          "explicit_air_blocks": 2,
+          "structure_void_blocks": 0,
+          "block_entities": 611,
+          "entities": 64,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/create_mini_sky_village_new.nbt",
+          "size": [
+            28,
+            35,
+            49
+          ],
+          "stored_blocks": 48020,
+          "explicit_air_blocks": 44957,
+          "structure_void_blocks": 0,
+          "block_entities": 77,
+          "entities": 2,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/create_monsterroom.nbt",
+          "size": [
+            7,
+            5,
+            9
+          ],
+          "stored_blocks": 314,
+          "explicit_air_blocks": 79,
+          "structure_void_blocks": 0,
+          "block_entities": 11,
+          "entities": 4,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/create_witch_hut.nbt",
+          "size": [
+            7,
+            7,
+            10
+          ],
+          "stored_blocks": 152,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 13,
+          "entities": 3,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/createhousegp.nbt",
+          "size": [
+            22,
+            17,
+            19
+          ],
+          "stored_blocks": 1383,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 75,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/crimsite_tower.nbt",
+          "size": [
+            18,
+            25,
+            15
+          ],
+          "stored_blocks": 1671,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 144,
+          "entities": 3,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/crusher_cranegp.nbt",
+          "size": [
+            22,
+            9,
+            7
+          ],
+          "stored_blocks": 258,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 38,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/darkest_castle111.nbt",
+          "size": [
+            45,
+            26,
+            51
+          ],
+          "stored_blocks": 14150,
+          "explicit_air_blocks": 2296,
+          "structure_void_blocks": 0,
+          "block_entities": 1698,
+          "entities": 21,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/dead_lords_house1.nbt",
+          "size": [
+            13,
+            12,
+            13
+          ],
+          "stored_blocks": 647,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 126,
+          "entities": 2,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/fluittankgp.nbt",
+          "size": [
+            5,
+            8,
+            5
+          ],
+          "stored_blocks": 89,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 73,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/honey_pit.nbt",
+          "size": [
+            13,
+            3,
+            13
+          ],
+          "stored_blocks": 284,
+          "explicit_air_blocks": 115,
+          "structure_void_blocks": 0,
+          "block_entities": 0,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/littlemangp.nbt",
+          "size": [
+            8,
+            9,
+            6
+          ],
+          "stored_blocks": 100,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 54,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/minetraingp.nbt",
+          "size": [
+            7,
+            4,
+            10
+          ],
+          "stored_blocks": 65,
+          "explicit_air_blocks": 2,
+          "structure_void_blocks": 0,
+          "block_entities": 26,
+          "entities": 1,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/obsidian_temple.nbt",
+          "size": [
+            21,
+            18,
+            21
+          ],
+          "stored_blocks": 3473,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 93,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/pickaxegp.nbt",
+          "size": [
+            16,
+            17,
+            11
+          ],
+          "stored_blocks": 269,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 0,
+          "entities": 1,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/pillager_boat.nbt",
+          "size": [
+            28,
+            65,
+            76
+          ],
+          "stored_blocks": 14091,
+          "explicit_air_blocks": 6669,
+          "structure_void_blocks": 0,
+          "block_entities": 339,
+          "entities": 11,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/pillager_massive_warship1.nbt",
+          "size": [
+            69,
+            64,
+            59
+          ],
+          "stored_blocks": 45080,
+          "explicit_air_blocks": 38782,
+          "structure_void_blocks": 0,
+          "block_entities": 536,
+          "entities": 18,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/ruined_castle3.nbt",
+          "size": [
+            22,
+            17,
+            21
+          ],
+          "stored_blocks": 902,
+          "explicit_air_blocks": 5,
+          "structure_void_blocks": 0,
+          "block_entities": 7,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/ruinegp.nbt",
+          "size": [
+            6,
+            6,
+            5
+          ],
+          "stored_blocks": 29,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 0,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/smart_container.nbt",
+          "size": [
+            7,
+            7,
+            14
+          ],
+          "stored_blocks": 484,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 131,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/smart_crusher_crane.nbt",
+          "size": [
+            7,
+            11,
+            22
+          ],
+          "stored_blocks": 417,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 39,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/smart_fluitank.nbt",
+          "size": [
+            5,
+            10,
+            5
+          ],
+          "stored_blocks": 114,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 73,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/smart_house.nbt",
+          "size": [
+            19,
+            19,
+            23
+          ],
+          "stored_blocks": 1908,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 76,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/smart_littleman.nbt",
+          "size": [
+            8,
+            10,
+            6
+          ],
+          "stored_blocks": 148,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 54,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/smart_mine_train.nbt",
+          "size": [
+            10,
+            6,
+            7
+          ],
+          "stored_blocks": 123,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 22,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/smart_train_station.nbt",
+          "size": [
+            17,
+            10,
+            19
+          ],
+          "stored_blocks": 1347,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 79,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/tower_of_ochem_new.nbt",
+          "size": [
+            25,
+            176,
+            26
+          ],
+          "stored_blocks": 84454,
+          "explicit_air_blocks": 12848,
+          "structure_void_blocks": 0,
+          "block_entities": 1124,
+          "entities": 5,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/tower_of_ochrum.nbt",
+          "size": [
+            25,
+            175,
+            26
+          ],
+          "stored_blocks": 83773,
+          "explicit_air_blocks": 12848,
+          "structure_void_blocks": 0,
+          "block_entities": 1123,
+          "entities": 5,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/trainstationgp.nbt",
+          "size": [
+            19,
+            9,
+            20
+          ],
+          "stored_blocks": 1543,
+          "explicit_air_blocks": 513,
+          "structure_void_blocks": 0,
+          "block_entities": 75,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/create_structures_arise/structure/windmill_structure.nbt",
+          "size": [
+            22,
+            37,
+            17
+          ],
+          "stored_blocks": 1671,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 86,
+          "entities": 0,
+          "palette_count": 1
+        }
+      ],
+      "summary": {
+        "structures": 28,
+        "pools": 28,
+        "templates": 45,
+        "terrain_adaptation": {
+          "none": 8,
+          "beard_box": 5,
+          "beard_thin": 15
+        },
+        "heightmap": {
+          "WORLD_SURFACE_WG": 19,
+          "none": 9
+        },
+        "projection": {
+          "rigid": 28
+        }
+      }
+    },
+    {
+      "artifact": "giant_natural_additions-2.0.0-neoforge-1.21.1.jar",
+      "sha256": "18b6cb67ffdd164a30a07fab0b744e7d05f10db1452c52f1b2ee4e0dff7e8526",
+      "class_count": 2,
+      "structures": [
+        {
+          "path": "data/giant_natural_additions/worldgen/structure/big_birch_tree.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "giant_natural_additions:big_birch_tree",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_thin",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": [
+            "birch_forest",
+            "old_growth_birch_forest"
+          ],
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/giant_natural_additions/worldgen/structure/giant_bamboo.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "giant_natural_additions:giant_bamboo",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_thin",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": "bamboo_jungle",
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/giant_natural_additions/worldgen/structure/giant_brown_mushroom.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "giant_natural_additions:giant_brown_mushroom",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_thin",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": [
+            "mushroom_fields",
+            "dark_forest"
+          ],
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/giant_natural_additions/worldgen/structure/giant_cactus.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "giant_natural_additions:giant_cactus",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_thin",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": "desert",
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/giant_natural_additions/worldgen/structure/giant_cherry_blossom_bonsai_tree.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "giant_natural_additions:giant_cherry_blossom_bonsai_tree",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_thin",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": "cherry_grove",
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/giant_natural_additions/worldgen/structure/giant_dead_oak_tree.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "giant_natural_additions:giant_dead_oak_tree",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_thin",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": [
+            "wooded_badlands",
+            "forest"
+          ],
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/giant_natural_additions/worldgen/structure/giant_ice_spike.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "giant_natural_additions:giant_ice_spike",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_thin",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": "ice_spikes",
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/giant_natural_additions/worldgen/structure/giant_jungle_tree.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "giant_natural_additions:giant_jungle_tree",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_thin",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": [
+            "jungle",
+            "sparse_jungle"
+          ],
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/giant_natural_additions/worldgen/structure/giant_nether_tree.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "giant_natural_additions:giant_nether_tree",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_box",
+          "start_height": {
+            "type": "minecraft:uniform",
+            "min_inclusive": {
+              "absolute": 40
+            },
+            "max_inclusive": {
+              "absolute": 60
+            }
+          },
+          "biomes": [
+            "crimson_forest",
+            "nether_wastes"
+          ],
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/giant_natural_additions/worldgen/structure/giant_oak_tree.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "giant_natural_additions:giant_oak_tree",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_thin",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": [
+            "flower_forest",
+            "forest"
+          ],
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/giant_natural_additions/worldgen/structure/giant_palm_tree.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "giant_natural_additions:giant_palm_tree",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_thin",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": "beach",
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/giant_natural_additions/worldgen/structure/giant_pine_tree.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "giant_natural_additions:giant_pine_tree",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_thin",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": [
+            "old_growth_pine_taiga",
+            "old_growth_spruce_taiga",
+            "snowy_taiga",
+            "taiga"
+          ],
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/giant_natural_additions/worldgen/structure/giant_red_mushroom.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "giant_natural_additions:giant_red_mushroom",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_thin",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": [
+            "mushroom_fields",
+            "dark_forest"
+          ],
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/giant_natural_additions/worldgen/structure/giant_snow_tree.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "giant_natural_additions:giant_snow_tree",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_thin",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": [
+            "snowy_plains",
+            "snowy_taiga"
+          ],
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/giant_natural_additions/worldgen/structure/giant_swamp_tree.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "giant_natural_additions:giant_swamp_tree",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_thin",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": [
+            "mangrove_swamp",
+            "swamp"
+          ],
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/giant_natural_additions/worldgen/structure/giant_tree_stump.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "giant_natural_additions:giant_tree_stump",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_thin",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": [
+            "plains",
+            "forest"
+          ],
+          "use_expansion_hack": false
+        },
+        {
+          "path": "data/giant_natural_additions/worldgen/structure/giant_yellow_tree.json",
+          "type": "minecraft:jigsaw",
+          "start_pool": "giant_natural_additions:giant_yellow_tree",
+          "size": 1,
+          "max_distance_from_center": 64,
+          "spawn_overrides": {},
+          "step": "surface_structures",
+          "terrain_adaptation": "beard_thin",
+          "start_height": {
+            "absolute": 0
+          },
+          "project_start_to_heightmap": "WORLD_SURFACE_WG",
+          "biomes": [
+            "savanna",
+            "birch_forest",
+            "old_growth_birch_forest"
+          ],
+          "use_expansion_hack": false
+        }
+      ],
+      "pools": [
+        {
+          "path": "data/giant_natural_additions/worldgen/template_pool/big_birch_tree.json",
+          "name": "giant_natural_additions:big_birch_tree",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "giant_natural_additions:giant_birch_tree",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/giant_natural_additions/worldgen/template_pool/giant_bamboo.json",
+          "name": "giant_natural_additions:giant_bamboo",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "giant_natural_additions:giant_bamboo",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/giant_natural_additions/worldgen/template_pool/giant_brown_mushroom.json",
+          "name": "giant_natural_additions:giant_brown_mushroom",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "giant_natural_additions:giant_brown_mushroom",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/giant_natural_additions/worldgen/template_pool/giant_cactus.json",
+          "name": "giant_natural_additions:giant_cactus",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "giant_natural_additions:giant_cactus",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/giant_natural_additions/worldgen/template_pool/giant_cherry_blossom_bonsai_tree.json",
+          "name": "giant_natural_additions:giant_cherry_blossom_bonsai_tree",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "giant_natural_additions:giant_cherry_bonsai2.0",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/giant_natural_additions/worldgen/template_pool/giant_dead_oak_tree.json",
+          "name": "giant_natural_additions:giant_dead_oak_tree",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "giant_natural_additions:dead_tree",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/giant_natural_additions/worldgen/template_pool/giant_ice_spike.json",
+          "name": "giant_natural_additions:giant_ice_spike",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "giant_natural_additions:giant_icespike",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/giant_natural_additions/worldgen/template_pool/giant_jungle_tree.json",
+          "name": "giant_natural_additions:giant_jungle_tree",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "giant_natural_additions:giant_jungle_tree",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/giant_natural_additions/worldgen/template_pool/giant_nether_tree.json",
+          "name": "giant_natural_additions:giant_nether_tree",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "giant_natural_additions:nether_tree",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/giant_natural_additions/worldgen/template_pool/giant_oak_tree.json",
+          "name": "giant_natural_additions:giant_oak_tree",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "giant_natural_additions:giant_oak_tree",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/giant_natural_additions/worldgen/template_pool/giant_palm_tree.json",
+          "name": "giant_natural_additions:giant_palm_tree",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "giant_natural_additions:giant_palm_tree",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/giant_natural_additions/worldgen/template_pool/giant_pine_tree.json",
+          "name": "giant_natural_additions:giant_pine_tree",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "giant_natural_additions:giant_pine_tree",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/giant_natural_additions/worldgen/template_pool/giant_red_mushroom.json",
+          "name": "giant_natural_additions:giant_red_mushroom",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "giant_natural_additions:giant_red_mushroom",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/giant_natural_additions/worldgen/template_pool/giant_snow_tree.json",
+          "name": "giant_natural_additions:giant_snow_tree",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "giant_natural_additions:bluetree",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/giant_natural_additions/worldgen/template_pool/giant_swamp_tree.json",
+          "name": "giant_natural_additions:giant_swamp_tree",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "giant_natural_additions:giant_swamp_tree",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/giant_natural_additions/worldgen/template_pool/giant_tree_stump.json",
+          "name": "giant_natural_additions:giant_tree_stump",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "giant_natural_additions:gianttreestump",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "path": "data/giant_natural_additions/worldgen/template_pool/giant_yellow_tree.json",
+          "name": "giant_natural_additions:giant_yellow_tree",
+          "fallback": "minecraft:empty",
+          "elements": [
+            {
+              "weight": 1,
+              "element": {
+                "element_type": "minecraft:single_pool_element",
+                "location": "giant_natural_additions:giant_yellow_tree",
+                "projection": "rigid",
+                "processors": {
+                  "processors": [
+                    {
+                      "processor_type": "minecraft:block_ignore",
+                      "blocks": [
+                        {
+                          "Name": "minecraft:structure_block"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "templates": [
+        {
+          "path": "data/giant_natural_additions/structure/bluetree.nbt",
+          "size": [
+            73,
+            83,
+            76
+          ],
+          "stored_blocks": 42906,
+          "explicit_air_blocks": 27751,
+          "structure_void_blocks": 0,
+          "block_entities": 3,
+          "entities": 1,
+          "palette_count": 1
+        },
+        {
+          "path": "data/giant_natural_additions/structure/dead_tree.nbt",
+          "size": [
+            82,
+            74,
+            87
+          ],
+          "stored_blocks": 11619,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 0,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/giant_natural_additions/structure/giant_bamboo.nbt",
+          "size": [
+            11,
+            51,
+            5
+          ],
+          "stored_blocks": 2805,
+          "explicit_air_blocks": 2251,
+          "structure_void_blocks": 0,
+          "block_entities": 0,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/giant_natural_additions/structure/giant_birch_tree.nbt",
+          "size": [
+            36,
+            78,
+            37
+          ],
+          "stored_blocks": 88342,
+          "explicit_air_blocks": 81999,
+          "structure_void_blocks": 0,
+          "block_entities": 2,
+          "entities": 4,
+          "palette_count": 1
+        },
+        {
+          "path": "data/giant_natural_additions/structure/giant_brown_mushroom.nbt",
+          "size": [
+            53,
+            82,
+            59
+          ],
+          "stored_blocks": 18412,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 0,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/giant_natural_additions/structure/giant_cactus.nbt",
+          "size": [
+            16,
+            51,
+            16
+          ],
+          "stored_blocks": 13056,
+          "explicit_air_blocks": 9653,
+          "structure_void_blocks": 0,
+          "block_entities": 0,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/giant_natural_additions/structure/giant_cherry_bonsai2.0.nbt",
+          "size": [
+            92,
+            82,
+            115
+          ],
+          "stored_blocks": 22288,
+          "explicit_air_blocks": 29,
+          "structure_void_blocks": 0,
+          "block_entities": 0,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/giant_natural_additions/structure/giant_icespike.nbt",
+          "size": [
+            62,
+            122,
+            63
+          ],
+          "stored_blocks": 249902,
+          "explicit_air_blocks": 177738,
+          "structure_void_blocks": 0,
+          "block_entities": 0,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/giant_natural_additions/structure/giant_jungle_tree.nbt",
+          "size": [
+            122,
+            115,
+            102
+          ],
+          "stored_blocks": 47468,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 0,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/giant_natural_additions/structure/giant_oak_tree.nbt",
+          "size": [
+            144,
+            124,
+            100
+          ],
+          "stored_blocks": 50475,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 0,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/giant_natural_additions/structure/giant_palm_tree.nbt",
+          "size": [
+            119,
+            96,
+            119
+          ],
+          "stored_blocks": 13731,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 0,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/giant_natural_additions/structure/giant_pine_tree.nbt",
+          "size": [
+            71,
+            160,
+            61
+          ],
+          "stored_blocks": 7409,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 0,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/giant_natural_additions/structure/giant_red_mushroom.nbt",
+          "size": [
+            106,
+            107,
+            113
+          ],
+          "stored_blocks": 459560,
+          "explicit_air_blocks": 388056,
+          "structure_void_blocks": 0,
+          "block_entities": 0,
+          "entities": 21,
+          "palette_count": 1
+        },
+        {
+          "path": "data/giant_natural_additions/structure/giant_swamp_tree.nbt",
+          "size": [
+            58,
+            66,
+            57
+          ],
+          "stored_blocks": 24899,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 0,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/giant_natural_additions/structure/giant_yellow_tree.nbt",
+          "size": [
+            84,
+            91,
+            73
+          ],
+          "stored_blocks": 85938,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 0,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/giant_natural_additions/structure/gianttreestump.nbt",
+          "size": [
+            89,
+            39,
+            76
+          ],
+          "stored_blocks": 72753,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 0,
+          "entities": 0,
+          "palette_count": 1
+        },
+        {
+          "path": "data/giant_natural_additions/structure/nether_tree.nbt",
+          "size": [
+            100,
+            66,
+            97
+          ],
+          "stored_blocks": 89623,
+          "explicit_air_blocks": 0,
+          "structure_void_blocks": 0,
+          "block_entities": 0,
+          "entities": 0,
+          "palette_count": 1
+        }
+      ],
+      "summary": {
+        "structures": 17,
+        "pools": 17,
+        "templates": 17,
+        "terrain_adaptation": {
+          "beard_thin": 16,
+          "beard_box": 1
+        },
+        "heightmap": {
+          "WORLD_SURFACE_WG": 16,
+          "none": 1
+        },
+        "projection": {
+          "rigid": 17
+        }
+      }
+    }
+  ]
+}

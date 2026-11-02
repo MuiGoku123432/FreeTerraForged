@@ -1,0 +1,19 @@
+{
+  "minecraft": "1.21.1",
+  "neoforge": "21.1.257",
+  "scope": "FTF plus these three mods and their bundled dependencies; not the complete user modpack",
+  "artifacts": [
+    {
+      "file": "Create-Structures-Arise-1.21.1-NeoForge-176.49.49.jar",
+      "sha256": "a98c1853a4a3ab2b845f19617b8ed6aed682aa77e818c13bae4ab95ebff8bd6e"
+    },
+    {
+      "file": "create-1.21.1-6.0.10.jar",
+      "sha256": "ef87fe5709f1ba1f5b8bb20a2925b5afb4669e178fd6d8bf10c167759eefe37a"
+    },
+    {
+      "file": "giant_natural_additions-2.0.0-neoforge-1.21.1.jar",
+      "sha256": "18b6cb67ffdd164a30a07fab0b744e7d05f10db1452c52f1b2ee4e0dff7e8526"
+    }
+  ]
+}

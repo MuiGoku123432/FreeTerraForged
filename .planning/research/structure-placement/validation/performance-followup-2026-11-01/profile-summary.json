@@ -1,0 +1,13 @@
+{
+  "profiled_parent": "f91b17f7df729c2331424cbbd60d7da80f3785e4",
+  "height_queries": 178,
+  "unique_height_query_keys": 174,
+  "jfr_approximate_window_local": [
+    "19:22:12",
+    "19:22:20"
+  ],
+  "jfr_execution_samples_in_window": 800,
+  "samples_containing_noise_erosion_getNoiseValue": 115,
+  "samples_containing_filter_erosion_apply": 66,
+  "window_caveat": "Selected using second-resolution benchmark log timestamps; diagnostic counts, not precise CPU percentages. Original recording remains local and is not committed."
+}
