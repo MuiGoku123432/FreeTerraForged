@@ -43,8 +43,15 @@ public final class HighlandRangeRelief {
     private double[] tarnLevel, tarnX, tarnZ;
     /** Absolute water height (blocks above sea level) per tarn, resolved lazily by the continent (NaN until then). */
     private double[] tarnWater;
+    /** Node bounds per tarn: min x, min z, max x, max z (grid indices). */
+    private int[] tarnBox;
     int tarnCount() { return tarnLevel == null ? 0 : tarnLevel.length; }
     double[] tarnCentre(int k) { return new double[] {tarnX[k], tarnZ[k]}; }
+    /** World-block bounds of everything {@link #tarn} can assign to tarn k: its nodes' cells, one step around them. */
+    double[] tarnBounds(int k) {
+        return new double[] {originX + (tarnBox[4 * k] - 1) * STEP, originZ + (tarnBox[4 * k + 1] - 1) * STEP,
+            originX + (tarnBox[4 * k + 2] + 1) * STEP, originZ + (tarnBox[4 * k + 3] + 1) * STEP};
+    }
 
     /**
      * G2: floods the carved grid; the closed depression around each cirque centre that is at least TARN_MIN_DEPTH
@@ -75,10 +82,12 @@ public final class HighlandRangeRelief {
             if (seed < 0) continue;
             int lake = found.size(), top = 0, size = 0;
             double level = filled[seed], sx = 0, sz = 0;
+            int bx0 = width, bz0 = depth, bx1 = -1, bz1 = -1;
             stack[top++] = seed; id[seed] = lake;
             while (top > 0) {
                 int i = stack[--top];
                 sx += i % width; sz += i / width; size++;
+                bx0 = Math.min(bx0, i % width); bz0 = Math.min(bz0, i / width); bx1 = Math.max(bx1, i % width); bz1 = Math.max(bz1, i / width);
                 for (int d = 0; d < 8; d++) {
                     int jx = i % width + DX[d], jz = i / width + DZ[d];
                     if (jx < 0 || jz < 0 || jx >= width || jz >= depth) continue;
@@ -88,14 +97,19 @@ public final class HighlandRangeRelief {
                     id[j] = lake; stack[top++] = j;
                 }
             }
-            found.add(new double[] {level - TARN_FREEBOARD, originX + sx / size * STEP, originZ + sz / size * STEP});
+            found.add(new double[] {level - TARN_FREEBOARD, originX + sx / size * STEP, originZ + sz / size * STEP, bx0, bz0, bx1, bz1});
         }
         if (found.isEmpty()) return;
         int count = found.size();
         tarnId = id;
         tarnLevel = new double[count]; tarnX = new double[count]; tarnZ = new double[count]; tarnWater = new double[count];
+        tarnBox = new int[4 * count];
         Arrays.fill(tarnWater, Double.NaN);
-        for (int k = 0; k < count; k++) { tarnLevel[k] = found.get(k)[0]; tarnX[k] = found.get(k)[1]; tarnZ[k] = found.get(k)[2]; }
+        for (int k = 0; k < count; k++) {
+            double[] f = found.get(k);
+            tarnLevel[k] = f[0]; tarnX[k] = f[1]; tarnZ[k] = f[2];
+            for (int b = 0; b < 4; b++) tarnBox[4 * k + b] = (int) f[3 + b];
+        }
     }
 
     /** Priority flood of carved heights inside a window (its edge and non-range nodes drain out) into {@code filled}. */

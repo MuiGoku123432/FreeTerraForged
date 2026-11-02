@@ -243,12 +243,7 @@ public final class RollingHighlandsContinent implements Continent {
         if (closed) throw new IllegalStateException("Rolling Highlands owner is closed");
         var location = coast.sample(x, z);
         cell.rollingHighlands = true;
-        cell.hasRiverWater = false;
-        cell.riverWaterLevel = levels.water;
-        cell.riverMask = 1;
-        cell.riverZone = RiverZone.None;
-        cell.hasFlow = false;
-        cell.erosionMask = false;
+        clearWater(cell);
         cell.waterTable = 0;
         cell.highlandRange = 0; cell.highlandSnowline = 0; cell.highlandTreeline = 0; cell.highlandFoot = 0;
         cell.continentX = location.centerX(); cell.continentZ = location.centerZ();
@@ -265,27 +260,10 @@ public final class RollingHighlandsContinent implements Continent {
         // Legacy FTF land (regions, mountains, Blender) also writes the native terrain type, erosion and weirdness.
         // Valleys only carve into it, so interfluves never depend on which river is nearest.
         var index = plan(location.ownerX(), location.ownerZ());
-        // Rendered land = legacy land lowered by the plan's smooth stream-power incision: uplands keep every legacy
-        // detail, and valleys deepen exactly where the drainage computed on this same land says they should.
-        var hits = index.near(x, z);
         // RH7 D: on ranges the drainage relief cuts the valleys, so the plan's incision (computed on the uncarved range)
         // fades out toward the range core instead of stacking on it.
         double incision = index.incision(x, z) * (1 - land.rangeCore(x, z));
-        double raw = blend * (land.apply(cell, x, z) - dissection(index, x, z, hits)) - incision;
-        var lake = index.lake(x, z);
-        double surface = floored(blend, raw, hits);
-        double height = carveValleys(cell, x, z, location.edge(), index, hits, surface);
-        if (!cell.hasRiverWater) {
-            var oxbow = index.oxbow(x, z);
-            if (oxbow != null) height = shapeOxbow(cell, x, z, oxbow, height);
-        }
-        if (lake != null && lake.depth() > -HighlandBasins.MAX_SHORE - SHORE_ADVANCE) {
-            // Channels at another level than the lake (outlets, rivers passing below it, rapids above it) hold the
-            // shoreline back; channels at the lake's own level (RH6 L2/L3 inflows) may be reached by it.
-            double channelDistance = Double.POSITIVE_INFINITY;
-            for (int k = 0; k < hits.count; k++) if (Math.abs(hits.water[k] - lake.water()) > .25) channelDistance = Math.min(channelDistance, hits.distance[k]);
-            height = shapeLake(cell, x, z, index, lake, height, raw, channelDistance);
-        }
+        double height = groundBeforeTarns(cell, x, z, location.edge(), index, blend, incision);
         double ceiling0 = levels.worldHeight - levels.waterY - CEILING_BAND;
         if (!cell.hasRiverWater) {
             var tarn = index.relief.tarn(x, z);
@@ -301,10 +279,11 @@ public final class RollingHighlandsContinent implements Continent {
         classify(cell);
     }
     /**
-     * RH7 G2 tarn in a cirque floor. The water sits at the tarn's level above the land under the range, taken once at
-     * the tarn's centre so the surface is flat. Inside its footprint, ground below the water is flooded (bed at least
-     * one block, up to TARN_BED toward the middle, below the water); at the footprint's edge, ground lower than one
-     * block above the water is raised to that, so the water is always contained.
+     * RH7 G2 tarn in a cirque floor. The planned water sits at the tarn's level above the land under the range, taken
+     * once at the tarn's centre so the surface is flat; it is lowered to one block below the lowest real ground on the
+     * footprint's rim (TARN_RIM band), so the ground itself holds it. Inside the footprint, ground below the water is
+     * flooded (bed at least one block, up to TARN_BED toward the middle, below the water); on the rim, ground lower
+     * than one block above the water is raised to that only to cover rim sampling between RIM_STRIDE samples.
      */
     private double shapeTarn(Cell cell, HighlandPlanIndex index, HighlandRangeRelief.Tarn tarn, double height, double ceiling) {
         double water = index.relief.tarnWater(tarn, t -> {
@@ -312,11 +291,18 @@ public final class RollingHighlandsContinent implements Continent {
             var scratch = new Cell();
             land.apply(scratch, t.centerX(), t.centerZ());
             double incision = index.incision(t.centerX(), t.centerZ()) * (1 - land.rangeCore(t.centerX(), t.centerZ()));
-            return drainage.landBlend(site.edge()) * (scratch.highlandFoot + t.level()) - incision;
+            double planned = drainage.landBlend(site.edge()) * (scratch.highlandFoot + t.level()) - incision;
+            double[] box = index.relief.tarnBounds(t.id());
+            double rim = Double.POSITIVE_INFINITY;
+            for (double z = box[1]; z <= box[3]; z += RIM_STRIDE) for (double x = box[0]; x <= box[2]; x += RIM_STRIDE) {
+                var sample = index.relief.tarn(x, z);
+                if (sample == null || sample.id() != t.id() || sample.weight() > TARN_RIM) continue;
+                rim = Math.min(rim, groundBeforeTarns(scratch, x, z));
+            }
+            return Math.min(planned, rim - 1);
         });
         if (water <= 1 || water + 2 > ceiling) return height;
-        // The shoreline follows the ground's own contour at the water level inside the tarn's footprint; at the
-        // footprint's outer edge (TARN_RIM) low ground is raised instead, so water never reaches its edge.
+        // The shoreline follows the ground's own contour at the water level inside the tarn's footprint.
         if (tarn.weight() > TARN_RIM && height < water) {
             height = Math.min(height, water - 1 - TARN_BED * smooth(.5, 1, tarn.weight()));
             cell.riverWaterLevel = normalized(water); cell.hasRiverWater = true;
@@ -328,6 +314,57 @@ public final class RollingHighlandsContinent implements Continent {
     }
     /** RH7 G2: extra tarn bed depth toward its middle (blocks), and the footprint weight below which ground is a rim. */
     static final double TARN_BED = 4, TARN_RIM = .15;
+    /** Spacing (blocks) of the rim samples that set a tarn's water. */
+    static final double RIM_STRIDE = 2;
+
+    /**
+     * Ground before tarn shaping at a position (blocks above sea level), as {@link #apply} renders it; a wet column
+     * (river, lake, wetland pool) counts as its water surface. Uses {@code scratch} as working state.
+     */
+    double groundBeforeTarns(Cell scratch, double x, double z) {
+        var location = coast.sample(x, z);
+        if (location.edge() <= coastEdge) return 0;
+        clearWater(scratch);
+        var index = plan(location.ownerX(), location.ownerZ());
+        double incision = index.incision(x, z) * (1 - land.rangeCore(x, z));
+        double height = groundBeforeTarns(scratch, x, z, location.edge(), index, drainage.landBlend(location.edge()), incision);
+        if (!scratch.hasRiverWater) return height;
+        return Math.min(height, (scratch.riverWaterLevel - levels.water) * levels.terrainScaleFactor);
+    }
+
+    /**
+     * Rendered land = legacy land lowered by the plan's smooth stream-power incision: uplands keep every legacy detail,
+     * and valleys deepen exactly where the drainage computed on this same land says they should. Then channels, oxbows
+     * and lakes. Writes their cell fields; the legacy land also writes the native terrain type, erosion and weirdness.
+     */
+    private double groundBeforeTarns(Cell cell, double x, double z, double edge, HighlandPlanIndex index, double blend, double incision) {
+        var hits = index.near(x, z);
+        double raw = blend * (land.apply(cell, x, z) - dissection(index, x, z, hits)) - incision;
+        var lake = index.lake(x, z);
+        double surface = floored(blend, raw, hits);
+        double height = carveValleys(cell, x, z, edge, index, hits, surface);
+        if (!cell.hasRiverWater) {
+            var oxbow = index.oxbow(x, z);
+            if (oxbow != null) height = shapeOxbow(cell, x, z, oxbow, height);
+        }
+        if (lake != null && lake.depth() > -HighlandBasins.MAX_SHORE - SHORE_ADVANCE) {
+            // Channels at another level than the lake (outlets, rivers passing below it, rapids above it) hold the
+            // shoreline back; channels at the lake's own level (RH6 L2/L3 inflows) may be reached by it.
+            double channelDistance = Double.POSITIVE_INFINITY;
+            for (int k = 0; k < hits.count; k++) if (Math.abs(hits.water[k] - lake.water()) > .25) channelDistance = Math.min(channelDistance, hits.distance[k]);
+            height = shapeLake(cell, x, z, index, lake, height, raw, channelDistance);
+        }
+        return height;
+    }
+
+    private void clearWater(Cell cell) {
+        cell.hasRiverWater = false;
+        cell.riverWaterLevel = levels.water;
+        cell.riverMask = 1;
+        cell.riverZone = RiverZone.None;
+        cell.hasFlow = false;
+        cell.erosionMask = false;
+    }
 
     /**
      * Lake bed and shore. Below the surface the bed follows the planning depth (at most 16 deep). Around it the

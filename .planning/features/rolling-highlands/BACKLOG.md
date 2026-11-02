@@ -30,6 +30,15 @@ islands).
 
 Keep both out of the first upstream PR; mention the disabled Islands page there as a known limitation.
 
+## Tarns: rendered ground keeps the planned bowl (Deferred, 2026-11-02, "option B")
+
+Option A (done) sets tarn water from the real ground on the footprint rim, so there are no grid-shaped rim walls,
+but most planned cirque bowls do not exist in the rendered ground (test world: 3 of 36 tarns hold water, was 7 with
+walls up to 80 blocks). Causes: water planned on the carved 24-block grid, while rendered ground adds the legacy/upland
+foot (varies across the bowl), the B-spline of the carved grid (softens the 2-block lip), D4 dissection detail (up to
+±20 blocks) and residual incision. B: near a cirque, render the exact bowl and lip (as ranges render their exact
+shape) and suppress dissection detail there. A then keeps more tarns without changes.
+
 ## Upstream PR readiness (Assessed, 2026-11-02)
 
 Not ready as-is. Branch is cut from `1_21_1-unstable-custom` and carries unrelated custom commits. RH-only commits
