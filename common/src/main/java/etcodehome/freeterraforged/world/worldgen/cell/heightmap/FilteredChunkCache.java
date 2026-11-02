@@ -5,7 +5,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinTask;
-import java.util.concurrent.atomic.AtomicInteger;
 import etcodehome.freeterraforged.world.worldgen.GeneratorContext;
 import etcodehome.freeterraforged.world.worldgen.cell.Cell;
 import etcodehome.freeterraforged.world.worldgen.cell.filter.ChunkFilterGrid;
@@ -26,11 +25,22 @@ import etcodehome.freeterraforged.world.worldgen.util.PosUtil;
 public class FilteredChunkCache {
     public static final int REGION_CHUNKS = RegionFilterGrid.REGION_CHUNKS; // 4
     public static final int REGION_MASK = REGION_CHUNKS - 1; // 3
-    private static final int MAX_ENTRIES = 2048;
+    public static final int MAX_ENTRIES = 2048;
+
+    private static final class ThreadMru {
+        long chunkKey = Long.MIN_VALUE;
+        Cell[] chunkCells;
+    }
+    private static final ThreadLocal<ThreadMru> THREAD_MRU = ThreadLocal.withInitial(ThreadMru::new);
+
+    public static void clearThreadCaches() {
+        ThreadMru mru = THREAD_MRU.get();
+        mru.chunkKey = Long.MIN_VALUE;
+        mru.chunkCells = null;
+    }
 
     private final ConcurrentHashMap<Long, Cell[]> cache = new ConcurrentHashMap<>(MAX_ENTRIES);
     private final ConcurrentLinkedQueue<Long> evictionQueue = new ConcurrentLinkedQueue<>();
-    private final AtomicInteger size = new AtomicInteger(0);
     private final ConcurrentHashMap<Long, CompletableFuture<Void>> inFlightRegions = new ConcurrentHashMap<>();
     private final GeneratorContext context;
 
@@ -40,8 +50,18 @@ public class FilteredChunkCache {
 
     public Cell[] getFilteredChunk(int chunkX, int chunkZ) {
         long chunkKey = PosUtil.pack(chunkX, chunkZ);
+        ThreadMru mru = THREAD_MRU.get();
+        if (mru.chunkKey == chunkKey && mru.chunkCells != null) {
+            if (WorldgenPerfTracker.ACTIVE) {
+                WorldgenPerfTracker.stats().filteredChunkCacheHits++;
+            }
+            return mru.chunkCells;
+        }
+
         Cell[] existing = this.cache.get(chunkKey);
         if (existing != null) {
+            mru.chunkKey = chunkKey;
+            mru.chunkCells = existing;
             if (WorldgenPerfTracker.ACTIVE) {
                 WorldgenPerfTracker.stats().filteredChunkCacheHits++;
             }
@@ -55,6 +75,8 @@ public class FilteredChunkCache {
         while (true) {
             existing = this.cache.get(chunkKey);
             if (existing != null) {
+                mru.chunkKey = chunkKey;
+                mru.chunkCells = existing;
                 if (WorldgenPerfTracker.ACTIVE) {
                     WorldgenPerfTracker.stats().filteredChunkCacheHits++;
                 }
@@ -79,6 +101,8 @@ public class FilteredChunkCache {
                 }
                 // Other workers can evict this entry immediately after publication. Keep
                 // the requested array alive rather than returning a racy map lookup.
+                mru.chunkKey = chunkKey;
+                mru.chunkCells = requested;
                 return requested;
             } else {
                 // Propagate a failed computation; retrying it forever hides the cause.
@@ -145,15 +169,15 @@ public class FilteredChunkCache {
                 long key = PosUtil.pack(cx, cz);
                 Cell[] chunkCells = grid.extractChunkCells(lx, lz);
                 if (cx == requestedX && cz == requestedZ) requested = chunkCells;
-                Cell[] previous = this.cache.put(key, chunkCells);
-                if (previous != null) continue;
-                this.evictionQueue.offer(key);
-                if (this.size.incrementAndGet() > MAX_ENTRIES) {
+                if (this.cache.put(key, chunkCells) == null) {
+                    this.evictionQueue.offer(key);
+                }
+                while (this.cache.size() > MAX_ENTRIES) {
                     Long oldest = this.evictionQueue.poll();
-                    if (oldest != null) {
-                        this.cache.remove(oldest);
-                        this.size.decrementAndGet();
+                    if (oldest == null) {
+                        break;
                     }
+                    this.cache.remove(oldest);
                 }
             }
         }
@@ -166,7 +190,17 @@ public class FilteredChunkCache {
     }
 
     public Cell[] getIfPresent(int chunkX, int chunkZ) {
-        return this.cache.get(PosUtil.pack(chunkX, chunkZ));
+        long chunkKey = PosUtil.pack(chunkX, chunkZ);
+        ThreadMru mru = THREAD_MRU.get();
+        if (mru.chunkKey == chunkKey && mru.chunkCells != null) {
+            return mru.chunkCells;
+        }
+        Cell[] cells = this.cache.get(chunkKey);
+        if (cells != null) {
+            mru.chunkKey = chunkKey;
+            mru.chunkCells = cells;
+        }
+        return cells;
     }
 
     /** Canonical post-filter cell owned by this world coordinate; never falls back to raw terrain. */
@@ -178,7 +212,16 @@ public class FilteredChunkCache {
     public Cell getExistingFilteredCell(int blockX, int blockZ) {
         int chunkX = blockX >> 4;
         int chunkZ = blockZ >> 4;
-        Cell[] chunkCells = this.cache.get(PosUtil.pack(chunkX, chunkZ));
+        long chunkKey = PosUtil.pack(chunkX, chunkZ);
+        ThreadMru mru = THREAD_MRU.get();
+        Cell[] chunkCells;
+        if (mru.chunkKey == chunkKey) {
+            chunkCells = mru.chunkCells;
+        } else {
+            chunkCells = this.cache.get(chunkKey);
+            mru.chunkKey = chunkKey;
+            mru.chunkCells = chunkCells;
+        }
         if (chunkCells != null) {
             int relX = blockX & 15;
             int relZ = blockZ & 15;
@@ -187,10 +230,14 @@ public class FilteredChunkCache {
         return null;
     }
 
+    public int size() {
+        return this.cache.size();
+    }
+
     public void clear() {
         this.cache.clear();
         this.evictionQueue.clear();
-        this.size.set(0);
         this.inFlightRegions.clear();
+        clearThreadCaches();
     }
 }
