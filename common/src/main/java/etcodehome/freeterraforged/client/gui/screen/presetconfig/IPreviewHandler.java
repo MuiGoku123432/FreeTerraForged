@@ -312,7 +312,7 @@ public interface IPreviewHandler {
                                 cacheCancelled -> PreviewGrid.generateZoomed(
                                         preGen.context.heightmap,
                                         preGen.context.filters,
-                                        preGen.cx, preGen.cz, preGen.zoomLevel, SIZE, cacheCancelled
+                                        (double) preGen.cx, (double) preGen.cz, preGen.zoomLevel, SIZE, cacheCancelled
                                 )
                         );
                 return gridFuture.thenApply(lease -> {

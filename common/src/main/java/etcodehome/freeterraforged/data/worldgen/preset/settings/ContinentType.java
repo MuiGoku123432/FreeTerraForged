@@ -39,6 +39,12 @@ public enum ContinentType implements StringRepresentable {
         public UpliftContinentGenerator create(Seed seed, GeneratorContext context) {
             return new UpliftContinentGenerator(seed, context);
         }
+    },
+    ROLLING_HIGHLANDS {
+        @Override
+        public Continent create(Seed seed, GeneratorContext context) {
+            return new etcodehome.freeterraforged.world.worldgen.highlands.RollingHighlandsContinent(context);
+        }
     };
 	
 	public static final Codec<ContinentType> CODEC = StringRepresentable.fromEnum(ContinentType::values);

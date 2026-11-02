@@ -19,7 +19,7 @@ import etcodehome.freeterraforged.world.worldgen.FTFRandomState;
 import etcodehome.freeterraforged.world.worldgen.IChunkCellsHolder;
 import etcodehome.freeterraforged.world.worldgen.cell.Cell;
 import etcodehome.freeterraforged.world.worldgen.cell.heightmap.Levels;
-import etcodehome.freeterraforged.world.worldgen.cell.rivermap.ContinentalHydrology;
+import etcodehome.freeterraforged.world.worldgen.cell.rivermap.RiverWater;
 import etcodehome.freeterraforged.world.worldgen.cell.rivermap.river.RiverCarverSettings;
 import etcodehome.freeterraforged.world.worldgen.densityfunction.CellSampler;
 
@@ -104,8 +104,13 @@ public class RiverGasketFeature extends Feature<NoneFeatureConfiguration> {
                     generatorContext.lookup.applyCell(cell, worldX, worldZ, false, false);
                 }
 
-                if (cell.riverZone != RiverCarverSettings.RiverZone.None
-                        && cell.riverZone != RiverCarverSettings.RiverZone.ValleyFadeout) {
+                // Rolling Highlands valley floors are wide, dry and always above their water; only water and bank
+                // columns can need sealing there.
+                boolean candidate = cell.rollingHighlands
+                        ? cell.hasRiverWater || cell.riverZone == RiverCarverSettings.RiverZone.Banks
+                        : cell.riverZone != RiverCarverSettings.RiverZone.None
+                        && cell.riverZone != RiverCarverSettings.RiverZone.ValleyFadeout;
+                if (candidate) {
                     riverIndices[riverCount++] = index;
                 }
             }
@@ -144,11 +149,7 @@ public class RiverGasketFeature extends Feature<NoneFeatureConfiguration> {
             // Reuse any already evaluated cell directly from the cache
             Cell cell = chunkCells[index];
 
-            float targetWaterLevel = (ContinentalHydrology.getComplexWaterHeight(
-                    cell.waterTable,
-                    cell.globalContinentScale,
-                    cell.continentSizeModifier)
-            ) + oceanHeightOffset;
+            float targetWaterLevel = RiverWater.level(cell, oceanHeightOffset);
 
             int localWaterY = levels.scale(targetWaterLevel);
             int currentFloorHeight = levels.scale(cell.height);
@@ -156,6 +157,9 @@ public class RiverGasketFeature extends Feature<NoneFeatureConfiguration> {
             int scanTopY = Math.max(localWaterY, currentFloorHeight);
             int scanBottomY = Math.min(localWaterY, currentFloorHeight) - 8;
             scanBottomY = Math.max(scanBottomY, levels.scale(levels.water));
+            // Rolling Highlands channel beds can dip below sea level near the coast (scour pools): seal them down to
+            // the bed, so a cave under the bed cannot drain the channel.
+            if (cell.rollingHighlands) scanBottomY = Math.min(scanBottomY, currentFloorHeight);
 
             // Sample column structural block
             BlockState structuralState = null;
@@ -270,6 +274,23 @@ public class RiverGasketFeature extends Feature<NoneFeatureConfiguration> {
                             }
                         }
                     }
+                    // Rolling Highlands: a dry column directly beside the water must hold it at every water level, even
+                    // where a cave or carver opened it below its planned ground (the radius pass above only seals
+                    // neighbours up to their own water level, which a dry bank beside a lake may not have).
+                    if (cell.rollingHighlands) {
+                        for (Direction dir : HORIZONTAL_DIRECTIONS) {
+                            int nx = blockX + dir.getStepX(), nz = blockZ + dir.getStepZ();
+                            int rx = nx - minBlockX, rz = nz - minBlockZ;
+                            Cell side = rx >= 0 && rx < 16 && rz >= 0 && rz < 16 ? chunkCells[rx + rz * 16]
+                                : CellSampler.getCachedOrLookup(generatorContext.lookup, nx, nz, false);
+                            if (side.hasRiverWater) continue;
+                            pos.neighbor.set(nx, y, nz);
+                            BlockState sideState = level.getBlockState(pos.neighbor);
+                            if (sideState.isAir() || sideState.is(Blocks.CAVE_AIR)) {
+                                level.setBlock(pos.neighbor, structuralState, 2);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -296,11 +317,7 @@ public class RiverGasketFeature extends Feature<NoneFeatureConfiguration> {
         // Reuse cached cell directly if the coordinate is within the current chunk bounds
         if (relX >= 0 && relX < 16 && relZ >= 0 && relZ < 16) {
             Cell cell = chunkCells[relX + (relZ * 16)];
-            float water = ContinentalHydrology.getComplexWaterHeight(
-                    cell.waterTable,
-                    cell.globalContinentScale,
-                    cell.continentSizeModifier
-            ) + oceanHeightOffset;
+            float water = RiverWater.level(cell, oceanHeightOffset);
             return levels.scale(water);
         }
 
@@ -321,11 +338,7 @@ public class RiverGasketFeature extends Feature<NoneFeatureConfiguration> {
                 false
         );
 
-        float water = ContinentalHydrology.getComplexWaterHeight(
-                cachedNeighbor.waterTable,
-                cachedNeighbor.globalContinentScale,
-                cachedNeighbor.continentSizeModifier
-        ) + oceanHeightOffset;
+        float water = RiverWater.level(cachedNeighbor, oceanHeightOffset);
 
         int computedY = levels.scale(water);
         cache[cacheIndex] = computedY;

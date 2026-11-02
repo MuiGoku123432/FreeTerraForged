@@ -145,11 +145,13 @@ public class ClimateModule {
 		if (sampleClimate) {
 			cell.macroBiomeId = this.macroBiomeNoise.compute(centerX, centerZ, 0);
 
+			// Rolling Highlands climate follows the smoothed landscape (no riverbeds or single hilltops).
+			float height = cell.rollingHighlands ? cell.climateHeight : cell.height;
 			float rawMoist = this.moisture.compute(x, z, 0);
-			float moist = this.modifyMoisture(cell.height, rawMoist);
+			float moist = this.modifyMoisture(height, rawMoist);
 
 			float rawTemp = this.temperature.compute(x, z, 0);
-			float temp = this.modifyTemp(cell.height, rawTemp);
+			float temp = this.modifyTemp(height, rawTemp);
 
 			// convert from normalised 0-1 range to -1 to 1 range
 			cell.temperature = temp * 2.0F - 1.0F;

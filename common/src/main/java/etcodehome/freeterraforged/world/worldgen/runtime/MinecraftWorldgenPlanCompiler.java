@@ -957,7 +957,10 @@ public final class MinecraftWorldgenPlanCompiler {
 		ResourceLocation fallback = providers.rootCompositionDomain().orElseThrow(
 			() -> new IllegalStateException("The executable candidate-provider plan has no root composition domain")
 		);
-		TerrainBiomeRoleSelection terrainRoles = new TerrainBiomeRoleSelection(providers);
+		var biomeRegistry = owner.registries().registryOrThrow(Registries.BIOME);
+		TerrainBiomeRoleSelection terrainRoles = new TerrainBiomeRoleSelection(providers,
+			biomeRegistry.getHolder(net.minecraft.world.level.biome.Biomes.RIVER).orElse(null),
+			biomeRegistry.getHolder(net.minecraft.world.level.biome.Biomes.FROZEN_RIVER).orElse(null));
 		if (purpose == WorldgenCompilationPurpose.BIOME_PREVIEW) {
 			Map<ResourceLocation, SurfaceBiomeFilter<Holder<Biome>>> filters = providers.providers().stream()
 				.collect(java.util.stream.Collectors.toUnmodifiableMap(

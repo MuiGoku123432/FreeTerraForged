@@ -190,6 +190,10 @@ public class Erosion implements Filter {
             final Levels levels,
             final ErosionFilterSettings settings
     ) {
+        this(seed, mapSize, modifier, levels, settings, false);
+    }
+
+    private Erosion(int seed, int mapSize, Modifier modifier, Levels levels, ErosionFilterSettings settings, boolean blockUnits) {
         this.seed = seed;
         this.mapSize = mapSize;
         this.modifier = modifier;
@@ -197,7 +201,7 @@ public class Erosion implements Filter {
 
         this.s = settings != null ? settings : (PresetManager.PM.erosionFilterSettings != null ? PresetManager.PM.erosionFilterSettings : ErosionFilterSettings.makeDefault());
         this.scaleBlocks = s.scale * BASE_WAVELENGTH_BLOCKS;
-        this.worldHeight = (float) levels.worldHeight;
+        this.worldHeight = blockUnits ? levels.terrainScaleFactor : (float) levels.worldHeight;
         this.strength = 0.20F * s.strengthMultiplier;
         this.gullyWeight = s.gullySharpness;
         this.detail = 3.00F;
@@ -730,7 +734,7 @@ public class Erosion implements Filter {
     }
 
     public static IntFunction<Erosion> factory(final GeneratorContext context) {
-        return new Factory(Seed.toInt(context.seed.root()), context.levels, context.preset != null ? context.preset.erosionFilters() : null);
+        return new Factory(Seed.toInt(context.seed.root()), context.levels, context.preset != null ? context.preset.erosionFilters() : null, context.heightmap != null && context.heightmap.continent() instanceof etcodehome.freeterraforged.world.worldgen.highlands.RollingHighlandsContinent);
     }
 
     private static class Factory implements IntFunction<Erosion> {
@@ -740,7 +744,9 @@ public class Erosion implements Filter {
         private final Levels levels;
         private final ErosionFilterSettings settings;
 
-        private Factory(final int seed, final Levels levels, final ErosionFilterSettings settings) {
+        private final boolean blockUnits;
+        private Factory(final int seed, final Levels levels, final ErosionFilterSettings settings, boolean blockUnits) {
+            this.blockUnits = blockUnits;
             this.seed = seed + SEED_OFFSET;
             this.modifier = Modifier.range(levels.ground, levels.ground(ERODE_RAMP_LEVELS));
             this.levels = levels;
@@ -749,7 +755,7 @@ public class Erosion implements Filter {
 
         @Override
         public Erosion apply(final int size) {
-            return new Erosion(this.seed, size, this.modifier, this.levels, this.settings);
+            return new Erosion(this.seed, size, this.modifier, this.levels, this.settings, this.blockUnits);
         }
     }
 }

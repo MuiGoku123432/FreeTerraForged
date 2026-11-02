@@ -12,6 +12,7 @@ import etcodehome.freeterraforged.client.gui.screen.presetconfig.PresetListPage.
 import etcodehome.freeterraforged.data.worldgen.preset.settings.ContinentType;
 import etcodehome.freeterraforged.data.worldgen.preset.settings.Preset;
 import etcodehome.freeterraforged.data.worldgen.preset.settings.TerrainSettings;
+import etcodehome.freeterraforged.data.worldgen.preset.settings.RollingHighlandsSettings;
 import etcodehome.freeterraforged.data.worldgen.preset.settings.TerrainSettings.General;
 import etcodehome.freeterraforged.data.worldgen.preset.settings.TerrainSettings.Terrain;
 
@@ -84,6 +85,24 @@ public class TerrainSettingsPage extends PresetEditorPage {
 
 		Preset preset = this.preset.getPreset();
 		TerrainSettings terrain = preset.terrain();
+        if (preset.world().continent.continentType == ContinentType.ROLLING_HIGHLANDS) {
+            terrain.rollingHighlands = terrain.highlands();
+            this.left.addWidget(PresetWidgets.createLabel("gui.ftf.highlands.title"));
+            this.left.addWidget(PresetWidgets.createLabel("gui.ftf.highlands.scales"));
+            addHighlandSlider(terrain, 0, terrain.highlands().uplandSpacing(), 4096, 8192, "gui.ftf.highlands.spacing");
+            addHighlandSlider(terrain, 1, terrain.highlands().uplandHeight(), 0, 160, "gui.ftf.highlands.uplands");
+            addHighlandSlider(terrain, 2, terrain.highlands().valleyDepth(), 25, 200, "gui.ftf.highlands.depth");
+            addHighlandSlider(terrain, 3, terrain.highlands().valleyWidth(), 64, 512, "gui.ftf.highlands.valleys");
+            addHighlandSlider(terrain, 4, terrain.highlands().rangeHeight(), 0, RollingHighlandsSettings.MAX_RANGE_HEIGHT, "gui.ftf.highlands.rangeHeight");
+            addHighlandSlider(terrain, 5, terrain.highlands().rangeLength(), RollingHighlandsSettings.MIN_RANGE_LENGTH, RollingHighlandsSettings.MAX_RANGE_LENGTH, "gui.ftf.highlands.rangeLength");
+            addHighlandSlider(terrain, 6, terrain.highlands().snowline(), RollingHighlandsSettings.MIN_SNOWLINE, RollingHighlandsSettings.MAX_SNOWLINE, "gui.ftf.highlands.snowline");
+            this.left.addWidget(PresetWidgets.createToggle(terrain.highlands().rangesReplaceMountains(), "gui.ftf.highlands.rangesReplaceMountains", (button, value) -> {
+                terrain.rollingHighlands = terrain.highlands().withRangesReplaceMountains(value);
+                this.regenerate();
+            }));
+            this.left.addWidget(PresetWidgets.createLabel("gui.ftf.highlands.preview"));
+            // RH3 builds on the normal FTF land, so the regular terrain controls follow.
+        }
 		General general = terrain.general;
 		boolean isUpliftContinent = preset.world().continent.continentType == ContinentType.UPLIFT;
 		float flooredLowRange = isUpliftContinent ? 1.0F : 0.01F;
@@ -395,6 +414,20 @@ public class TerrainSettingsPage extends PresetEditorPage {
 		this.left.addWidget(this.volcanoVerticalScale);
 		this.left.addWidget(this.volcanoHorizontalScale);
 	}
+
+    private void addHighlandSlider(TerrainSettings terrain, int field, int initial, int min, int max, String label) {
+        this.left.addWidget(PresetWidgets.createIntSlider(initial, min, max, label, (slider, value) -> {
+            var old = terrain.highlands();
+            int blocks = (int) slider.scaleValue(value);
+            terrain.rollingHighlands = new RollingHighlandsSettings(RollingHighlandsSettings.MODEL_VERSION,
+                field == 0 ? blocks : old.uplandSpacing(), field == 1 ? blocks : old.uplandHeight(),
+                field == 2 ? blocks : old.valleyDepth(), field == 3 ? blocks : old.valleyWidth(), old.meanders(),
+                field == 4 ? blocks : old.rangeHeight(), field == 5 ? blocks : old.rangeLength(), old.rangesReplaceMountains(),
+                field == 6 ? blocks : old.snowline());
+            this.regenerate();
+            return value;
+        }));
+    }
 
 	@Override
 	public Optional<Page> previous() {
