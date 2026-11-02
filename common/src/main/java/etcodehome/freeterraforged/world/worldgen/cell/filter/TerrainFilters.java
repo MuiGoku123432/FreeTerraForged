@@ -1,8 +1,13 @@
 package etcodehome.freeterraforged.world.worldgen.cell.filter;
 
+import java.util.Set;
+
 import etcodehome.freeterraforged.world.worldgen.GeneratorContext;
 import etcodehome.freeterraforged.world.worldgen.cell.Cell;
 import etcodehome.freeterraforged.world.worldgen.cell.heightmap.TerrainCeiling;
+import etcodehome.freeterraforged.world.worldgen.densityfunction.CellSampler;
+import etcodehome.freeterraforged.world.worldgen.cell.terrain.Terrain;
+import etcodehome.freeterraforged.world.worldgen.cell.terrain.TerrainType;
 import etcodehome.freeterraforged.world.worldgen.perf.WorldgenPerfTracker;
 
 public class TerrainFilters {
@@ -15,6 +20,7 @@ public class TerrainFilters {
     private final TerrainCeiling terrainCeiling;
     /** One block in normalized cell height units (RH5 valley-floor guard). */
     private final float blockHeight;
+    private final float ground;
 
     public TerrainFilters(GeneratorContext context) {
         this.rollingHighlands = context.heightmap != null && context.heightmap.continent() instanceof etcodehome.freeterraforged.world.worldgen.highlands.RollingHighlandsContinent;
@@ -24,6 +30,7 @@ public class TerrainFilters {
         this.beachDetect = BeachDetect.make(context);
         this.steepness = Steepness.make(1, 10.0F, context.levels);
         this.blockHeight = context.levels == null ? 0 : 1F / context.levels.terrainScaleFactor;
+        this.ground = context.levels.ground;
         if (context.preset != null && TerrainCeiling.isEnabled(context.preset)) {
             this.terrainCeiling = TerrainCeiling.make(context.preset.world().properties);
         } else {
@@ -119,4 +126,49 @@ public class TerrainFilters {
             ts.filterCeilingNanos += (System.nanoTime() - t5);
         }
     }
+
+	/**
+	 * Returns whether filtering can change whether a raw cell matches {@code target}.
+	 *
+	 * <p>Keeping this contract beside the pipeline makes raw locate sampling an explicit optimization rather than an
+	 * assumption hidden inside the command. Any future filter that mutates terrain identity must extend this method.
+	 */
+	public boolean affectsTerrainIdentity(Terrain target) {
+		return target == TerrainType.COAST || target == TerrainType.BEACH;
+	}
+
+	/**
+	 * Returns whether a raw cell is equivalent to its filtered form for biome locate.
+	 *
+	 * <p>The locate query always consumes height (to choose the surface Y), biome-region ownership, and whether terrain
+	 * is a river. Its climate sampler may consume additional {@link CellSampler.Field fields}. Below ground, both cliff
+	 * passes and erosion have a zero height modifier. The remaining filters either populate derived fields, convert a
+	 * coast to a beach, or compress only high terrain. This method keeps that equivalence proof beside the production
+	 * filter pipeline so future filters and fields must extend the same contract.
+	 */
+	public boolean preservesRawBiomeLocateInputs(Cell cell, Set<CellSampler.Field> sampledFields) {
+		if (cell.height > this.ground) {
+			return false;
+		}
+		if (this.terrainCeiling != null
+			&& Float.floatToIntBits(this.terrainCeiling.apply(cell.height)) != Float.floatToIntBits(cell.height)) {
+			return false;
+		}
+		for (CellSampler.Field field : sampledFields) {
+			switch (field) {
+				case GRADIENT, HEIGHT_EROSION, SEDIMENT -> {
+					return false;
+				}
+				case CONTINENT -> {
+					if (cell.terrain.isCoast()) {
+						return false;
+					}
+				}
+				case HEIGHT, CONTINENT_EDGE, EROSION, TERRAIN_EROSION, WEIRDNESS,
+					BIOME_REGION, TEMPERATURE, MOISTURE -> {
+				}
+			}
+		}
+		return true;
+	}
 }
