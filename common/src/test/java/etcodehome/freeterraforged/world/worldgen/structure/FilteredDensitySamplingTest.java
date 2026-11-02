@@ -30,7 +30,10 @@ class FilteredDensitySamplingTest {
                 for (int[] region : new int[][]{{6304, 5744}, {-8, -8}}) {
                     var grid = new RegionFilterGrid();
                     grid.init(region[0], region[1], serial);
-                    serial.filters.apply(grid);
+                    // A common-pool caller takes the serial filter path. Compare every
+                    // field against that reference after the ordinary caller runs in parallel.
+                    CompletableFuture.runAsync(() -> serial.filters.apply(grid),
+                        ForkJoinPool.commonPool()).get(30, TimeUnit.SECONDS);
                     for (boolean commonPoolCaller : new boolean[]{false, true}) {
                         prepared.filteredChunkCache.clear();
                         prepared.rawChunkCache.clear();
