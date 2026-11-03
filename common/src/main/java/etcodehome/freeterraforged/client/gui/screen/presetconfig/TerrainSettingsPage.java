@@ -96,6 +96,7 @@ public class TerrainSettingsPage extends PresetEditorPage {
             addHighlandSlider(terrain, 4, terrain.highlands().rangeHeight(), 0, RollingHighlandsSettings.MAX_RANGE_HEIGHT, "gui.ftf.highlands.rangeHeight");
             addHighlandSlider(terrain, 5, terrain.highlands().rangeLength(), RollingHighlandsSettings.MIN_RANGE_LENGTH, RollingHighlandsSettings.MAX_RANGE_LENGTH, "gui.ftf.highlands.rangeLength");
             addHighlandSlider(terrain, 6, terrain.highlands().snowline(), RollingHighlandsSettings.MIN_SNOWLINE, RollingHighlandsSettings.MAX_SNOWLINE, "gui.ftf.highlands.snowline");
+            addHighlandSlider(terrain, 7, terrain.highlands().rangeRidges(), 1, RollingHighlandsSettings.MAX_RANGE_RIDGES, "gui.ftf.highlands.rangeRidges");
             this.left.addWidget(PresetWidgets.createToggle(terrain.highlands().rangesReplaceMountains(), "gui.ftf.highlands.rangesReplaceMountains", (button, value) -> {
                 terrain.rollingHighlands = terrain.highlands().withRangesReplaceMountains(value);
                 this.regenerate();
@@ -423,7 +424,7 @@ public class TerrainSettingsPage extends PresetEditorPage {
                 field == 0 ? blocks : old.uplandSpacing(), field == 1 ? blocks : old.uplandHeight(),
                 field == 2 ? blocks : old.valleyDepth(), field == 3 ? blocks : old.valleyWidth(), old.meanders(),
                 field == 4 ? blocks : old.rangeHeight(), field == 5 ? blocks : old.rangeLength(), old.rangesReplaceMountains(),
-                field == 6 ? blocks : old.snowline());
+                field == 6 ? blocks : old.snowline(), field == 7 ? blocks : old.rangeRidges());
             this.regenerate();
             return value;
         }));

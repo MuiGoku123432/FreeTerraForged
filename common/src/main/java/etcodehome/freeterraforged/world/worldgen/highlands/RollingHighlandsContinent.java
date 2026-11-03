@@ -601,7 +601,11 @@ public final class RollingHighlandsContinent implements Continent {
                 for (int j = 0; j < hits.count && wetland > 0; j++) {
                     if (j == k) continue;
                     double lower = smooth(.5, 1.5, water - hits.water[j]);
-                    if (lower > 0) wetland *= 1 - lower * (1 - smooth(water + 1, water + 6, scratch.carve[j]));
+                    if (lower <= 0) continue;
+                    // RH8: the lower reach's own wetland floods its ground down to its level, which also counts.
+                    double other = scratch.carve[j];
+                    if (scratch.wetland[j] > 0) other = lerp(other, Math.min(other, hits.water[j] + hummock), scratch.wetland[j]);
+                    wetland *= 1 - lower * (1 - smooth(water + 1, water + 6, other));
                 }
                 if (wetland > 0) carve = lerp(carve, Math.min(carve, water + hummock), wetland);
                 if (wetland > maxWetland) { maxWetland = wetland; wetlandOwner = k; }

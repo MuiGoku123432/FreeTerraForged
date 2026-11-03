@@ -107,4 +107,84 @@ final class HighlandMountainProbe {
             slopes.isEmpty() ? Double.NaN : (double) gentle / slopes.size(), crestWidths.isEmpty() ? Double.NaN : crestWidths.get(crestWidths.size() / 2),
             flank == 0 ? Double.NaN : (double) convex / flank, flank);
     }
+
+    /** RH8 cross-section metrics; see {@link #ridges}. */
+    record Ridges(int sections, double multiShare, double meanCrests, double saddleDepth, double spacing, double spacingCv, double highestModeShare) {
+        String summary() {
+            return String.format(Locale.ROOT,
+                "RHRidges sections=%d multiCrest=%.0f%% meanCrests=%.2f saddleDepth/H=%.2f spacing=%.0f spacingCv=%.2f highestSameThird=%.0f%%",
+                sections, 100 * multiShare, meanCrests, saddleDepth, spacing, spacingCv, 100 * highestModeShare);
+        }
+    }
+    static final int SECTION_STEP = 16;
+    static final double CREST_PROMINENCE = .15;
+
+    /**
+     * RH8 P0 cross-sections of the rendered surface: at range centre-line samples, a transect across the strike over the
+     * range (± its half width on that flank), smoothed over three samples. Crests are local maxima whose 1-D prominence
+     * is at least CREST_PROMINENCE of the Range Height. Reports the share of sections with two or more crests, the mean
+     * crest count, the mean depth of the lowest point between neighbouring crests below the lower crest (over Range
+     * Height), the mean and coefficient of variation of neighbouring crest spacing, and the largest share of sections
+     * whose highest crest lies in the same third of the transect.
+     */
+    static Ridges ridges(GeneratorContext context, int px, int pz) {
+        var continent = (RollingHighlandsContinent) context.heightmap.continent();
+        var land = HighlandLand.create(context);
+        var coast = continent.coast();
+        var owner = coast.sample(px, pz);
+        var bounds = coast.bounds(owner.ownerX(), owner.ownerZ());
+        float coastEdge = context.preset.world().controlPoints.coast;
+        double rangeHeight = context.preset.terrain().highlands().rangeHeight();
+        double halfWidth = land.beltHalfWidth();
+        Cell c = new Cell();
+        int sections = 0, multi = 0, crestTotal = 0, saddles = 0, seen = 0;
+        int[] thirds = new int[3];
+        double saddleSum = 0;
+        List<Double> gaps = new ArrayList<>();
+        for (double z = bounds.minZ(); z < bounds.maxZ(); z += STEP) for (double x = bounds.minX(); x < bounds.maxX(); x += STEP) {
+            var site = coast.sample(x, z);
+            if (site.ownerX() != owner.ownerX() || site.ownerZ() != owner.ownerZ() || site.edge() <= coastEdge) continue;
+            if (continent.drainage().landBlend(site.edge()) < .8) continue;
+            var frame = land.rangeFrame(x, z);
+            if (frame == null || frame.distance() > STEP / 2.0 || frame.presence() < .6) continue;
+            if (seen++ % 4 != 0) continue;
+            double nx = -Math.sin(frame.strike()), nz = Math.cos(frame.strike());
+            int n = (int) (halfWidth * frame.width() / SECTION_STEP);
+            double[] raw = new double[2 * n + 1], p = new double[2 * n + 1];
+            for (int i = 0; i <= 2 * n; i++) raw[i] = blocks(context, c, x + (i - n) * SECTION_STEP * nx, z + (i - n) * SECTION_STEP * nz);
+            for (int i = 0; i <= 2 * n; i++) p[i] = (raw[Math.max(0, i - 1)] + raw[i] + raw[Math.min(2 * n, i + 1)]) / 3;
+            List<Integer> crests = new ArrayList<>();
+            for (int i = 1; i < 2 * n; i++) {
+                if (p[i] < p[i - 1] || p[i] <= p[i + 1]) continue;
+                double left = p[i], right = p[i];
+                int j = i - 1;
+                for (; j >= 0 && p[j] <= p[i]; j--) left = Math.min(left, p[j]);
+                int k = i + 1;
+                for (; k <= 2 * n && p[k] <= p[i]; k++) right = Math.min(right, p[k]);
+                if (p[i] - Math.max(left, right) >= CREST_PROMINENCE * rangeHeight) crests.add(i);
+            }
+            sections++;
+            crestTotal += crests.size();
+            if (crests.size() >= 2) multi++;
+            int highest = -1;
+            for (int q = 0; q < crests.size(); q++) {
+                int a = crests.get(q);
+                if (highest < 0 || p[a] > p[highest]) highest = a;
+                if (q == 0) continue;
+                int b = crests.get(q - 1);
+                double low = Double.MAX_VALUE;
+                for (int i = b; i <= a; i++) low = Math.min(low, p[i]);
+                saddleSum += (Math.min(p[a], p[b]) - low) / rangeHeight;
+                saddles++;
+                gaps.add((double) (a - b) * SECTION_STEP);
+            }
+            if (highest >= 0) thirds[Math.min(2, 3 * highest / (2 * n + 1))]++;
+        }
+        double mean = gaps.stream().mapToDouble(Double::doubleValue).average().orElse(Double.NaN);
+        double variance = gaps.stream().mapToDouble(g -> (g - mean) * (g - mean)).average().orElse(Double.NaN);
+        int crested = thirds[0] + thirds[1] + thirds[2];
+        return new Ridges(sections, sections == 0 ? Double.NaN : (double) multi / sections, sections == 0 ? Double.NaN : (double) crestTotal / sections,
+            saddles == 0 ? Double.NaN : saddleSum / saddles, mean, Math.sqrt(variance) / mean,
+            crested == 0 ? Double.NaN : (double) Math.max(thirds[0], Math.max(thirds[1], thirds[2])) / crested);
+    }
 }

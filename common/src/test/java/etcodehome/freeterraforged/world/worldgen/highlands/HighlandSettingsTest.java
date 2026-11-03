@@ -66,6 +66,15 @@ class HighlandSettingsTest {
         json.addProperty("snowline", 100);
         assertEquals(100, RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).getOrThrow().snowline());
         json.remove("snowline");
+        // RH8 ridges are optional (1) and bounded 1-4.
+        assertEquals(1, RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).getOrThrow().rangeRidges());
+        json.addProperty("rangeRidges", 4);
+        assertEquals(4, RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).getOrThrow().rangeRidges());
+        json.addProperty("rangeRidges", 0);
+        assertTrue(RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).error().isPresent());
+        json.addProperty("rangeRidges", 5);
+        assertTrue(RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).error().isPresent());
+        json.remove("rangeRidges");
         json.addProperty("rangeHeight", 120); json.addProperty("rangeLength", 2047);
         assertTrue(RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).error().isPresent());
         json.addProperty("rangeLength", 8000);
@@ -88,6 +97,10 @@ class HighlandSettingsTest {
         var json = RollingHighlandsSettings.CODEC.encodeStart(JsonOps.INSTANCE, RollingHighlandsSettings.ROCKIES).getOrThrow();
         assertEquals(RollingHighlandsSettings.ROCKIES, RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).getOrThrow());
         assertEquals(400, RollingHighlandsSettings.ROCKIES.rangeHeight());
+        assertEquals(3, RollingHighlandsSettings.ROCKIES.rangeRidges());
+        // One ridge is the codec default and is not written, so model-7 presets encode unchanged.
+        assertFalse(RollingHighlandsSettings.CODEC.encodeStart(JsonOps.INSTANCE, RollingHighlandsSettings.ROCKIES.withRangeRidges(1)).getOrThrow()
+            .getAsJsonObject().has("rangeRidges"));
     }
     @Test void legacyEnumOrdinalsRemainStable() {
         assertEquals(0, ContinentType.MULTI.ordinal());
