@@ -194,7 +194,30 @@ class HighlandRangeTest {
             assertTrue(g.crestWidth() <= 36, g.summary());
             assertTrue(g.dissection() >= .19, g.summary());
             assertTrue(m.crestHeight() - m.footHeight() >= 300, m.summary());
+            System.out.println("RH400 " + HighlandMountainProbe.ridges(context, HighlandPlanformProbe.USER_X, HighlandPlanformProbe.USER_Z).summary());
         }
+    }
+
+    /**
+     * RH8 D-b: one ridge per range reproduces the model-7 ranges exactly (rendered heights, water and range fields of the
+     * user world at Range Height 400 in the tall frame). Capture with -Dftf.captureBaseline=true.
+     */
+    @Test void singleRidgeRangesAreFrozen() throws Exception {
+        var hash = java.security.MessageDigest.getInstance("SHA-256");
+        try (var context = WorldgenFixture.context(tallPreset(400), HighlandPlanformProbe.USER_SEED)) {
+            Cell c = new Cell();
+            int x0 = 2656, z0 = 7396;
+            for (int z = 0; z < 8192; z += 256) for (int x = 0; x < 8192; x += 256) {
+                context.heightmap.apply(c.reset(), x0 + x + 37, z0 + z + 91, false);
+                String row = Float.floatToIntBits(c.height) + "," + c.terrain.getName() + "," + c.hasRiverWater + ","
+                    + Float.floatToIntBits(c.riverMask) + "," + Float.floatToIntBits(c.riverWaterLevel) + "," + Float.floatToIntBits(c.highlandRange);
+                hash.update(row.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            }
+        }
+        String actual = java.util.HexFormat.of().formatHex(hash.digest()) + "\n";
+        var fixture = java.nio.file.Path.of("src/test/resources/rolling-highlands/ranges-model7.sha256");
+        if (Boolean.getBoolean("ftf.captureBaseline")) java.nio.file.Files.writeString(fixture, actual);
+        assertEquals(java.nio.file.Files.readString(fixture), actual);
     }
 
     /**
