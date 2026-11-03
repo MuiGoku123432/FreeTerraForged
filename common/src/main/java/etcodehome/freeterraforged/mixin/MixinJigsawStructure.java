@@ -3,6 +3,8 @@ package etcodehome.freeterraforged.mixin;
 import java.util.List;
 import java.util.Optional;
 
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.mojang.datafixers.util.Either;
 
 import org.spongepowered.asm.mixin.Final;
@@ -43,6 +45,7 @@ import etcodehome.freeterraforged.world.worldgen.perf.WorldgenPerfTracker;
 import etcodehome.freeterraforged.world.worldgen.cell.Cell;
 import etcodehome.freeterraforged.world.worldgen.runtime.TerraForgedChunkGenerator;
 import etcodehome.freeterraforged.world.worldgen.runtime.WorldgenPlans.StructureAdaptation;
+import etcodehome.freeterraforged.world.worldgen.structure.StructureGroundFit;
 
 @Mixin(JigsawStructure.class)
 public class MixinJigsawStructure {
@@ -114,6 +117,28 @@ public class MixinJigsawStructure {
 		}
 
 		ftf$handleSubterraneanPlacement(generationContext, cir);
+	}
+
+	/** Applies to vanilla's own path, so other mods' injections around this call still compose. */
+	@WrapOperation(
+		method = "findGenerationPoint",
+		at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/levelgen/structure/pools/JigsawPlacement;addPieces(Lnet/minecraft/world/level/levelgen/structure/Structure$GenerationContext;Lnet/minecraft/core/Holder;Ljava/util/Optional;ILnet/minecraft/core/BlockPos;ZLjava/util/Optional;ILnet/minecraft/world/level/levelgen/structure/pools/alias/PoolAliasLookup;Lnet/minecraft/world/level/levelgen/structure/pools/DimensionPadding;Lnet/minecraft/world/level/levelgen/structure/templatesystem/LiquidSettings;)Ljava/util/Optional;")
+	)
+	private Optional<Structure.GenerationStub> ftf$fitToGround(
+		Structure.GenerationContext context, Holder<StructureTemplatePool> pool, Optional<ResourceLocation> jigsawName, int depth, BlockPos pos,
+		boolean expansionHack, Optional<Heightmap.Types> projection, int maxDistance, PoolAliasLookup aliases, DimensionPadding padding, LiquidSettings liquid,
+		Operation<Optional<Structure.GenerationStub>> original
+	) {
+		Optional<Structure.GenerationStub> result = original.call(context, pool, jigsawName, depth, pos, expansionHack, projection, maxDistance, aliases, padding, liquid);
+		if (result.isEmpty()
+			|| context.validBiome() instanceof StructureGroundFit.UnfittedPlacement
+			|| !(context.chunkGenerator() instanceof TerraForgedChunkGenerator)
+			|| !((Object) context.randomState() instanceof FTFRandomState randomState)
+			|| randomState.generatorContext() == null
+			|| !StructureGroundFit.grades((Structure) (Object) this)) {
+			return result;
+		}
+		return StructureGroundFit.fit(context, randomState.generatorContext(), result.get());
 	}
 
 	@Unique

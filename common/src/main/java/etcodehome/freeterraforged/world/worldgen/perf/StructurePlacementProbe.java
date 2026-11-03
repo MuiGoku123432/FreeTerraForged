@@ -121,6 +121,10 @@ public final class StructurePlacementProbe {
             }
         }
 
+        report.fitCensus = StructureFitCensus.run(level, Integer.getInteger("freeterraforged.benchmark.x", 100000) >> 4,
+            Integer.getInteger("freeterraforged.benchmark.z", 100000) >> 4, report.failures);
+        report.noiseComparisons = StructureFitCensus.compareNoise(level, report.fitCensus);
+
         // Low terrain plus a deliberately high rigid piece exercises the fill-cap failure.
         for (int[] coords : new int[][]{{-4, -4}, {3, 3}, {6250, 6250}}) {
             for (var adjustment : TerrainAdjustment.values()) {
@@ -170,7 +174,7 @@ public final class StructurePlacementProbe {
         }
     }
 
-    private static class ProbeStructures extends StructureManager {
+    static class ProbeStructures extends StructureManager {
         private final List<StructureStart> starts;
         ProbeStructures(ServerLevel level, List<StructureStart> starts) {
             super(level, level.getServer().getWorldData().worldGenOptions(), null);
@@ -186,6 +190,8 @@ public final class StructurePlacementProbe {
     }
 
     private static final class Report {
+        List<StructureFitCensus.Row> fitCensus = List.of();
+        List<StructureFitCensus.NoiseComparison> noiseComparisons = List.of();
         final int harnessVersion = 3;
         final long seed;
         boolean passed;

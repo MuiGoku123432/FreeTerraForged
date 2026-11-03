@@ -18,13 +18,18 @@ import net.minecraft.world.level.biome.BiomeSource;
 import net.minecraft.world.level.biome.BiomeResolver;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.ChunkGenerator;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.levelgen.Beardifier;
 import net.minecraft.world.level.levelgen.NoiseBasedChunkGenerator;
 import net.minecraft.world.level.levelgen.NoiseChunk;
 import net.minecraft.world.level.levelgen.RandomState;
 import net.minecraft.world.level.levelgen.structure.TerrainAdjustment;
 import net.minecraft.world.level.levelgen.blending.Blender;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+import com.llamalad7.mixinextras.sugar.Local;
 import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import etcodehome.freeterraforged.world.worldgen.GeneratorContext;
 import etcodehome.freeterraforged.world.worldgen.FTFRandomState;
@@ -36,6 +41,7 @@ import etcodehome.freeterraforged.world.worldgen.ChunkFlowField;
 import etcodehome.freeterraforged.world.worldgen.perf.WorldgenPerfTracker;
 import etcodehome.freeterraforged.world.worldgen.runtime.TerraForgedChunkGenerator;
 import etcodehome.freeterraforged.world.worldgen.runtime.FullHeightNoiseReference;
+import etcodehome.freeterraforged.world.worldgen.structure.StructureFootprint;
 
 @Mixin(NoiseBasedChunkGenerator.class)
 abstract class MixinNoiseBasedChunkGenerator extends ChunkGenerator {
@@ -146,6 +152,18 @@ abstract class MixinNoiseBasedChunkGenerator extends ChunkGenerator {
 			return;
 		}
 		this.freeterraforged$bakeFlowField(chunk, generatorContext);
+	}
+
+	/** Terrain adapts to where a structure meets the ground, not to its whole bounding box. */
+	@WrapOperation(
+		method = "createNoiseChunk",
+		at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/levelgen/Beardifier;forStructuresInChunk(Lnet/minecraft/world/level/StructureManager;Lnet/minecraft/world/level/ChunkPos;)Lnet/minecraft/world/level/levelgen/Beardifier;")
+	)
+	private Beardifier freeterraforged$trimBeard(StructureManager structures, ChunkPos chunk, Operation<Beardifier> original, @Local(argsOnly = true) RandomState random) {
+		Beardifier beardifier = original.call(structures, chunk);
+		if (!((Object) this instanceof TerraForgedChunkGenerator) || structures instanceof StructureFootprint.UntrimmedBeard) return beardifier;
+		GeneratorContext terrain = (Object) random instanceof FTFRandomState state ? state.generatorContext() : null;
+		return StructureFootprint.trimToContact(beardifier, structures, chunk, terrain);
 	}
 
 	@Inject(
