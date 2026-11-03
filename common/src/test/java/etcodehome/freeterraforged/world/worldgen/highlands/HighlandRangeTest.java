@@ -215,9 +215,10 @@ class HighlandRangeTest {
                 cirquesPer10km[run] = index.relief.cirques * 1e4 / m.totalLength();
                 int[] spill = tarnContainment(context, index.relief);
                 tarns[run] = index.relief.tarnCount();
-                lines[run] = String.format(java.util.Locale.ROOT, "RHGlacial snowline=%s cirques=%d (%.1f per 10 km crest) tarns=%d tarnColumns=%d spills=%d glacialChannels=%d %s crest=%.0f foot=%.0f",
-                    run == 0 ? "60" : "off", index.relief.cirques, cirquesPer10km[run], tarns[run], spill[0], spill[1], index.relief.glacialChannels, g.summary(), m.crestHeight(), m.footHeight());
+                lines[run] = String.format(java.util.Locale.ROOT, "RHGlacial snowline=%s cirques=%d (%.1f per 10 km crest) tarns=%d wetTarns=%d tarnColumns=%d spills=%d walls=%d maxRaise=%d glacialChannels=%d %s crest=%.0f foot=%.0f",
+                    run == 0 ? "60" : "off", index.relief.cirques, cirquesPer10km[run], tarns[run], spill[4], spill[0], spill[1], spill[2], spill[3], index.relief.glacialChannels, g.summary(), m.crestHeight(), m.footHeight());
                 assertEquals(0, spill[1], lines[run]);
+                assertEquals(0, spill[2], lines[run]);
                 System.out.println(lines[run]);
             }
         }
@@ -229,30 +230,44 @@ class HighlandRangeTest {
 
     /**
      * Every tarn water column's eight neighbours are water at the same level or dry ground at least at the water
-     * surface. Returns {water columns, spills}.
+     * surface, and dry neighbours are the ground's own: tarn shaping raises none by more than WALL_RAISE blocks (a
+     * raised rim holding perched water is a wall along the footprint grid). Returns {water columns, spills, walls,
+     * largest raise, tarns holding water}.
      */
     private static int[] tarnContainment(etcodehome.freeterraforged.world.worldgen.GeneratorContext context, HighlandRangeRelief relief) {
         var levels = context.levels;
-        Cell c = new Cell(), e = new Cell();
-        int columns = 0, spills = 0;
+        var continent = (RollingHighlandsContinent) context.heightmap.continent();
+        Cell c = new Cell(), e = new Cell(), scratch = new Cell();
+        int columns = 0, spills = 0, walls = 0, wet = 0;
+        double maxRaise = 0;
         for (int t = 0; t < relief.tarnCount(); t++) {
             var centre = relief.tarnCentre(t);
+            boolean holds = false;
             for (int dz = -160; dz <= 160; dz += 2) for (int dx = -160; dx <= 160; dx += 2) {
                 float x = (float) (centre[0] + dx), z = (float) (centre[1] + dz);
                 context.heightmap.apply(c.reset(), x, z, false);
                 if (!c.hasRiverWater || c.terrain != etcodehome.freeterraforged.world.worldgen.cell.terrain.TerrainType.RIVER) continue;
                 columns++;
+                var own = relief.tarn(x, z);
+                if (own != null && own.id() == t) holds = true;
                 int waterY = levels.scale(c.riverWaterLevel);
                 for (int k = 0; k < 8; k++) {
                     int ox = k < 3 ? -1 : k < 5 ? 0 : 1, oz = k == 3 ? -1 : k == 4 ? 1 : (k % 3) - 1;
                     context.heightmap.apply(e.reset(), x + ox, z + oz, false);
                     boolean ok = e.hasRiverWater ? levels.scale(e.riverWaterLevel) == waterY : levels.scale(e.height) >= waterY;
                     if (!ok) spills++;
+                    if (e.hasRiverWater) continue;
+                    double raise = (e.height - levels.water) * levels.terrainScaleFactor - continent.groundBeforeTarns(scratch, x + ox, z + oz);
+                    maxRaise = Math.max(maxRaise, raise);
+                    if (raise > WALL_RAISE) walls++;
                 }
             }
+            if (holds) wet++;
         }
-        return new int[] {columns, spills};
+        return new int[] {columns, spills, walls, (int) Math.ceil(maxRaise), wet};
     }
+    /** Largest rim raise (blocks) tarn shaping may add beside its water (rim sampling between RIM_STRIDE samples). */
+    static final double WALL_RAISE = 2;
 
     /**
      * RH7 S: at Range Height 400, range columns are classed by the same slope/snowline rule the surface feature uses.
