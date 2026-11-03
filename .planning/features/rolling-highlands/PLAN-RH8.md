@@ -43,3 +43,49 @@ height, terrain, water, river mask, range weight). Cross-section metric `Highlan
 | G0 (unchanged) | hw/spacing 1.05, dissection 0.20, slope 36.5°, gentle 11%, crest width 28, convex 44% |
 
 Full `:common:test` green (14 min 30 s).
+
+### R + T (model 7, `rangeRidges` 1-4)
+Built:
+- **Belt geometry.** The range field is stretched across the strike by the belt factor `1 + 1.4 (r − 1) / 2`
+  (r = 3: 2.4×), so a belt is a single range magnified across: belts are wider *and* further apart, the share of land
+  in ranges stays about the same, and relief cost stays near the plan cost. One secant step corrects the first-order
+  crest distance for r > 1 (without it the inner ridges came out wider and gentler than the outer ones).
+- **Ridges.** Crests 1.4 single-range half widths apart, wandering ±0.2 spacing; RH7 main-ridge profile reaching
+  0.75 half widths, narrower for lower or fading ridges (down to 40%) so their flanks stay steep; per-ridge presence
+  (en echelon), height (60-100% of the locally tallest) and passes; joined by a power mean (p = 6).
+- **Troughs.** Each ridge stands on its own foothills, which fall to 15% midway to the next ridge, so longitudinal
+  valleys lie near the range foot. Without this the troughs sat at ~0.5 H, trough channels were capped at the
+  uplift envelope and the inner flanks were not dissected.
+- **Core** stays full across the belt between the outer crests and falls over the outer flanks like a single range.
+- **Setting** `rangeRidges` (optional, 1-4, default 1, not written when 1), slider and tooltip, ROCKIES = 3.
+- **Wetland fix** (found by the ridges-3 water gate, a latent defect): a wetland pool now also yields to a lower
+  reach's *wetland* near its level, not only to its carved valley. Two adjacent pools of different reaches had
+  stood 2-3 blocks apart (9 water steps, 30 perched columns in the ridges-3 quality world; 0 / 0 after). Ridges-1 golden
+  hash and gates unchanged, but existing worlds can differ where two such pools overlapped.
+
+Measured, user world at Range Height 400, tall frame:
+
+| Metric | ridges 1 | ridges 3 | Gate (ridges 3) |
+|---|---|---|---|
+| sections ≥ 2 crests | 7% | 84% | ≥ 60% |
+| mean crests | 1.07 | 2.09 | ≥ 1.8 |
+| saddle depth / H | 0.40 | 0.53 | ≥ 0.25 |
+| crest spacing / CV | 664 / 0.18 | 1083 / 0.37 | CV ≤ 0.45 |
+| highest crest in same third | 99% | 52% | ≤ 70% |
+| crossings / tarn spills / walls | 0 / 0 / 0 | 0 / 0 / 0 | 0 |
+| tarns | 36 | 18 | ≥ 10 |
+| relief / plan build | 538 / 586 ms | 668 / 612 ms | relief ≤ 1.3 × plan |
+| heightmap | 18.6 µs/column | 16.8 µs/column | ≤ 1.15 × ridges 1 |
+| quality world (RH 140) water gates | 0 | 0 | 0 |
+
+Gates moved, with reasons:
+- Belt factor 2.4× at 3 ridges instead of the ~1.5-2× in D-c: at 1.85× (spacing 0.85) the ridges overlapped at
+  half height, troughs stayed high and only the outer flanks were dissected; at 2.1× (spacing 1.1, reach 0.6) the
+  ridges were thin ribbons. The across-stretched field keeps range share and cost, which was D-c's concern.
+- Spacing CV ≤ 0.45 instead of 0.35: absent ridges (en echelon ends) double the gap between their neighbours by design.
+- G0 metrics (slope, dissection, crest width) are not gated at ridges 3: they sample the band core 0.2-0.8, which with
+  a belt covers only the outer flank's foothills (median slope 19°), not the ridges.
+- Relief cost gate relief ≤ 1.3 × plan (measured 1.09×); ridges 1 keeps relief ≤ plan.
+
+Visual check (hillshades `ridges-1.png` / `ridges-3.png`, `-Dftf.render=true`): 2-3 ridges per belt with rivers in
+the longitudinal valleys, staggered ends; inner ridges dissected but less than the outer flanks. In-game check is V.

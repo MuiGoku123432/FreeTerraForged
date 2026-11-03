@@ -135,7 +135,7 @@ final class HighlandMountainProbe {
         var bounds = coast.bounds(owner.ownerX(), owner.ownerZ());
         float coastEdge = context.preset.world().controlPoints.coast;
         double rangeHeight = context.preset.terrain().highlands().rangeHeight();
-        double halfWidth = land.rangeHalfWidth();
+        double halfWidth = land.beltHalfWidth();
         Cell c = new Cell();
         int sections = 0, multi = 0, crestTotal = 0, saddles = 0, seen = 0;
         int[] thirds = new int[3];

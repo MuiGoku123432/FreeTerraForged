@@ -221,6 +221,98 @@ class HighlandRangeTest {
     }
 
     /**
+     * RH8 T: three-ridge belts at Range Height 400 in the tall frame (the ROCKIES setup): several crests across the
+     * belt with deep saddles between them, staggered ridges whose tallest changes, and the RH7 morphology, glacial and
+     * water gates still holding.
+     */
+    @Test void ridgeBeltsHaveParallelCrests() throws Exception {
+        double on, off;
+        var preset = tallPreset(400);
+        preset.terrain().rollingHighlands = preset.terrain().rollingHighlands.withRangeRidges(3);
+        try (var context = WorldgenFixture.context(preset, HighlandPlanformProbe.USER_SEED)) {
+            int ux = HighlandPlanformProbe.USER_X, uz = HighlandPlanformProbe.USER_Z;
+            var r = HighlandMountainProbe.ridges(context, ux, uz);
+            var g = HighlandMountainProbe.measure(context, ux, uz);
+            var m = HighlandRangeProbe.measure(context, ux, uz);
+            var p = HighlandPlanformProbe.measure("user-ridges", context, ux, uz);
+            var continent = (RollingHighlandsContinent) context.heightmap.continent();
+            long plan = Long.MAX_VALUE, relief = Long.MAX_VALUE;
+            HighlandPlanIndex index = null;
+            for (int rep = 0; rep < 3; rep++) {
+                index = continent.rebuildAt(ux, uz);
+                plan = Math.min(plan, index.plan().buildNanos());
+                relief = Math.min(relief, index.relief.buildNanos);
+            }
+            int[] spill = tarnContainment(context, index.relief);
+            String summary = String.format(java.util.Locale.ROOT, "RH8 %s | %s | %s | crossings=%d | cost plan=%.0fms relief=%.0fms | cirques=%d (%.1f per 10 km) tarns=%d spills=%d walls=%d",
+                r.summary(), g.summary(), m.summary(), p.crossings(), plan / 1e6, relief / 1e6, index.relief.cirques,
+                index.relief.cirques * 1e4 / m.totalLength(), index.relief.tarnCount(), spill[1], spill[2]);
+            System.out.println(summary);
+            assertTrue(r.multiShare() >= .6 && r.meanCrests() >= 1.8, summary);
+            assertTrue(r.saddleDepth() >= .25, summary);
+            assertTrue(r.spacingCv() <= .45, summary);
+            assertTrue(r.highestModeShare() <= .7, summary);
+            assertEquals(0, p.crossings(), summary);
+            assertTrue(index.relief.tarnCount() >= 10, summary);
+            assertEquals(0, spill[1], summary);
+            assertEquals(0, spill[2], summary);
+            assertTrue(relief <= 1.3 * plan, summary);
+            on = columnTime(context);
+        }
+        try (var context = WorldgenFixture.context(tallPreset(400), HighlandPlanformProbe.USER_SEED)) {
+            off = columnTime(context);
+        }
+        String time = String.format(java.util.Locale.ROOT, "RH8 time ridges3=%.2f ridges1=%.2f us/column", on, off);
+        System.out.println(time);
+        assertTrue(on <= 1.15 * off, time);
+        var water = withRanges();
+        water.terrain().rollingHighlands = water.terrain().rollingHighlands.withRangeRidges(3);
+        var q = HighlandQualityProbe.measure(water, 0, false);
+        System.out.println("RH8 ridges " + q.summary());
+        assertEquals(0, q.waterSteps(), q.summary());
+        assertEquals(0, q.dryJumps(), q.summary());
+        assertEquals(0, q.shoreCliffs(), q.summary());
+        assertEquals(0, q.belowSea(), q.summary());
+        assertTrue(q.flowCoverage() >= .999, q.summary());
+        if (Boolean.getBoolean("ftf.render")) {
+            for (int ridges : new int[] {1, 3}) {
+                var shown = tallPreset(400);
+                shown.terrain().rollingHighlands = shown.terrain().rollingHighlands.withRangeRidges(ridges);
+                try (var context = WorldgenFixture.context(shown, HighlandPlanformProbe.USER_SEED)) {
+                    hillshade(context, 2656, 7396, 12288, 12, java.nio.file.Path.of("build/rolling-highlands/ridges-" + ridges + ".png"));
+                    hillshade(context, 6616, 14116, 4096, 4,
+                        java.nio.file.Path.of("build/rolling-highlands/ridges-" + ridges + "-zoom.png"));
+                }
+            }
+        }
+    }
+
+    /** Diagnostic hillshade (sun from the north-west, water blue) of a square, {@code res} blocks per pixel. */
+    private static void hillshade(etcodehome.freeterraforged.world.worldgen.GeneratorContext context, int x0, int z0, int size, int res, java.nio.file.Path out) throws Exception {
+        int n = size / res;
+        double[] h = new double[n * n];
+        boolean[] wet = new boolean[n * n];
+        Cell c = new Cell();
+        for (int z = 0; z < n; z++) for (int x = 0; x < n; x++) {
+            context.heightmap.apply(c.reset(), x0 + x * res, z0 + z * res, false);
+            h[z * n + x] = (c.height - context.levels.water) * context.levels.terrainScaleFactor;
+            wet[z * n + x] = c.hasRiverWater || h[z * n + x] < 0;
+        }
+        var image = new java.awt.image.BufferedImage(n, n, java.awt.image.BufferedImage.TYPE_INT_RGB);
+        for (int z = 1; z < n - 1; z++) for (int x = 1; x < n - 1; x++) {
+            int i = z * n + x;
+            if (wet[i]) { image.setRGB(x, z, 0x287dcc); continue; }
+            double gx = (h[i + 1] - h[i - 1]) / (2 * res), gz = (h[i + n] - h[i - n]) / (2 * res);
+            double shade = HighlandMath.clamp((1 + (gx + gz) * .7071) / Math.sqrt(1 + gx * gx + gz * gz), 0, 1.4) / 1.4;
+            double tint = HighlandMath.clamp(h[i] / 500, 0, 1);
+            int r = (int) (255 * shade * (.45 + .55 * tint)), g = (int) (255 * shade * (.6 + .3 * tint)), b = (int) (255 * shade * (.35 + .6 * tint));
+            image.setRGB(x, z, (r << 16) | (g << 8) | b);
+        }
+        java.nio.file.Files.createDirectories(out.getParent());
+        javax.imageio.ImageIO.write(image, "png", out.toFile());
+    }
+
+    /**
      * RH7 G: glacial overprint at Range Height 400 (default snowline) against the same world without glaciation:
      * cirques per 10 km of crest, and the flank and valley morphology both ways.
      */

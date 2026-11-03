@@ -22,6 +22,7 @@ test {
     useJUnitPlatform()
     maxHeapSize = '2G'
     systemProperty 'ftf.captureBaseline', System.getProperty('ftf.captureBaseline', 'false')
+    systemProperty 'ftf.render', System.getProperty('ftf.render', 'false')
     testLogging { events 'passed', 'skipped', 'failed' }
 }
 

@@ -15,7 +15,8 @@ staggered (en echelon) along the strike, with the highest ridge changing along t
   so existing worlds and presets are unchanged. The ROCKIES starting profile uses 3. Slider on the Terrain page next
   to Range Height / Range Length.
 - **D-c Wider belts.** With 2+ ridges the belt widens ~1.5-2× (to be fixed in tuning). The relief cost gate is
-  relaxed to a measured value, recorded with its reason in PLAN-RH8 §4.
+  relaxed to a measured value, recorded with its reason in PLAN-RH8 §4. As built: 1.7× / 2.4× / 3.1× for 2 / 3 / 4
+  ridges, with the range field stretched by the same factor so range share and cost hold (PLAN-RH8 §4).
 
 ## 3. Phases (one commit per phase, full `:common:test` each)
 
@@ -46,7 +47,7 @@ staggered (en echelon) along the strike, with the highest ridge changing along t
 
 ### T: tuning and gates at ridges 3 (Range Height 400, tall frame)
 - Belt width factor and spacing tuned against the P0 metric. Targets: ≥ 2 crests in ≥ 60% of belt sections; mean
-  saddle depth between neighbouring crests ≥ 0.25 H; spacing CV ≤ 0.35; highest-crest index not constant (no index
+  saddle depth between neighbouring crests ≥ 0.25 H; spacing CV ≤ 0.35 (as built ≤ 0.45, PLAN-RH8 §4); highest-crest index not constant (no index
   > 70% of sections).
 - Kept at ridges 3: water gates 0 (steps, dry jumps, shore cliffs, below sea), crossings 0, longest crest ≥ 4 km,
   median flank slope 30-38°, cirques ≥ 30 per 10 km, tarns 0 spills.

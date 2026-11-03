@@ -20,9 +20,11 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
  *                      (its weight falls to REPLACED_MOUNTAIN_WEIGHT), so mountains live in ranges (RH6 D-b)
  * @param snowline      glacial snowline as a percentage of the Range Height above the range foot (RH7 G; 100 = no
  *                      glaciation)
+ * @param rangeRidges   parallel ridges across each range (RH8; 1 = the single model-7 crest)
  */
 public record RollingHighlandsSettings(int modelVersion, int uplandSpacing, int uplandHeight, int valleyDepth, int valleyWidth, int meanders,
-                                       int rangeHeight, int rangeLength, boolean rangesReplaceMountains, int snowline) {
+                                       int rangeHeight, int rangeLength, boolean rangesReplaceMountains, int snowline,
+                                       int rangeRidges) {
     /**
      * Generation model. 3 = RH3 (legacy FTF land, stream-power drainage, FTF river profile, dam lakes); 4 = RH4
      * (jittered-lattice routing, meandering channels with oxbows, natural tributary mouths, rounded confluences);
@@ -38,14 +40,17 @@ public record RollingHighlandsSettings(int modelVersion, int uplandSpacing, int 
     public static final int MAX_RANGE_HEIGHT = 640, MIN_RANGE_LENGTH = 2048, MAX_RANGE_LENGTH = 16384;
     /** RH7 G: default snowline (percent of Range Height above the range foot) and its range. */
     public static final int DEFAULT_SNOWLINE = 60, MIN_SNOWLINE = 20, MAX_SNOWLINE = 100;
+    /** RH8: ridges per range (optional; 1 keeps model-7 worlds unchanged, so no model bump). */
+    public static final int DEFAULT_RANGE_RIDGES = 1, MAX_RANGE_RIDGES = 4;
     public static final RollingHighlandsSettings DEFAULT = new RollingHighlandsSettings(MODEL_VERSION, 4096, 80, 100, 256, DEFAULT_MEANDERS);
     /**
      * Profile a new Rolling Highlands world starts from (RH7, the "Rockies" setup): broad high uplands, wide gently
-     * meandering valleys and 400-block glaciated ranges that replace the legacy mountains. DEFAULT stays the
+     * meandering valleys and 400-block glaciated ranges of three parallel ridges (RH8) that replace the legacy
+     * mountains. DEFAULT stays the
      * calibration profile the tests measure against.
      */
     public static final RollingHighlandsSettings ROCKIES = new RollingHighlandsSettings(MODEL_VERSION, 6144, 120, 120, 448, 80,
-        400, DEFAULT_RANGE_LENGTH, true, DEFAULT_SNOWLINE);
+        400, DEFAULT_RANGE_LENGTH, true, DEFAULT_SNOWLINE, 3);
     /** Share of the legacy mountain terrain weight kept when ranges replace mountains (RH7 D-c: none). */
     public static final float REPLACED_MOUNTAIN_WEIGHT = 0F;
 
@@ -67,17 +72,25 @@ public record RollingHighlandsSettings(int modelVersion, int uplandSpacing, int 
                                     int rangeHeight, int rangeLength, boolean rangesReplaceMountains) {
         this(modelVersion, uplandSpacing, uplandHeight, valleyDepth, valleyWidth, meanders, rangeHeight, rangeLength, rangesReplaceMountains, DEFAULT_SNOWLINE);
     }
+    /** Profile with one ridge per range. */
+    public RollingHighlandsSettings(int modelVersion, int uplandSpacing, int uplandHeight, int valleyDepth, int valleyWidth, int meanders,
+                                    int rangeHeight, int rangeLength, boolean rangesReplaceMountains, int snowline) {
+        this(modelVersion, uplandSpacing, uplandHeight, valleyDepth, valleyWidth, meanders, rangeHeight, rangeLength, rangesReplaceMountains, snowline, DEFAULT_RANGE_RIDGES);
+    }
     public RollingHighlandsSettings withMeanders(int value) {
-        return new RollingHighlandsSettings(modelVersion, uplandSpacing, uplandHeight, valleyDepth, valleyWidth, value, rangeHeight, rangeLength, rangesReplaceMountains, snowline);
+        return new RollingHighlandsSettings(modelVersion, uplandSpacing, uplandHeight, valleyDepth, valleyWidth, value, rangeHeight, rangeLength, rangesReplaceMountains, snowline, rangeRidges);
     }
     public RollingHighlandsSettings withRanges(int height, int length) {
-        return new RollingHighlandsSettings(modelVersion, uplandSpacing, uplandHeight, valleyDepth, valleyWidth, meanders, height, length, rangesReplaceMountains, snowline);
+        return new RollingHighlandsSettings(modelVersion, uplandSpacing, uplandHeight, valleyDepth, valleyWidth, meanders, height, length, rangesReplaceMountains, snowline, rangeRidges);
     }
     public RollingHighlandsSettings withRangesReplaceMountains(boolean value) {
-        return new RollingHighlandsSettings(modelVersion, uplandSpacing, uplandHeight, valleyDepth, valleyWidth, meanders, rangeHeight, rangeLength, value, snowline);
+        return new RollingHighlandsSettings(modelVersion, uplandSpacing, uplandHeight, valleyDepth, valleyWidth, meanders, rangeHeight, rangeLength, value, snowline, rangeRidges);
     }
     public RollingHighlandsSettings withSnowline(int value) {
-        return new RollingHighlandsSettings(modelVersion, uplandSpacing, uplandHeight, valleyDepth, valleyWidth, meanders, rangeHeight, rangeLength, rangesReplaceMountains, value);
+        return new RollingHighlandsSettings(modelVersion, uplandSpacing, uplandHeight, valleyDepth, valleyWidth, meanders, rangeHeight, rangeLength, rangesReplaceMountains, value, rangeRidges);
+    }
+    public RollingHighlandsSettings withRangeRidges(int value) {
+        return new RollingHighlandsSettings(modelVersion, uplandSpacing, uplandHeight, valleyDepth, valleyWidth, meanders, rangeHeight, rangeLength, rangesReplaceMountains, snowline, value);
     }
     /** Whether the legacy mountain terrain is scaled down for ranges (ranges on and the toggle set). */
     public boolean replacesMountains() { return rangeHeight > 0 && rangesReplaceMountains; }
@@ -92,7 +105,8 @@ public record RollingHighlandsSettings(int modelVersion, int uplandSpacing, int 
         integer(0, MAX_RANGE_HEIGHT).optionalFieldOf("rangeHeight", DEFAULT_RANGE_HEIGHT).forGetter(RollingHighlandsSettings::rangeHeight),
         integer(MIN_RANGE_LENGTH, MAX_RANGE_LENGTH).optionalFieldOf("rangeLength", DEFAULT_RANGE_LENGTH).forGetter(RollingHighlandsSettings::rangeLength),
         Codec.BOOL.optionalFieldOf("rangesReplaceMountains", true).forGetter(RollingHighlandsSettings::rangesReplaceMountains),
-        integer(MIN_SNOWLINE, MAX_SNOWLINE).optionalFieldOf("snowline", DEFAULT_SNOWLINE).forGetter(RollingHighlandsSettings::snowline)
+        integer(MIN_SNOWLINE, MAX_SNOWLINE).optionalFieldOf("snowline", DEFAULT_SNOWLINE).forGetter(RollingHighlandsSettings::snowline),
+        integer(1, MAX_RANGE_RIDGES).optionalFieldOf("rangeRidges", DEFAULT_RANGE_RIDGES).forGetter(RollingHighlandsSettings::rangeRidges)
     ).apply(i, RollingHighlandsSettings::new)).validate(s -> s.modelVersion == MODEL_VERSION
         ? DataResult.success(s) : DataResult.error(() -> unsupported(s.modelVersion)));
 
@@ -112,7 +126,7 @@ public record RollingHighlandsSettings(int modelVersion, int uplandSpacing, int 
         if (uplandSpacing < 4096 || uplandSpacing > 8192 || uplandHeight < 0 || uplandHeight > 160
             || valleyDepth < 25 || valleyDepth > 200 || valleyWidth < 64 || valleyWidth > 512 || meanders < 0 || meanders > 200
             || rangeHeight < 0 || rangeHeight > MAX_RANGE_HEIGHT || rangeLength < MIN_RANGE_LENGTH || rangeLength > MAX_RANGE_LENGTH
-            || snowline < MIN_SNOWLINE || snowline > MAX_SNOWLINE) {
+            || snowline < MIN_SNOWLINE || snowline > MAX_SNOWLINE || rangeRidges < 1 || rangeRidges > MAX_RANGE_RIDGES) {
             throw new IllegalArgumentException("Unsupported Rolling Highlands profile; check model version and control ranges");
         }
         if (world.continent.continentScale < 1000 || world.continent.continentScale > 5000) {
