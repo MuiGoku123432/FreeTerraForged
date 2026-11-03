@@ -226,6 +226,17 @@ class HighlandRangeTest {
      * water gates still holding.
      */
     @Test void ridgeBeltsHaveParallelCrests() throws Exception {
+        if (Boolean.getBoolean("ftf.render")) {
+            for (int ridges : new int[] {1, 3}) {
+                var shown = tallPreset(400);
+                shown.terrain().rollingHighlands = shown.terrain().rollingHighlands.withRangeRidges(ridges);
+                try (var context = WorldgenFixture.context(shown, HighlandPlanformProbe.USER_SEED)) {
+                    hillshade(context, 2656, 7396, 12288, 12, java.nio.file.Path.of("build/rolling-highlands/ridges-" + ridges + ".png"));
+                    hillshade(context, 6256, 11356, 4096, 4,
+                        java.nio.file.Path.of("build/rolling-highlands/ridges-" + ridges + "-zoom.png"));
+                }
+            }
+        }
         double on, off;
         var preset = tallPreset(400);
         preset.terrain().rollingHighlands = preset.terrain().rollingHighlands.withRangeRidges(3);
@@ -274,17 +285,6 @@ class HighlandRangeTest {
         assertEquals(0, q.shoreCliffs(), q.summary());
         assertEquals(0, q.belowSea(), q.summary());
         assertTrue(q.flowCoverage() >= .999, q.summary());
-        if (Boolean.getBoolean("ftf.render")) {
-            for (int ridges : new int[] {1, 3}) {
-                var shown = tallPreset(400);
-                shown.terrain().rollingHighlands = shown.terrain().rollingHighlands.withRangeRidges(ridges);
-                try (var context = WorldgenFixture.context(shown, HighlandPlanformProbe.USER_SEED)) {
-                    hillshade(context, 2656, 7396, 12288, 12, java.nio.file.Path.of("build/rolling-highlands/ridges-" + ridges + ".png"));
-                    hillshade(context, 6616, 14116, 4096, 4,
-                        java.nio.file.Path.of("build/rolling-highlands/ridges-" + ridges + "-zoom.png"));
-                }
-            }
-        }
     }
 
     /** Diagnostic hillshade (sun from the north-west, water blue) of a square, {@code res} blocks per pixel. */
@@ -362,9 +362,11 @@ class HighlandRangeTest {
                 float x = (float) (centre[0] + dx), z = (float) (centre[1] + dz);
                 context.heightmap.apply(c.reset(), x, z, false);
                 if (!c.hasRiverWater || c.terrain != etcodehome.freeterraforged.world.worldgen.cell.terrain.TerrainType.RIVER) continue;
-                columns++;
+                // Only this tarn's still water: a river channel crossing the window or the tarn's bowl slopes by design.
                 var own = relief.tarn(x, z);
-                if (own != null && own.id() == t) holds = true;
+                if (c.hasFlow || own == null || own.id() != t || own.weight() <= RollingHighlandsContinent.TARN_RIM) continue;
+                columns++;
+                holds = true;
                 int waterY = levels.scale(c.riverWaterLevel);
                 for (int k = 0; k < 8; k++) {
                     int ox = k < 3 ? -1 : k < 5 ? 0 : 1, oz = k == 3 ? -1 : k == 4 ? 1 : (k % 3) - 1;

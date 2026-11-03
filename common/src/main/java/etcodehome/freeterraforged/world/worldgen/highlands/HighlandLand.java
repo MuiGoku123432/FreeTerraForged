@@ -116,15 +116,17 @@ public final class HighlandLand {
         // Approximate distance (blocks) to the crest line n = 0.5, in units of this flank's half width.
         double width = 1 + asymmetry * side;
         double excess = n - .5;
-        if (ridges > 1) {
-            // RH8: one secant step. Belts reach far from the crest line, where the field bends and the first-order
-            // distance overstates it (inner ridges would come out wider and gentler than the outer ones).
-            double step = excess / gradient / gradient;
-            double corrected = excess + rangeField(x - step * gx, z - step * gz) - .5;
-            excess = corrected * excess > 0 ? corrected : 0;
-        }
         double t = Math.abs(excess) / gradient / (beltHalfWidth() * width);
         if (t >= 1) return null;
+        if (ridges > 1 && excess != 0) {
+            // RH8: one secant step. Belts reach far from the crest line, where the field bends and the first-order
+            // distance overstates it (inner ridges would come out wider and gentler than the outer ones). The step
+            // only shortens the distance, by at most SECANT_FLOOR, and fades out toward the belt edge, so the belt keeps
+            // its first-order extent and stays continuous where the field turns over beyond the crest line.
+            double step = excess / gradient / gradient;
+            double ratio = HighlandMath.clamp((excess + rangeField(x - step * gx, z - step * gz) - .5) / excess, SECANT_FLOOR, 1);
+            t *= HighlandMath.lerp(ratio, 1, HighlandMath.smooth(.6, 1, t));
+        }
         double presence = HighlandMath.smooth(.38, .58, HighlandMath.noise(seed + 6151, x, z, 2.2 * l));
         // RH8: with several ridges, the core stays full across the belt between the outer crests and falls over the
         // outer flanks as a single range's does.
@@ -132,6 +134,8 @@ public final class HighlandLand {
         double core = presence * (1 - HighlandMath.smooth(0, 1, ridges == 1 ? t : Math.max(0, t - outer) / (1 - outer)));
         return core <= 0 ? null : new RangeFrame(core, Math.atan2(gz, gx) + Math.PI / 2, width, t * beltHalfWidth() * width, presence, n < .5 ? -1 : 1);
     }
+
+    static final double SECANT_FLOOR = .3;
 
     /** The range's core weight at a position (0 outside ranges). */
     double rangeCore(double x, double z) {
@@ -174,7 +178,7 @@ public final class HighlandLand {
         double crest = 1 - RANGE_CREST_VARIATION + 2 * RANGE_CREST_VARIATION * oriented(seed + 6173, x, z, strike, RANGE_CREST_STRETCH, RANGE_CREST_WAVELENGTH, 2);
         double parallel = oriented(seed + 6241, x, z, strike, RANGE_CREST_STRETCH, RANGE_FOOTHILL_WAVELENGTH, 2);
         double t = frame.distance() / (beltHalfWidth() * frame.width());
-        if (ridges > 1) return rangeHeight * Math.max(0, ridgeBelt(x, z, frame.side() * t, frame.presence(), foothills * (.7 + .3 * parallel), crest));
+        if (ridges > 1) return rangeHeight * Math.max(0, ridgeBelt(x, z, frame.side() * t, frame.presence(), foothills, parallel, crest));
         // Passes are rare deep notches (the low tail of a smooth noise).
         double pass = .35 + .65 * HighlandMath.smooth(RANGE_PASS_LOW, RANGE_PASS_HIGH, HighlandMath.noise(seed + 6197, x, z, .55 * rangeLength));
         // RH7 D: the main ridge falls almost linearly from the crest line (a sharp divide, straight upper flanks) instead
@@ -189,44 +193,42 @@ public final class HighlandLand {
      * single-range half widths apart and wander across the strike; each ridge has the RH7 main-ridge profile reaching
      * RIDGE_REACH, its own presence (ridges start, end and overlap en echelon), height (the tallest ridge changes along
      * the belt; lower ridges are narrower) and passes. Ridges join by a power mean, which is 0 where all are 0 and
-     * rounds the saddles between them. Each ridge stands on its own foothills, which fall to RIDGE_TROUGH_FOOTHILLS
-     * midway to the next ridge, so the longitudinal valleys between ridges lie near the range foot and the range relief
-     * carves the flanks down to them; beyond the outer crests the foothills are a single range's.
+     * rounds the saddles between them. Each present ridge carries a single range's foothills around it, so neighbouring
+     * ridges share one raised base (the valleys between them lie high in the range) and the belt narrows where an
+     * outer ridge is absent; {@code foothills} (the belt's own, falling over the outer flanks) caps them at the edge.
      */
-    private double ridgeBelt(double x, double z, double across, double presence, double foothills, double crest) {
+    private double ridgeBelt(double x, double z, double across, double presence, double foothills, double parallel, double crest) {
         double belt = beltFactor(), spacing = RIDGE_SPACING / belt, reach = RIDGE_REACH / belt, l = rangeLength;
         double tallest = 0;
         for (int k = 0; k < ridges; k++) tallest = Math.max(tallest, HighlandMath.noise(seed + 6271 + 101L * k, x, z, RIDGE_HEIGHT_WAVELENGTH * l));
-        double sum = 0, pedestal = 0;
+        double sum = 0, skirt = 0;
         for (int k = 0; k < ridges; k++) {
             double offset = (k - (ridges - 1) / 2.0 + RIDGE_WANDER * (2 * HighlandMath.noise(seed + 6277 + 101L * k, x, z, l) - 1)) * spacing;
             double distance = Math.abs(across - offset);
-            if (k == 0 && across < offset || k == ridges - 1 && across > offset) distance = 0;
-            double near = HighlandMath.smooth(0, 1, 1 - distance / (.5 * spacing));
-            if (near <= 0 && Math.abs(across - offset) >= reach) continue;
+            if (distance * belt >= 1) continue;
             double present = HighlandMath.smooth(RIDGE_PRESENCE_LOW, RIDGE_PRESENCE_HIGH, HighlandMath.noise(seed + 6281 + 101L * k, x, z, RIDGE_PRESENCE_WAVELENGTH * l));
-            pedestal = Math.max(pedestal, present * near);
+            skirt = Math.max(skirt, present * (1 - HighlandMath.smooth(0, 1, distance * belt)));
             double height = 1 - (1 - RIDGE_LOW) * HighlandMath.smooth(0, RIDGE_HEIGHT_SPREAD, tallest - HighlandMath.noise(seed + 6271 + 101L * k, x, z, RIDGE_HEIGHT_WAVELENGTH * l));
             // Lower and fading ridges are narrower, so their flanks stay as steep as the tallest ridge's.
-            double profile = Math.max(0, 1 - Math.abs(across - offset) / (reach * HighlandMath.lerp(RIDGE_NARROW, 1, present * height)));
+            double profile = Math.max(0, 1 - distance / (reach * HighlandMath.lerp(RIDGE_NARROW, 1, present * height)));
             if (profile <= 0) continue;
             double pass = .35 + .65 * HighlandMath.smooth(RANGE_PASS_LOW, RANGE_PASS_HIGH, HighlandMath.noise(seed + 6197 + 101L * k, x, z, .55 * l));
             sum += Math.pow(present * height * pass * Math.pow(profile, RANGE_MAIN_SHAPE), RIDGE_JOIN);
         }
-        return RANGE_FOOTHILLS * foothills * HighlandMath.lerp(RIDGE_TROUGH_FOOTHILLS, 1, pedestal)
+        return RANGE_FOOTHILLS * Math.min(foothills, HighlandMath.smooth(0, .6, presence * skirt)) * (.7 + .3 * parallel)
             + (1 - RANGE_FOOTHILLS) * HighlandMath.smooth(.45, 1, presence) * Math.pow(sum, 1 / RIDGE_JOIN) * crest;
     }
     /**
-     * RH8: crest spacing and ridge reach (single-range half widths; neighbouring ridges barely overlap), wander (±
-     * share of the spacing), lowest ridge height (share of the tallest) and foothill share left between the ridges.
+     * RH8: crest spacing and ridge reach (single-range half widths; neighbouring ridges overlap below mid-height),
+     * wander (± share of the spacing) and lowest ridge height (share of the tallest).
      */
-    static final double RIDGE_SPACING = 1.4, RIDGE_REACH = .75, RIDGE_WANDER = .2, RIDGE_LOW = .6, RIDGE_TROUGH_FOOTHILLS = .15;
+    static final double RIDGE_SPACING = .9, RIDGE_REACH = .75, RIDGE_WANDER = .2, RIDGE_LOW = .6;
     /** RH8: reach of a vanishing ridge (share of RIDGE_REACH). */
     static final double RIDGE_NARROW = .4;
     /** RH8: noise gap over which a ridge falls from the tallest to RIDGE_LOW, and the wavelength of ridge heights (range lengths). */
     static final double RIDGE_HEIGHT_SPREAD = .3, RIDGE_HEIGHT_WAVELENGTH = 1.2;
     /** RH8: ridge presence noise band (absent below LOW, full above HIGH) and its wavelength (range lengths). */
-    static final double RIDGE_PRESENCE_LOW = .3, RIDGE_PRESENCE_HIGH = .5, RIDGE_PRESENCE_WAVELENGTH = 1.5;
+    static final double RIDGE_PRESENCE_LOW = .35, RIDGE_PRESENCE_HIGH = .55, RIDGE_PRESENCE_WAVELENGTH = .6;
     /** RH8: power of the mean joining the ridges (higher is closer to the plain maximum). */
     static final double RIDGE_JOIN = 6;
     /** RH7 D: the main ridge reaches this share of the half width and falls with this exponent (1 = straight). */
