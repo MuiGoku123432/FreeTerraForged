@@ -15,8 +15,10 @@ staggered (en echelon) along the strike, with the highest ridge changing along t
   so existing worlds and presets are unchanged. The ROCKIES starting profile uses 3. Slider on the Terrain page next
   to Range Height / Range Length.
 - **D-c Wider belts.** With 2+ ridges the belt widens ~1.5-2× (to be fixed in tuning). The relief cost gate is
-  relaxed to a measured value, recorded with its reason in PLAN-RH8 §4. As built: 1.7× / 2.4× / 3.1× for 2 / 3 / 4
-  ridges, with the range field stretched by the same factor so range share and cost hold (PLAN-RH8 §4).
+  relaxed to a measured value, recorded with its reason in PLAN-RH8 §4. As built (T2): 1.45× / 1.9× / 2.35× for 2 /
+  3 / 4 ridges, with the range field stretched by the same factor so range share and cost hold (PLAN-RH8 §4).
+- **D-d One range with depth** (user, 2026-11-03, after the first in-game look): ridges sit close and share one raised
+  base, so a belt reads as a single range with parallel crests behind each other, not separate ranges.
 
 ## 3. Phases (one commit per phase, full `:common:test` each)
 

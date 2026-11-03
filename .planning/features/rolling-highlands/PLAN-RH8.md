@@ -79,7 +79,7 @@ Measured, user world at Range Height 400, tall frame:
 | quality world (RH 140) water gates | 0 | 0 | 0 |
 
 Gates moved, with reasons:
-- Belt factor 2.4× at 3 ridges instead of the ~1.5-2× in D-c: at 1.85× (spacing 0.85) the ridges overlapped at
+- (Superseded by T2.) Belt factor 2.4× at 3 ridges instead of the ~1.5-2× in D-c: at 1.85× (spacing 0.85) the ridges overlapped at
   half height, troughs stayed high and only the outer flanks were dissected; at 2.1× (spacing 1.1, reach 0.6) the
   ridges were thin ribbons. The across-stretched field keeps range share and cost, which was D-c's concern.
 - Spacing CV ≤ 0.45 instead of 0.35: absent ridges (en echelon ends) double the gap between their neighbours by design.
@@ -89,3 +89,31 @@ Gates moved, with reasons:
 
 Visual check (hillshades `ridges-1.png` / `ridges-3.png`, `-Dftf.render=true`): 2-3 ridges per belt with rivers in
 the longitudinal valleys, staggered ends; inner ridges dissected but less than the outer flanks. In-game check is V.
+
+### T2: one range with depth (user feedback 2026-11-03)
+In game, R+T belts read as separate ranges with wide valleys between them, not one range with more depth.
+Changed (ridges > 1 only; ridges-1 golden hash unchanged):
+- Crest spacing 1.4 → 0.9 single-range half widths, so the belt factor is 1.45× / 1.9× / 2.35× for 2 / 3 / 4
+  ridges (back within D-c's ~1.5-2× for 3 ridges).
+- Shared base: each present ridge carries a single range's foothills around it (max over ridges), so the valleys
+  between ridges lie high inside the range instead of near its foot; an absent outer ridge narrows the belt instead
+  of leaving a foothill plateau with a scarp.
+- Shorter ridge segments: presence noise wavelength 1.5 → 0.6 range lengths (band 0.35-0.55), so ridges stagger and
+  their valleys drain out through the gaps.
+- Secant step bounded: it only shortens the distance (to ≥ 30%) and fades out toward the belt edge. The unbounded step
+  pulled in far points where the field turns over and printed straight creases and scarps outside the ranges.
+- Test helper `tarnContainment` counts only a tarn's still water (inside its rim, not flowing): with ridges 3 a planned
+  river crosses one cirque bowl, and its normal 1-block slope steps had been counted as tarn spills.
+
+| Metric at 400, ridges 3 | R+T | T2 | Gate |
+|---|---|---|---|
+| sections ≥ 2 crests | 84% | 88% | ≥ 60% |
+| mean crests | 2.09 | 2.18 | ≥ 1.8 |
+| saddle depth / H | 0.53 | 0.51 | ≥ 0.25 |
+| crest spacing / CV | 1083 / 0.37 | 934 / 0.37 | CV ≤ 0.45 |
+| highest crest in same third | 52% | 57% | ≤ 70% |
+| crossings / tarn spills | 0 / 0 | 0 / 0 | 0 |
+| tarns | 18 | 43 | ≥ 10 |
+| relief / plan build | 668 / 612 ms | 661 / 723 ms | relief ≤ 1.3 × plan |
+| heightmap ridges 3 / 1 | 16.8 / 18.6 µs | 22.6 / 21.1 µs | ≤ 1.15× |
+| quality world water gates | 0 | 0 | 0 |
