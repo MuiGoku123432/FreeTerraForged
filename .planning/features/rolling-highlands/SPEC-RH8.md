@@ -16,7 +16,8 @@ staggered (en echelon) along the strike, with the highest ridge changing along t
   to Range Height / Range Length.
 - **D-c Wider belts.** With 2+ ridges the belt widens ~1.5-2× (to be fixed in tuning). The relief cost gate is
   relaxed to a measured value, recorded with its reason in PLAN-RH8 §4. As built (T2): 1.45× / 1.9× / 2.35× for 2 /
-  3 / 4 ridges, with the range field stretched by the same factor so range share and cost hold (PLAN-RH8 §4).
+  3 / 4 ridges. T3 (user, 2026-11-04): ranges move apart by half the belt widening (1.45× for 3 ridges), not all
+  of it, so ranges stay nearly as frequent as single-ridge ones (PLAN-RH8 §4).
 - **D-d One range with depth** (user, 2026-11-03, after the first in-game look): ridges sit close and share one raised
   base, so a belt reads as a single range with parallel crests behind each other, not separate ranges.
 

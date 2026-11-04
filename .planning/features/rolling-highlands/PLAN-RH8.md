@@ -117,3 +117,28 @@ Changed (ridges > 1 only; ridges-1 golden hash unchanged):
 | relief / plan build | 668 / 612 ms | 661 / 723 ms | relief ≤ 1.3 × plan |
 | heightmap ridges 3 / 1 | 16.8 / 18.6 µs | 22.6 / 21.1 µs | ≤ 1.15× |
 | quality world water gates | 0 | 0 | 0 |
+
+### T3: range spacing 1.45× and ridge-based core (user, 2026-11-04)
+In game (server world, ridges 3) ranges were much sparser than with one ridge: T2 spread ranges apart by the full belt
+factor (1.9×). The user chose 1.45× ("a little more spaced out"), in code, not a slider.
+- `RIDGE_RANGE_SPREAD = .5`: the range field is stretched across by `1 + 0.5 (belt − 1)` (1.45× for 3 ridges); ranges
+  are about ⅔ as frequent as with one ridge (T2 about ½) and about 1.3× the land is in ranges. 1.2× (spread 0.25) was
+  tried first: ridge gates held but the Range Height 140 quality world had 9 shore cliffs, 9 seams and 1 dry jump.
+- **Core follows the ridges.** With spacing 1.45× a straight scarp appeared where a belt had no ridge standing: the core
+  was full across the whole belt, so legacy relief was damped there, and where the field turns over the core rose over
+  ~100 blocks. The core is now multiplied by the strongest present ridge's single-range core (`ridgeSkirt`), so a belt
+  without standing ridges is not a range (no damping, no range surfaces); the foothills follow the core. Range-flank
+  morphology is now measurable again (median flank slope 18° → 31°, gentle 34% → 17%).
+- Full `:common:test` in a clean worktree: green except `userRangesHaveEvenCrestsAndSpurs`' wall-clock gate (relief
+  715 vs plan 683 ms) at load average 14-17; the ridges-1 path is unchanged (golden hash passes) and the previous commit
+  fails the same gate under the same load (894 vs 873 ms), so it is load noise (BACKLOG: flaky wall-clock assertion).
+
+| Metric at 400, ridges 3 | T2 (1.9×) | 1.2× trial | T3 (1.45×) | Gate |
+|---|---|---|---|---|
+| sections ≥ 2 crests | 88% | 79% | 85% | ≥ 60% |
+| mean crests | 2.18 | 2.13 | 1.99 | ≥ 1.8 |
+| saddle depth / H | 0.51 | 0.42 | 0.48 | ≥ 0.25 |
+| crest spacing CV | 0.37 | 0.34 | 0.38 | ≤ 0.45 |
+| highest crest in same third | 57% | 69% | 44% | ≤ 70% |
+| crossings / tarn spills | 0 / 0 | – | 0 / 0 | 0 |
+| quality world water gates | 0 | 19 failures | 0 | 0 |
