@@ -197,7 +197,7 @@ public final class BiomeReplacementCompiler {
 		}
 		BiomeReplacementPlan.RuleInfo ruleInfo = new BiomeReplacementPlan.RuleInfo(
 			ruleIndex, rule.line(), rule.dimension(), rule.selector(),
-			rule.selectorKind(), rule.actionKind()
+			rule.selectorKind(), rule.actionKind(), rule.beforeMods()
 		);
 		BiomeReplacementPlan.Decision decision = target == null
 			? new BiomeReplacementPlan.Remove(ruleInfo)
