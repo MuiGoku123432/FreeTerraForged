@@ -99,8 +99,8 @@ public final class HighlandPlanIndex {
             }
         }
         long estimatedBytes = entries * 4 + building.size() * 96L + nodes.size() * 100L + plan.axis().size() * 40L + boxes.length * 8L
-            + plan.gridNodes() * 20L + plan.reaches().size() * 32L;
-        if (estimatedBytes > 8L * 1024 * 1024) throw new IllegalStateException("RH retained plan exceeds 8 MiB budget");
+            + plan.gridNodes() * 20L + plan.reaches().size() * 32L + plan.basins().resolvedBytes();
+        if (estimatedBytes > 8L * 1024 * 1024) throw new IllegalStateException("RH retained plan exceeds 8 MiB budget: " + estimatedBytes + " bytes, lakes=" + plan.basins().resolvedBytes());
         // Confluences.
         List<List<Integer>> children = new ArrayList<>(nodes.size());
         for (int i = 0; i < nodes.size(); i++) children.add(new ArrayList<>(2));

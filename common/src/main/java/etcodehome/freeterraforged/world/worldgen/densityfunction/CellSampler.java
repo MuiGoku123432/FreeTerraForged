@@ -429,7 +429,9 @@ public record CellSampler(Supplier<WorldLookup> deferredLookup, Field field, Den
 				}
 				
 				if(cell.terrain.getDelegate() == TerrainCategory.BEACH && cell.height + cell.beachNoise < levels.water(5)) {
-					if(beach <= shallowOcean) {
+					// Rolling Highlands land starts at the coast point, past the beach point, where the lerp below
+					// returns the coast/inland boundary and the biome falls either way.
+					if(beach <= shallowOcean || cell.rollingHighlands) {
 						return Continentalness.COAST.mid();
 					}
 					float alpha = NoiseUtil.clamp(cell.continentEdge, shallowOcean, beach);

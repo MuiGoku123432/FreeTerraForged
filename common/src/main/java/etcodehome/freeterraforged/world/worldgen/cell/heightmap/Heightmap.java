@@ -58,14 +58,20 @@ public record Heightmap(
     public void apply(Cell cell, int x, int z, boolean applyClimate) {
         if (this.continent instanceof RollingHighlandsContinent highlands) {
             highlands.apply(cell, (double) x, z);
+            // note: same RH sequence in applyPrecise.
+            var land = cell.terrain;
             this.applyClimate(cell, x, z, applyClimate);
+            highlands.shore(cell, land, x, z);
         } else this.apply(cell, (float) x, (float) z, applyClimate);
     }
 
     public void applyPrecise(Cell cell, double x, double z, boolean applyClimate) {
         if (this.continent instanceof RollingHighlandsContinent highlands) {
             highlands.apply(cell, x, z);
+            // note: same RH sequence in apply.
+            var land = cell.terrain;
             this.applyClimate(cell, (float) x, (float) z, applyClimate);
+            highlands.shore(cell, land, x, z);
         } else this.apply(cell, (float) x, (float) z, applyClimate);
     }
 

@@ -18,7 +18,7 @@ public final class RollingHighlandsContinent implements Continent {
     /** Valley floors: vanilla low peaks-and-valleys slice (normal side) and moderately flat erosion. */
     static final double VALLEY_WEIRDNESS = -.12, VALLEY_EROSION = .1;
     static final float WETLAND_EROSION = .78F;
-    static final double CHANNEL_DEPTH = 4, SHORE_RATE = .4, MAX_FADE = 384, CONFLUENCE_RAPID = .25, LAKE_RIM = 12, FLOOR_MARGIN = 1.5, FLOOR_SOFTNESS = 4, FLOOR_COAST_RAMP = 6, SUPPORT_SLOPE = .5;
+    static final double CHANNEL_DEPTH = 4, MAX_FADE = 384, CONFLUENCE_RAPID = .25, FLOOR_MARGIN = 1.5, FLOOR_SOFTNESS = 4, FLOOR_COAST_RAMP = 6, SUPPORT_SLOPE = .5;
     /** Water-relative floor (RH6 F3): reach (blocks beyond a channel's banks) and fall (per block) of the pit-fill cone. */
     static final double FLOOR_REACH = 64, PIT_SLOPE = .08;
     /** Current speed model (normalized 0..1 as stored in ChunkFlowField). */
@@ -33,16 +33,6 @@ public final class RollingHighlandsContinent implements Continent {
     static final double CREEK_FLOOR = .3, CREEK_BED = 1.6;
     /** Narrowest channel half width (blocks): a creek is never less than two blocks of water across. */
     static final double MIN_RADIUS = 1;
-    /** Lake shoreline (RH5 S): how far (depth units) the real ground contour may pull the planned shoreline inward. */
-    static final double SHORE_BLEND = 12, SHORE_ADVANCE = 2, SHORE_CHANNEL_NEAR = 24, SHORE_CHANNEL_FAR = 64;
-    /**
-     * Beach (RH6 L4): low ground beside a lake is held up along a ramp that starts BEACH_FLUSH above the water at the
-     * planned shoreline, rises one block per BEACH_RUN blocks and levels off BEACH_TOP above the start, instead of a
-     * flat shelf one block above the water whose edge reads as a stone step.
-     */
-    static final double BEACH_FLUSH = .5, BEACH_RUN = 5, BEACH_TOP = 1, BEACH_MIN_GRADIENT = .02;
-    /** Effective depth over which a lake bed settles from the real ground to (at least) the planned depth. */
-    static final double BED_SETTLE = 2;
     static final double BANK_RUN = 16, MIN_OUTER_RUN = 64, MAX_OUTER_RUN = 512, CREASE_SOFTNESS = 24;
     private static final Rivermap NO_LEGACY_RIVERS = new Rivermap(0, 0, new Network[0], GenWarp.EMPTY);
     private final HighlandCoast coast;
@@ -59,6 +49,8 @@ public final class RollingHighlandsContinent implements Continent {
     private final etcodehome.freeterraforged.data.worldgen.preset.settings.RiverSettings.River river;
     private final etcodehome.freeterraforged.world.worldgen.cell.CellPopulator oceans;
     private final etcodehome.freeterraforged.world.worldgen.noise.module.Noise beachNoise;
+    /** Shallow-ocean edge control point and shelf depth (blocks): the shoreface descends from the coastline to the shelf. */
+    private final double shallowOceanEdge, shelfDepth;
     static final int MAX_PLANS = 8;
     private final java.util.concurrent.ConcurrentHashMap<Long, PlanEntry> cache = new java.util.concurrent.ConcurrentHashMap<>();
     private final java.util.concurrent.atomic.AtomicLong useClock = new java.util.concurrent.atomic.AtomicLong();
@@ -91,12 +83,14 @@ public final class RollingHighlandsContinent implements Continent {
             world.controlPoints.deepOcean, world.controlPoints.shallowOcean, world.controlPoints.coast);
         this.beachNoise = etcodehome.freeterraforged.world.worldgen.noise.module.Noises.mul(
             etcodehome.freeterraforged.world.worldgen.noise.module.Noises.perlin2(context.seed.next(), 20, 1), levels.scale(5));
+        this.shallowOceanEdge = world.controlPoints.shallowOcean;
+        this.shelfDepth = etcodehome.freeterraforged.world.worldgen.cell.terrain.Populators.shallowOceanDepth(world.properties.oceanDepth);
     }
     /**
      * Owner plans: lock-free lookups with a per-thread last-plan fast path; each plan is built once (concurrent
      * requests for the same owner wait on the same future) and the cache keeps the MAX_PLANS most recently used.
-     * A plan that cannot be built is replaced by a deterministic river-less plan for that owner and logged once,
-     * so world generation never fails on a single continent. Cancellation is not cached.
+     * A failed provisional drainage build uses the existing logged river-less fallback. Final lake-resolution
+     * failures remain visible rather than publishing inconsistent water. Cancellation is not cached.
      */
     private HighlandPlanIndex plan(int x, int z) {
         if (closed) throw new IllegalStateException("Rolling Highlands owner is closed");
@@ -125,8 +119,9 @@ public final class RollingHighlandsContinent implements Continent {
         return index;
     }
     private HighlandPlanIndex buildIndex(int x, int z) {
+        HighlandPlanIndex provisional;
         try {
-            return new HighlandPlanIndex(drainage.build(x, z), HighlandRangeRelief.build(land, coast, x, z));
+            provisional = new HighlandPlanIndex(drainage.build(x, z), HighlandRangeRelief.build(land, coast, x, z));
         } catch (java.util.concurrent.CancellationException cancelled) {
             throw cancelled;
         } catch (RuntimeException failure) {
@@ -134,6 +129,121 @@ public final class RollingHighlandsContinent implements Continent {
                 x, z, failure.getMessage());
             return new HighlandPlanIndex(drainage.emptyPlan(x, z));
         }
+        // Resolution errors must remain visible, rather than silently publishing a riverless continent.
+        return resolveLakes(provisional);
+    }
+
+    private HighlandPlanIndex resolveLakes(HighlandPlanIndex provisional) {
+        long started = System.nanoTime();
+        var original = provisional.plan(); var candidates = original.basins();
+        if (candidates.count() == 0) return provisional;
+        var windows = candidates.prepare((x, z) -> {
+            Cell cell = SCRATCH.get().lakeCell;
+            var location = coast.sample(x, z);
+            if (location.ownerX() != original.ownerX() || location.ownerZ() != original.ownerZ()) return Double.NEGATIVE_INFINITY;
+            var hits = provisional.near(x, z);
+            double blend = drainage.landBlend(location.edge());
+            cell.reset();
+            // Do not count channel support as an independent basin wall.
+            double raw = rawLand(cell,x,z,provisional,hits,blend,provisional.incision(x,z)*(1-land.rangeCore(x,z)));
+            return Math.min(raw, groundBeforeLakes(cell, x, z, location.edge(), provisional, hits, blend, raw));
+        });
+        double[] caps = candidates.levelCaps();
+        var coarse = bindLakes(provisional, candidates, windows, caps, started);
+        etcodehome.freeterraforged.FTFCommon.LOGGER.debug("Lake coarse owner {},{}: {} candidates, {} bodies in {} ms", original.ownerX(), original.ownerZ(), candidates.count(), coarse.plan().basins().count(), (System.nanoTime()-started)/1e6);
+        long fineStarted = System.nanoTime();
+        var fine = candidates.refine(coarse.plan().basins(), body -> (x,z) -> {
+            Cell cell = SCRATCH.get().lakeCell;
+            var location = coast.sample(x,z);
+            if (location.ownerX() != original.ownerX() || location.ownerZ() != original.ownerZ()) return Double.NEGATIVE_INFINITY;
+            var hits = coarse.near(x,z);
+            double blend = drainage.landBlend(location.edge()); cell.reset();
+            double raw = rawLand(cell,x,z,coarse,hits,blend,coarse.incision(x,z)*(1-land.rangeCore(x,z)));
+            double ground = Math.min(raw, groundBeforeLakes(cell,x,z,location.edge(),coarse,hits,blend,raw));
+            double water = (cell.riverWaterLevel-levels.water)*levels.terrainScaleFactor;
+            // A flowing outlet at the body's own level is an intentional opening. Its bed is not a dry-bank spill.
+            if (cell.hasRiverWater && cell.hasFlow && Math.abs(water-body.water()) < .25 && body.depth(x,z) <= 0)
+                ground = Math.max(ground,body.water()+HighlandBasins.FREEBOARD);
+            return ground;
+        });
+        var resolved = bindLakes(coarse, candidates, fine, caps, fineStarted);
+        etcodehome.freeterraforged.FTFCommon.LOGGER.debug("Lake fine owner {},{}: {} bodies in {} ms", original.ownerX(), original.ownerZ(), resolved.plan().basins().count(), (System.nanoTime()-fineStarted)/1e6);
+        Cell cell = new Cell();
+        for (int pass = 0; pass < 4; pass++) {
+            var current = resolved;
+            boolean changed = current.plan().basins().constrainBanks((x,z) -> {
+                var location = coast.sample(x,z);
+                if (location.ownerX() != original.ownerX() || location.ownerZ() != original.ownerZ()) return Double.NEGATIVE_INFINITY;
+                var hits = current.near(x,z); cell.reset();
+                double blend = drainage.landBlend(location.edge());
+                double raw = rawLand(cell,x,z,current,hits,blend,current.incision(x,z)*(1-land.rangeCore(x,z)));
+                double height = groundBeforeLakes(cell,x,z,location.edge(),current,hits,blend,raw);
+                return cell.hasRiverWater ? Double.POSITIVE_INFINITY : levels.scale(normalized(height));
+            }, levels.water*levels.terrainScaleFactor, caps);
+            if (!changed) {
+                etcodehome.freeterraforged.FTFCommon.LOGGER.debug("Lake final owner {},{}: {} bodies, {} bank passes in {} ms", original.ownerX(), original.ownerZ(), resolved.plan().basins().count(), pass+1, (System.nanoTime()-started)/1e6);
+                return resolved;
+            }
+            resolved = bindLakes(current,candidates,fine,caps,System.nanoTime());
+        }
+        throw new IllegalStateException("Lake banks did not converge after final river shaping");
+    }
+
+    private HighlandPlanIndex bindLakes(HighlandPlanIndex provisional, HighlandBasins candidates,
+                                        HighlandBasins.Window[] windows, double[] caps, long started) {
+        var original = provisional.plan();
+        int n = original.nodes().size();
+        int[] parents = new int[n], children = new int[n], lake = new int[n];
+        double[] low = new double[n], high = new double[n], target = new double[n], minDrop = new double[n], maxDrop = new double[n];
+        for (int i = 0; i < n; i++) {
+            var node = original.nodes().get(i); parents[i] = node.parent();
+            if (parents[i] >= 0) children[parents[i]]++;
+        }
+        double[] desired = new double[n], water;
+        HighlandBasins basins;
+        for (int pass = 0; ; pass++) {
+            if (pass >= 16) throw new IllegalStateException("Lake/river constraints did not converge within 16 passes");
+            basins = candidates.resolve(windows, caps);
+            for (int i = 0; i < n; i++) {
+                var node = original.nodes().get(i); int p = parents[i];
+                high[i] = target[i] = node.water();
+                var body = basins.channelContact(node.x(), node.z(), 20 + 1.35*drainage.halfWidth(node.area(), node.head()));
+                lake[i] = body == null ? -1 : body.lake();
+                desired[i] = body == null ? 0 : body.water();
+                // Upper bounds first: do not pin a body above what one of its contacts can carry.
+                if (body != null) high[i] = target[i] = Math.min(high[i], body.water());
+                if (p >= 0) {
+                    var parent = original.nodes().get(p);
+                    maxDrop[i] = children[p] >= 2 || lake[i] >= 0 && lake[p] == lake[i] ? 0
+                        : HighlandDrainage.MAX_WATER_SLOPE * Math.hypot(node.x()-parent.x(), node.z()-parent.z());
+                }
+            }
+            double[] ceiling = TreeProfileSolver.solve(parents, low, high, target, minDrop, maxDrop);
+            if (basins.constrain(lake, ceiling, caps)) continue;
+            // Recheck with exact equality pins only after the whole-body caps and contacts agree.
+            for (int i = 0; i < n; i++) if (lake[i] >= 0) low[i] = high[i] = target[i] = desired[i];
+            water = TreeProfileSolver.solve(parents, low, high, target, minDrop, maxDrop);
+            etcodehome.freeterraforged.FTFCommon.LOGGER.debug("Resolved {} lakes in {} river constraint passes", basins.count(), pass+1);
+            break;
+        }
+        var nodes = new java.util.ArrayList<HighlandDrainage.Node>(n);
+        for (int i = 0; i < n; i++) {
+            var node = original.nodes().get(i);
+            nodes.add(new HighlandDrainage.Node(node.x(), node.z(), node.ground(), water[i], node.area(), node.parent(), node.head()));
+            if (lake[i] >= 0 && parents[i] >= 0 && lake[parents[i]] != lake[i]) {
+                var outlet = original.nodes().get(parents[i]); basins.setOutlet(lake[i], outlet.x(), outlet.z());
+            }
+        }
+        var oxbows = new java.util.ArrayList<HighlandDrainage.Oxbow>();
+        for (var site : original.oxbows()) {
+            double level = site.water();
+            for (int j = site.nodeFrom(); j <= site.nodeTo(); j++) level = Math.min(level,water[j]);
+            if (level > 0) oxbows.add(new HighlandDrainage.Oxbow(site.x(),site.z(),site.halfWidth(),level,site.nodeFrom(),site.nodeTo()));
+        }
+        var plan = new HighlandDrainage.Plan(original.ownerX(), original.ownerZ(), original.gridStep(), original.gridNodes(), original.landNodes(),
+            java.util.List.copyOf(nodes), original.reaches(), original.axis(), java.util.List.copyOf(oxbows), basins,
+            original.buildNanos()+System.nanoTime()-started, original.originX(), original.originZ(), original.width(), original.incision(), original.water(), original.climate());
+        return new HighlandPlanIndex(plan, provisional.relief);
     }
     private void evict() {
         while (cache.size() > MAX_PLANS) {
@@ -253,6 +363,13 @@ public final class RollingHighlandsContinent implements Continent {
         cell.beachNoise = beachNoise.compute((float) x, (float) z, 0);
         if (location.edge() <= coastEdge) {
             oceans.apply(cell, (float) x, (float) z);
+            // Shoreface: beyond the shallow-ocean point the legacy lerp eases the floor up to sea level by edge value, which
+            // leaves wide one-block-deep flats wherever the edge field lingers just under the coast point (in-game
+            // 2026-11-04: dirt/gravel/clay patchwork seabeds). The floor instead deepens with distance from the shoreline.
+            if (location.edge() > shallowOceanEdge) {
+                double run = Math.min(1, shoreDistance(x, z, location.edge()) / SHOREFACE_RUN);
+                cell.height = Math.min(cell.height, normalized(-shelfDepth * Math.pow(run, 2.0 / 3)));
+            }
             cell.terrainErosion = cell.erosion;
             cell.climateHeight = cell.height;
             return;
@@ -278,6 +395,42 @@ public final class RollingHighlandsContinent implements Continent {
         rangeBands(cell, height, blend * cell.highlandFoot - incision);
         classify(cell);
     }
+    /**
+     * Sea shore, after the shared climate pass (it tags whole biome regions near the coast as COAST, which only some
+     * lookup paths later turn into beaches, so beaches came and went with cache state). RH land keeps its own terrain;
+     * low dry ground within a ragged BEACH_WIDTH-block strip of the coastline becomes BEACH, with the beach noise cleared
+     * so its continentalness reads as coast and it takes the beach biome.
+     *
+     * @param landTerrain the cell's terrain as {@link #apply} left it, before the climate pass
+     */
+    public void shore(Cell cell, etcodehome.freeterraforged.world.worldgen.cell.terrain.Terrain landTerrain, double x, double z) {
+        if (cell.continentEdge <= coastEdge) return;
+        if (cell.terrain == TerrainType.COAST || cell.terrain == TerrainType.SHALLOW_OCEAN) cell.terrain = landTerrain;
+        if (cell.hasRiverWater || cell.terrain.isWetland()) return;
+        double height = (cell.height - levels.water) * levels.terrainScaleFactor;
+        if (height <= 0 || height > BEACH_HEIGHT) return;
+        double width = BEACH_WIDTH * (.5 + cell.beachNoise / levels.scale(5));
+        if (shoreDistance(x, z, cell.continentEdge) > width) return;
+        cell.terrain = TerrainType.BEACH;
+        cell.beachNoise = 0;
+        // Vanilla places beaches on the coast in the low weirdness slice at erosion levels 3-4; the land's own slice
+        // would give forest or windswept biomes there. Erosion levels 0-2 stay (stony shore).
+        cell.weirdness = (float) clamp(cell.weirdness, BEACH_WEIRDNESS_MIN, BEACH_WEIRDNESS_MAX);
+        if (cell.erosion >= BEACH_EROSION_MIN) cell.erosion = (float) Math.min(cell.erosion, BEACH_EROSION_MAX);
+    }
+    /**
+     * Blocks from the coastline, from the edge value's distance to the coast point over its local slope: close to exact
+     * near the shore, larger where the edge field levels off (the middle of a strait or bay), infinite where it is flat.
+     */
+    private double shoreDistance(double x, double z, double edge) {
+        double gx = coast.sample(x + SHORE_PROBE, z).edge() - edge, gz = coast.sample(x, z + SHORE_PROBE).edge() - edge;
+        double slope = Math.hypot(gx, gz) / SHORE_PROBE;
+        return slope > 0 ? Math.abs(edge - coastEdge) / slope : Double.POSITIVE_INFINITY;
+    }
+    /** Shoreface run (blocks from the coastline to the shelf depth), beach strip mean width and top (blocks), slope probe. */
+    static final double SHOREFACE_RUN = 48, BEACH_WIDTH = 6, BEACH_HEIGHT = 3, SHORE_PROBE = 2;
+    /** Vanilla's low weirdness slice (normal side) and erosion levels 3-4, inset from the slice boundaries. */
+    static final double BEACH_WEIRDNESS_MIN = -.26, BEACH_WEIRDNESS_MAX = -.06, BEACH_EROSION_MIN = -.2225, BEACH_EROSION_MAX = .44;
     /**
      * RH7 G2 tarn in a cirque floor. The planned water sits at the tarn's level above the land under the range, taken
      * once at the tarn's centre so the surface is flat; it is lowered to one block below the lowest real ground on the
@@ -339,20 +492,31 @@ public final class RollingHighlandsContinent implements Continent {
      */
     private double groundBeforeTarns(Cell cell, double x, double z, double edge, HighlandPlanIndex index, double blend, double incision) {
         var hits = index.near(x, z);
-        double raw = blend * (land.apply(cell, x, z) - dissection(index, x, z, hits)) - incision;
+        double raw = rawLand(cell,x,z,index,hits,blend,incision);
         var lake = index.lake(x, z);
+        double height = groundBeforeLakes(cell, x, z, edge, index, hits, blend, raw);
+        if (lake != null) height = shapeLake(cell, x, z, index, lake, height);
+        else if (!cell.hasRiverWater) {
+            var basins = index.plan().basins();
+            height = basins.shapeBank(x,z,height);
+            // Later erosion/relaxation must not cut the one-block barrier that final containment validated.
+            if (Double.isFinite(basins.adjacentWater(x,z))) cell.erosionMask = true;
+        }
+        return height;
+    }
+
+    private double rawLand(Cell cell, double x, double z, HighlandPlanIndex index, HighlandPlanIndex.Hits hits,
+                           double blend, double incision) {
+        return blend*(land.apply(cell,x,z)-dissection(index,x,z,hits))-incision;
+    }
+
+    private double groundBeforeLakes(Cell cell, double x, double z, double edge, HighlandPlanIndex index,
+                                    HighlandPlanIndex.Hits hits, double blend, double raw) {
         double surface = floored(blend, raw, hits);
         double height = carveValleys(cell, x, z, edge, index, hits, surface);
         if (!cell.hasRiverWater) {
             var oxbow = index.oxbow(x, z);
             if (oxbow != null) height = shapeOxbow(cell, x, z, oxbow, height);
-        }
-        if (lake != null && lake.depth() > -HighlandBasins.MAX_SHORE - SHORE_ADVANCE) {
-            // Channels at another level than the lake (outlets, rivers passing below it, rapids above it) hold the
-            // shoreline back; channels at the lake's own level (RH6 L2/L3 inflows) may be reached by it.
-            double channelDistance = Double.POSITIVE_INFINITY;
-            for (int k = 0; k < hits.count; k++) if (Math.abs(hits.water[k] - lake.water()) > .25) channelDistance = Math.min(channelDistance, hits.distance[k]);
-            height = shapeLake(cell, x, z, index, lake, height, raw, channelDistance);
         }
         return height;
     }
@@ -366,27 +530,9 @@ public final class RollingHighlandsContinent implements Continent {
         cell.erosionMask = false;
     }
 
-    /**
-     * Lake bed and shore. Below the surface the bed follows the planning depth (at most 16 deep). Around it the
-     * ground descends to one block above the water over a band whose depth range grows with the height it has to
-     * descend, so high surroundings get wider shores. The range stays inside the basin's shore region (REGION_DEPTH), so
-     * the effect is zero where lake sampling stops.
-     */
-    private double shapeLake(Cell cell, double x, double z, HighlandPlanIndex plan, HighlandBasins.Sample lake, double height, double raw,
-                             double channelDistance) {
+    /** Excavate the finalized water body. Residual dry-bank sealing is handled separately with a fixed budget. */
+    private double shapeLake(Cell cell, double x, double z, HighlandPlanIndex plan, HighlandBasins.Sample lake, double height) {
         double water = lake.water(), depth = lake.depth();
-        // RH5 S: off the channels, the shoreline follows the real ground (unfloored land) at the lake's level: it
-        // retreats up to SHORE_BLEND depth units inside the planning field where the ground rises (bays, points,
-        // islands) and advances up to SHORE_ADVANCE (RH6: 2, so low flats beside a lake no longer become shallow sheets
-        // and the bed never drops more than 2 below the planned depth) where it is low, so outlines trace terrain
-        // contours instead of the planning grid's lines. Near channels (inlets, outlets) it does not advance, so lake
-        // water never reaches a channel running below the lake level. Continuous: fades with the lake's proximity and the
-        // channel distance.
-        if (!cell.hasRiverWater) {
-            double proximity = lake.proximity();
-            double advance = SHORE_ADVANCE * proximity * smooth(SHORE_CHANNEL_NEAR, SHORE_CHANNEL_FAR, channelDistance);
-            depth = clamp(water - raw, depth - SHORE_BLEND * proximity, depth + advance);
-        }
         if (depth > 0) {
             boolean channel = cell.hasFlow;
             cell.riverWaterLevel = normalized(water); cell.hasRiverWater = true;
@@ -404,27 +550,10 @@ public final class RollingHighlandsContinent implements Continent {
             } else {
                 cell.hasFlow = false; cell.flowAngle = 0;
             }
-            // RH6 L4: away from its shoreline the bed lies at least at the planned depth, so legacy bumps under the water
-            // do not turn the lake into a shallow sheet (the shoreline itself still follows the real ground).
-            double bed = Math.max(depth, lake.depth() * smooth(0, BED_SETTLE, depth));
-            return water - Math.min(bed, 16);
+            // The depth cap limits excavation; it must never fill an already deeper valley.
+            return Math.min(height, water - Math.min(depth, 16));
         }
-        if (cell.hasRiverWater) return height;
-        // Depth units: the shore band widens with the height it has to descend.
-        double range = clamp(Math.max(0, height - water) * SHORE_RATE, 4, HighlandBasins.MAX_SHORE);
-        double weight = smooth(-range, 0, depth) * lake.proximity();
-        double shore = Math.min(height, water + 1 - depth);
-        double shaped = lerp(height, shore, weight);
-        // Rim: rendered land carries legacy detail the plan grid does not see, so ground just outside the shoreline
-        // can dip below the lake surface. Hold it above the water near the shore along a beach ramp (RH6 L4): distance
-        // from the planned shoreline is the planned depth over its horizontal gradient.
-        double gradient = BEACH_MIN_GRADIENT;
-        var east = plan.lake(x + 2, z);
-        var south = plan.lake(x, z + 2);
-        if (east != null && south != null && east.lake() == lake.lake() && south.lake() == lake.lake())
-            gradient = Math.max(gradient, Math.hypot(east.depth() - lake.depth(), south.depth() - lake.depth()) / 2);
-        double beach = water + BEACH_FLUSH + Math.min(BEACH_TOP, Math.max(0, -lake.depth()) / gradient / BEACH_RUN);
-        return Math.max(shaped, lerp(shaped, beach, smooth(-LAKE_RIM, 0, depth) * lake.proximity()));
+        return height;
     }
 
     /**
@@ -621,13 +750,21 @@ public final class RollingHighlandsContinent implements Continent {
             wetOwner = filletOwner; wetSection = scratch.section[filletOwner]; filled = true;
         }
         if (wetOwner >= 0) {
-            // Near a lower connected channel (a confluence), the higher channel's surface descends toward it at a
-            // rapid's gradient, so the two waters meet without a step.
-            double water = hits.water[wetOwner];
-            for (int j = 0; j < hits.count; j++) {
-                if (j == wetOwner || hits.water[j] >= water || !index.connected(hits.reach[j], hits.reach[wetOwner])) continue;
-                water = Math.min(water, hits.water[j] + CONFLUENCE_RAPID * Math.max(0, hits.distance[j] - scratch.radius[j]));
+            // Propagate the existing rapid envelope through all locally connected reaches. A junction can sit one
+            // node from a reach boundary; limiting this to direct neighbours gives its tributary a different
+            // surface from the main channel when a downstream lake lowers their profile.
+            System.arraycopy(hits.water,0,scratch.joinedWater,0,hits.count);
+            for (int pass = 0; pass < hits.count-1; pass++) {
+                boolean changed = false;
+                for (int i = 0; i < hits.count; i++) for (int j = 0; j < hits.count; j++) {
+                    if (i == j || scratch.joinedWater[j] >= scratch.joinedWater[i]
+                        || !index.connected(hits.reach[j],hits.reach[i])) continue;
+                    double cap = scratch.joinedWater[j]+CONFLUENCE_RAPID*Math.max(0,hits.distance[j]-scratch.radius[j]);
+                    if (cap < scratch.joinedWater[i]) { scratch.joinedWater[i] = cap; changed = true; }
+                }
+                if (!changed) break;
             }
+            double water = scratch.joinedWater[wetOwner];
             cell.riverWaterLevel = normalized(water);
             cell.riverZone = RiverZone.Riverbed;
             cell.hasRiverWater = true; cell.terrain = TerrainType.RIVER;
@@ -710,13 +847,14 @@ public final class RollingHighlandsContinent implements Continent {
     }
 
     private static final class Scratch {
+        final Cell lakeCell = new Cell();
         HighlandValley.Section[] section = new HighlandValley.Section[64];
-        double[] carve = new double[64], wetland = new double[64], radius = new double[64];
+        double[] carve = new double[64], wetland = new double[64], radius = new double[64], joinedWater = new double[64];
         int[] close = new int[64];
         Scratch ensure(int size) {
             if (carve.length < size) {
                 int n = Math.max(size, carve.length * 2);
-                section = new HighlandValley.Section[n]; carve = new double[n]; wetland = new double[n]; radius = new double[n]; close = new int[n];
+                section = new HighlandValley.Section[n]; carve = new double[n]; wetland = new double[n]; radius = new double[n]; joinedWater = new double[n]; close = new int[n];
             }
             return this;
         }

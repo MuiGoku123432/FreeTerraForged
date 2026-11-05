@@ -121,9 +121,8 @@ final class HighlandQualityProbe {
                     // Oxbow lakes are still water by design (RH4 R6), not channel cells.
                     var oxbow = continent.planAt(ox + x * RES, oz + z * RES).oxbow(ox + x * RES, oz + z * RES);
                     boolean still = oxbow != null && oxbow.distance() < oxbow.halfWidth();
-                    // RH5 S: the rendered shoreline may advance beyond the planning field's zero (still water there;
-                    // channel cells always carry a current).
-                    boolean inLake = lake != null && (lake.depth() > 0 || !c.hasFlow && lake.depth() > -RollingHighlandsContinent.SHORE_ADVANCE);
+                    // Finalized membership defines the lake shoreline; channel cells outside it carry a current.
+                    boolean inLake = lake != null && lake.depth() > 0;
                     if (!inLake && c.terrain != TerrainType.WETLAND && !still) { channelCells++; if (c.hasFlow) flowing++; }
                 }
                 else if (c.continentEdge > coastEdge) { dry++; if (c.riverZone != RiverZone.None) valley++; }

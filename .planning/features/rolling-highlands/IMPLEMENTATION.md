@@ -41,6 +41,12 @@ World → Continent Type. Presets from models 1–3 are rejected with a "create 
 7. **Everything downstream is FTF's:** biomes from the native populator parameters (valley floors pulled to the low
    slice), legacy oceans, Phacelle erosion filter and cliff relaxation, surface water mixin, river gasket, scree,
    flow field (currents follow the legacy carver's flow model), Streams Reflowing bridge.
+8. **Sea shores** (2026-11-04): past the shallow-ocean point the sea floor follows a shoreface (shelf depth × (d /
+   48)^(2/3), d = blocks from the coastline estimated from the edge field's slope) instead of easing up to sea level by
+   edge value, which had left one-block-deep flats hundreds of blocks wide (dirt floors with disk patchwork). After the
+   climate pass, RH land drops the region-wide COAST tag (it became a beach only on WorldLookup paths) and low dry
+   ground within a ragged ~6-block strip of the coastline becomes BEACH with coast continentalness and the low
+   weirdness slice (beach biome; stony shore at erosion levels 0–2). Gate: `HighlandShoreTest`.
 
 ## Known limits
 

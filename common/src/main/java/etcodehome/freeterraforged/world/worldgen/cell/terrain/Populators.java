@@ -62,9 +62,13 @@ public class Populators {
 	}
 
 	public static CellPopulator makeShallowOcean(Levels levels, int oceanDepth, ClimateParameterSampler climate) {
-		int shallowDepth = Math.max(7, oceanDepth / 9);
-		float height = Math.max(levels.water(-shallowDepth), levels.min);
+		float height = Math.max(levels.water(-shallowOceanDepth(oceanDepth)), levels.min);
 		return new OceanPopulator(TerrainType.SHALLOW_OCEAN, Noises.constant(height), levels.min, climate);
+	}
+
+	/** Depth (blocks below the water surface) of the shallow-ocean shelf. */
+	public static int shallowOceanDepth(int oceanDepth) {
+		return Math.max(7, oceanDepth / 9);
 	}
 
 	public static CellPopulator makeCoast(Levels levels, ClimateParameterSampler climate) {

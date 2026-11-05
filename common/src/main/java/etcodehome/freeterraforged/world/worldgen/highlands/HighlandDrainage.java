@@ -157,9 +157,10 @@ public final class HighlandDrainage {
     /**
      * Abandoned meander loop (oxbow): still water along the middle of the arc, infilled wetland toward its ends and
      * around it. {@code halfWidth} is the open-water half width per point (zero at the infilled ends); {@code water}
-     * the still-water level (the lowest level of the channel beside it).
+     * the still-water level (the lowest level of the channel beside it). The inclusive node range preserves its
+     * channel provenance when final lake constraints lower the profile.
      */
-    public record Oxbow(double[] x, double[] z, double[] halfWidth, double water) {}
+    public record Oxbow(double[] x, double[] z, double[] halfWidth, double water, int nodeFrom, int nodeTo) {}
     /**
      * {@code incision} holds, per plan grid node (origin, width, gridStep), how far stream-power incision lowered the
      * land; the rendered surface is the full-resolution land minus its smooth interpolation. {@code water} holds the
@@ -956,7 +957,7 @@ public final class HighlandDrainage {
         for (var site : channels.oxbows()) {
             double level = Double.POSITIVE_INFINITY;
             for (int j = site.nodeFrom(); j <= site.nodeTo(); j++) level = Math.min(level, profile[j]);
-            if (level > 0 && Double.isFinite(level)) oxbows.add(new Oxbow(site.x(), site.z(), site.halfWidth(), level));
+            if (level > 0 && Double.isFinite(level)) oxbows.add(new Oxbow(site.x(), site.z(), site.halfWidth(), level, site.nodeFrom(), site.nodeTo()));
         }
         List<Node> nodes = new ArrayList<>(refined);
         for (int j = 0; j < refined; j++) {

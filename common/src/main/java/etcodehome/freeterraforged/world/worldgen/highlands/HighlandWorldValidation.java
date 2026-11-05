@@ -35,8 +35,8 @@ public final class HighlandWorldValidation {
                     var top = level.getBlockState(pos);
                     // Water or ice at the planned surface. Features may legitimately place solid blocks there (e.g.
                     // boulders in shallow wetland pools); what must never happen is an air gap.
-                    boolean present = top.getFluidState().is(FluidTags.WATER) || top.is(Blocks.ICE) || top.is(Blocks.FROSTED_ICE)
-                        || !top.isAir() && top.getFluidState().isEmpty() && top.isSolid();
+                    boolean surfaceWater = top.getFluidState().is(FluidTags.WATER) || top.is(Blocks.ICE) || top.is(Blocks.FROSTED_ICE);
+                    boolean present = surfaceWater || !top.isAir() && top.getFluidState().isEmpty() && top.isSolid();
                     pos.setY(bed);
                     var floor = level.getBlockState(pos);
                     // Below sea level (blocks under the sea surface, y < sea level) a deep pool may open into aquifer water: still water, not a leak.
@@ -58,10 +58,11 @@ public final class HighlandWorldValidation {
                         flowOk = flowField != null && flowField.hasFlow(x & 15, z & 15);
                         if (!flowOk) flowMissing++;
                     }
-                    // Containment: a dry neighbour must be solid at the water surface, or water would spill.
+                    // Containment applies to actual water/ice. A solid feature replacing planned water is itself
+                    // a barrier; checking its dry neighbours as though it were water reports false spills.
                     boolean contained = true;
                     String spill = "";
-                    for (int[] d : new int[][]{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) {
+                    if (surfaceWater) for (int[] d : new int[][]{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) {
                         context.lookup.applyCell(neighbour.reset(), x + d[0], z + d[1], true, false);
                         if (neighbour.hasRiverWater) continue;
                         pos.set(x + d[0], water, z + d[1]);
