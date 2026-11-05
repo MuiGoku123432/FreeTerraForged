@@ -62,6 +62,35 @@ public final class StructureGroundFit {
         return OptionalInt.of(median + authoredHeight);
     }
 
+    /** Greatest height an author may set a structure above or below the ground and still have the ground blended to it. */
+    static final int SURFACE_TOLERANCE = 4;
+
+    /**
+     * Height the author set a fitted structure relative to the ground, from its ground gaps after the fit. The fit
+     * leaves their median at exactly minus that height, so every chunk recovers the same value.
+     */
+    static int authoredHeight(int[] gaps) {
+        if (gaps.length == 0) return 0;
+        int[] sorted = gaps.clone();
+        Arrays.sort(sorted);
+        return -sorted[sorted.length / 2];
+    }
+
+    /** False for structures set into the ground or above it on purpose, such as buried ruins: blending would dig them up. */
+    static boolean meetsSurface(int authoredHeight) {
+        return Math.abs(authoredHeight) <= SURFACE_TOLERANCE;
+    }
+
+    /** Height the author set these placed base pieces relative to the ground. */
+    public static int authoredHeight(GeneratorContext terrain, List<PoolElementStructurePiece> base) {
+        return authoredHeight(groundGaps(terrain, base, 0, 0));
+    }
+
+    /** True when the ground around these placed base pieces should be blended to them. */
+    static boolean meetsSurface(GeneratorContext terrain, List<PoolElementStructurePiece> base) {
+        return meetsSurface(authoredHeight(terrain, base));
+    }
+
     /** True when this start's own projection targets a surface. Sea-floor structures keep their own placement. */
     public static boolean projectsToSurface(Optional<Heightmap.Types> projection) {
         return projection.isPresent()
@@ -117,7 +146,7 @@ public final class StructureGroundFit {
         for (int[] offset : ANCHOR_OFFSETS) {
             int dx = offset[0], dz = offset[1];
             if ((dx != 0 || dz != 0) && !withinReferenceRange(whole, dx, dz, start)) continue;
-            OptionalInt dy = gradeShift(groundGaps(context, terrain, base, dx, dz), authoredHeight);
+            OptionalInt dy = gradeShift(groundGaps(terrain, base, dx, dz), authoredHeight);
             if (dy.isEmpty()) continue;
             int shift = dy.getAsInt();
             if (whole.minY() + shift < context.heightAccessor().getMinBuildHeight() || whole.maxY() + shift >= context.heightAccessor().getMaxBuildHeight()) continue;
@@ -155,11 +184,11 @@ public final class StructureGroundFit {
     }
 
     /** Ground height minus ground plane, sampled across every base piece's contact area at this anchor. */
-    private static int[] groundGaps(Structure.GenerationContext context, GeneratorContext terrain, List<PoolElementStructurePiece> pieces, int dx, int dz) {
+    private static int[] groundGaps(GeneratorContext terrain, List<PoolElementStructurePiece> pieces, int dx, int dz) {
         IntArrayList gaps = new IntArrayList();
         for (PoolElementStructurePiece piece : pieces) {
             int plane = plane(piece);
-            for (StructureFootprint.Rect r : StructureFootprint.worldRects(piece, context.structureTemplateManager())) {
+            for (StructureFootprint.Rect r : StructureFootprint.worldRects(piece, ((PoolElementStructurePieceAccessor) piece).ftf$getTemplates())) {
                 for (int x = r.minX(); ; x = Math.min(x + SAMPLE_STEP, r.maxX())) {
                     for (int z = r.minZ(); ; z = Math.min(z + SAMPLE_STEP, r.maxZ())) {
                         gaps.add(surface(terrain, x + dx, z + dz) - plane);

@@ -322,6 +322,15 @@ final class StructureFitCensus {
         if (first[0] != 0 || first[1] != 0 || first[2] != 0) row.moved++;
         if (first[0] != 0 || first[2] != 0) row.movedSideways++;
         if (again.isEmpty() || !again.get().position().equals(stubAfter)) failures.add("fit is not repeatable: " + where);
+        // Grading recovers the author's height from the placed pieces; it must be the height the fit kept.
+        if (row.projected) {
+            var firstBase = StructureGroundFit.basePieces(before).get(0);
+            BoundingBox baseBox = firstBase.getBoundingBox();
+            int authored = baseBox.minY() + firstBase.getGroundLevelDelta()
+                - StructureGroundFit.surface(terrain, (baseBox.minX() + baseBox.maxX()) / 2, (baseBox.minZ() + baseBox.maxZ()) / 2);
+            int recovered = StructureGroundFit.authoredHeight(terrain, StructureGroundFit.basePieces(after));
+            if (recovered != authored) failures.add("authored height " + authored + " recovered as " + recovered + ": " + where);
+        }
 
         measured = measure(after, terrain, templates, row, false, where, failures);
         row.maxOverhangAfter = Math.max(row.maxOverhangAfter, measured[0]);

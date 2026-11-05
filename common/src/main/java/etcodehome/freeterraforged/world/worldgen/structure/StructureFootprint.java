@@ -195,6 +195,7 @@ public final class StructureFootprint {
             }
             if (terrain == null || !StructureGroundFit.grades(start.getStructure())) return;
             List<PoolElementStructurePiece> base = StructureGroundFit.basePieces(start.getPieces());
+            if (!StructureGroundFit.meetsSurface(terrain, base)) return;
             // Measured over the whole structure, so every chunk around it derives the same reach.
             int relief = StructureGroundFit.relief(terrain, base);
             int reach = StructureGrade.reach(relief);

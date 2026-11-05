@@ -119,6 +119,22 @@ class StructureFootprintTest {
         assertTrue(StructureGroundFit.gradeShift(gaps(0, 0, StructureGroundFit.MAX_RELIEF + 1), 0).isEmpty());
     }
 
+    @Test void fittedStructureRecoversTheHeightItsAuthorSet() {
+        int[] before = gaps(-3, 0, 2, 7, 9);
+        int shift = StructureGroundFit.gradeShift(before, -40).getAsInt();
+        int[] after = new int[before.length];
+        for (int i = 0; i < before.length; i++) after[i] = before[i] - shift;
+        assertEquals(-40, StructureGroundFit.authoredHeight(after));
+    }
+
+    @Test void onlyStructuresSetAtTheSurfaceAreGraded() {
+        assertTrue(StructureGroundFit.meetsSurface(0));
+        assertTrue(StructureGroundFit.meetsSurface(-StructureGroundFit.SURFACE_TOLERANCE));
+        assertTrue(StructureGroundFit.meetsSurface(StructureGroundFit.SURFACE_TOLERANCE));
+        assertFalse(StructureGroundFit.meetsSurface(-40));
+        assertFalse(StructureGroundFit.meetsSurface(StructureGroundFit.SURFACE_TOLERANCE + 1));
+    }
+
     @Test void nothingToFitLeavesPlacementAlone() {
         assertEquals(OptionalInt.of(0), StructureGroundFit.gradeShift(gaps(), 0));
     }
