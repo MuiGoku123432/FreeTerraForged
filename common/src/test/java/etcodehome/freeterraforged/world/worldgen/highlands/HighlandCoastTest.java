@@ -138,7 +138,7 @@ class HighlandCoastTest {
             var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
             double coastEdge = context.preset.world().controlPoints.coast;
             var c = new etcodehome.freeterraforged.world.worldgen.cell.Cell();
-            int stack = 0, misplaced = 0;
+            int stack = 0, misplaced = 0, wrongRock = 0;
             String example = "";
             for (int z = SITE_Z - 2048; z <= SITE_Z + 2048; z += 2) for (int x = SITE_X - 2048; x <= SITE_X + 2048; x += 2) {
                 double edge = coast.sample(x, z).edge();
@@ -146,12 +146,14 @@ class HighlandCoastTest {
                 context.lookup.applyCell(c.reset(), x, z, false, true);
                 if ((c.height - context.levels.water) * context.levels.terrainScaleFactor <= .5) continue;
                 stack++;
+                if (c.highlandCoastClimate != HighlandCoastProfile.climateClass(coast.profile().shore(x, z))) wrongRock++;
                 double slope = coast.edgeSlope(x, z, edge), d = slope > 0 ? (coastEdge - edge) / slope : Double.POSITIVE_INFINITY;
                 // Stack columns lie within a stack's radius (≤ 6) of a centre that obeys the rule (cliff ≥ .6, ≥ 10 out).
                 if (coast.profile().shore(x, z).cliff() < .5 || d < 4) { misplaced++; example = x + "," + z + " d=" + d; }
             }
             assertTrue(stack > 0, "no sea-stack columns");
             assertEquals(0, misplaced, misplaced + " of " + stack + " stack columns off a cliff coast or at the shore, e.g. " + example);
+            assertTrue(wrongRock <= .01 * stack, wrongRock + " of " + stack + " stack columns carry another climate's rock");
         }
     }
 

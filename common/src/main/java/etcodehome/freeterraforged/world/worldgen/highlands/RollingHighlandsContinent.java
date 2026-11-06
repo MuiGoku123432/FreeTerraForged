@@ -377,7 +377,7 @@ public final class RollingHighlandsContinent implements Continent {
                 cell.height = Math.min(cell.height, normalized(-shelfDepth * Math.pow(run, 2.0 / 3)));
             }
             // RH9 X: sea stacks off cliff coasts (ocean ground only, so drainage never sees them).
-            double floor = (cell.height - levels.water) * levels.terrainScaleFactor, stack = seaStack(x, z, location.edge(), floor);
+            double floor = (cell.height - levels.water) * levels.terrainScaleFactor, stack = seaStack(cell, x, z, location.edge(), floor);
             if (stack > floor) { cell.height = normalized(stack); cell.highlandCoast = 1; }
             cell.terrainErosion = cell.erosion;
             cell.climateHeight = cell.height;
@@ -462,9 +462,10 @@ public final class RollingHighlandsContinent implements Continent {
      * One candidate per STACK_SPACING grid cell (jittered centre, radius, top); it stands where the shore at its centre
      * is a sea cliff (weight ≥ STACK_CLIFF), with chance STACK_CHANCE (×PNW_STACKS on cool/wet coasts), and its centre
      * lies in the sea STACK_NEAR + radius to STACK_FAR blocks from the coastline. The outline is roughened by noise, the
-     * sides drop over STACK_SIDE blocks to the floor and the top is rough.
+     * sides drop over STACK_SIDE blocks to the floor and the top is rough. The tallest stack here writes its coast
+     * climate class to the cell (its rock palette).
      */
-    private double seaStack(double x, double z, double edge, double floor) {
+    private double seaStack(Cell cell, double x, double z, double edge, double floor) {
         if (edge < coastEdge - STACK_EDGE_REACH) return floor;
         int gx = (int) Math.floor(x / STACK_SPACING), gz = (int) Math.floor(z / STACK_SPACING);
         double best = floor;
@@ -479,13 +480,15 @@ public final class RollingHighlandsContinent implements Continent {
             if (rho >= outline) continue;
             var shore = coast.profile().shore(cx, cz);
             if (shore.cliff() < STACK_CLIFF) continue;
-            if (roll >= STACK_CHANCE * (HighlandCoastProfile.climateClass(shore) == HighlandCoastProfile.PNW ? PNW_STACKS : 1)) continue;
+            byte climate = HighlandCoastProfile.climateClass(shore);
+            if (roll >= STACK_CHANCE * (climate == HighlandCoastProfile.PNW ? PNW_STACKS : 1)) continue;
             double centreEdge = coast.sample(cx, cz).edge();
             if (centreEdge > coastEdge) continue;
             double d = shoreDistance(cx, cz, centreEdge);
             if (d < STACK_NEAR + r || d > STACK_FAR) continue;
             double top = STACK_MIN_TOP + (STACK_MAX_TOP - STACK_MIN_TOP) * unit(mix(h + 4)) - STACK_TOP_ROUGH * noise(stackSeed + 1, x, z, 3);
-            best = Math.max(best, floor + (top - floor) * (1 - smooth(outline - STACK_SIDE, outline, rho)));
+            double height = floor + (top - floor) * (1 - smooth(outline - STACK_SIDE, outline, rho));
+            if (height > best) { best = height; cell.highlandCoastClimate = climate; }
         }
         return best;
     }
