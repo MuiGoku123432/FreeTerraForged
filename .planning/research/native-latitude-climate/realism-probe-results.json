@@ -1,0 +1,215 @@
+{
+  "scope": "Independent double-precision mathematical fixtures. No FTF noise, terrain sampling, Java execution or biome generation.",
+  "source_commit": "dd0b1edabbf5aec89ef41dacb409ecef3eca4de6",
+  "source_sha256": {
+    "common/src/main/java/etcodehome/freeterraforged/world/worldgen/cell/climate/ClimateModule.java": "dcc532c1aabc40d1927e426eab872eaace8438f8af1e003e156338a02c8999d9",
+    "common/src/main/java/etcodehome/freeterraforged/world/worldgen/cell/climate/TemperatureShaping.java": "37b3117e6ef7780406ad50d7461ddb37949097b4c8331466b4e5972392ef2ad3",
+    "common/src/main/java/etcodehome/freeterraforged/data/worldgen/preset/settings/ClimateSettings.java": "ac47575f267772cc7b3de2b7d89389204bff42c1845de6ccb763ceef3e998dc8",
+    "common/src/main/java/etcodehome/freeterraforged/world/worldgen/cell/heightmap/Levels.java": "c17f22762a6c2f7c078b927524227a67ab243adc73feb80ee8a4e403e125bd0a"
+  },
+  "probe_sha256": "a191088b1d2e6c90bbf868279d1f49b1fe76b594e73f1ead38d0dd994ca6ae66",
+  "checks": {
+    "maximum_temperature_is_fixed_under_current_cooling": true,
+    "candidate_cools_maximum_at_positive_height": true,
+    "polar_window_reaches_temperate_after_default_envelope": true,
+    "equatorial_window_floor_is_warm_after_default_envelope": true,
+    "all_wet_inputs_stay_fully_wet_after_current_drying": true,
+    "sea_level_dry_input_crosses_first_humidity_boundary": true,
+    "full_window_is_legacy_before_terrain": true,
+    "constant_width_equivalence": true
+  },
+  "cooling_comparison": {
+    "normalized_height": 0.5,
+    "current_strength": 2.2,
+    "matched_subtractive_delta": 0.27367731934213024,
+    "rows": [
+      {
+        "input": 0.0,
+        "power": 0.0,
+        "subtract_then_clamp": 0.0
+      },
+      {
+        "input": 0.25,
+        "power": 0.0512219557801641,
+        "subtract_then_clamp": 0.0
+      },
+      {
+        "input": 0.5,
+        "power": 0.22632268065786978,
+        "subtract_then_clamp": 0.22632268065786976
+      },
+      {
+        "input": 0.75,
+        "power": 0.5397441641383391,
+        "subtract_then_clamp": 0.47632268065786976
+      },
+      {
+        "input": 0.9,
+        "power": 0.7978415905164721,
+        "subtract_then_clamp": 0.6263226806578698
+      },
+      {
+        "input": 0.99,
+        "power": 0.978687034303169,
+        "subtract_then_clamp": 0.7163226806578697
+      },
+      {
+        "input": 1.0,
+        "power": 1.0,
+        "subtract_then_clamp": 0.7263226806578698
+      }
+    ]
+  },
+  "default_envelope_windows": [
+    {
+      "latitude_fraction": 0,
+      "window": [
+        0.55,
+        1
+      ],
+      "mapped_temperature_bounds": [
+        0.60258,
+        1.0
+      ]
+    },
+    {
+      "latitude_fraction": 0.35,
+      "window": [
+        0.45,
+        0.95
+      ],
+      "mapped_temperature_bounds": [
+        0.5138199999999999,
+        0.9576199999999999
+      ]
+    },
+    {
+      "latitude_fraction": 0.6,
+      "window": [
+        0.3,
+        0.8
+      ],
+      "mapped_temperature_bounds": [
+        0.38067999999999996,
+        0.8244800000000001
+      ]
+    },
+    {
+      "latitude_fraction": 0.85,
+      "window": [
+        0.15,
+        0.55
+      ],
+      "mapped_temperature_bounds": [
+        0.24753999999999998,
+        0.60258
+      ]
+    },
+    {
+      "latitude_fraction": 1,
+      "window": [
+        0,
+        0.4
+      ],
+      "mapped_temperature_bounds": [
+        0.1144,
+        0.46944
+      ]
+    }
+  ],
+  "pure_sine_quintile_fractions": {
+    "samples": 20000,
+    "warps": false,
+    "fractions": {
+      "1": [
+        0.2952,
+        0.1407,
+        0.1282,
+        0.1407,
+        0.2952
+      ],
+      "2": [
+        0.218,
+        0.1344,
+        0.2952,
+        0.1344,
+        0.218
+      ],
+      "5": [
+        0.1414,
+        0.1005,
+        0.5162,
+        0.1005,
+        0.1414
+      ]
+    }
+  },
+  "current_moisture": [
+    {
+      "regional": 0.2,
+      "normalized_height": 0,
+      "output": 0.36000000000000004
+    },
+    {
+      "regional": 0.2,
+      "normalized_height": 0.5,
+      "output": 0.09297376287509486
+    },
+    {
+      "regional": 0.2,
+      "normalized_height": 1,
+      "output": 0.003681671842134894
+    },
+    {
+      "regional": 0.5,
+      "normalized_height": 0,
+      "output": 0.6
+    },
+    {
+      "regional": 0.5,
+      "normalized_height": 0.5,
+      "output": 0.32771751037819863
+    },
+    {
+      "regional": 0.5,
+      "normalized_height": 1,
+      "output": 0.08948550036379586
+    },
+    {
+      "regional": 0.8,
+      "normalized_height": 0,
+      "output": 0.8400000000000001
+    },
+    {
+      "regional": 0.8,
+      "normalized_height": 0.5,
+      "output": 0.6905115729261514
+    },
+    {
+      "regional": 0.8,
+      "normalized_height": 1,
+      "output": 0.4597690516659265
+    },
+    {
+      "regional": 1,
+      "normalized_height": 0,
+      "output": 1.0
+    },
+    {
+      "regional": 1,
+      "normalized_height": 0.5,
+      "output": 1.0
+    },
+    {
+      "regional": 1,
+      "normalized_height": 1,
+      "output": 1.0
+    }
+  ],
+  "height_normalization_example": {
+    "blocks_above_sea": 128,
+    "sea_level": 64,
+    "height_320": 0.5,
+    "height_640": 0.2222222222222222
+  }
+}
