@@ -41,7 +41,7 @@ public final class RollingHighlandsContinent implements Continent {
     private final RollingHighlandsSettings settings;
     private final Levels levels;
     private final double coastEdge;
-    private final long classSeed;
+    private final long classSeed, stackSeed;
     private final double coastMarker;
     /** FTF wetland chance (default 0.5) mapped onto the wetland noise threshold. */
     private final double wetlandLow;
@@ -68,6 +68,7 @@ public final class RollingHighlandsContinent implements Continent {
             settings.valleyDepth(), context.preset.rivers().riverCount, settings.meanders() / 100.0, context.preset.rivers().lakes.sizeMax);
         this.coastEdge = context.preset.world().controlPoints.coast;
         this.classSeed = context.seed.root() * 0x9E3779B97F4A7C15L + 0x52484632L;
+        this.stackSeed = mix(context.seed.root() ^ 0x5348394358L);
         this.coastMarker = context.preset.world().controlPoints.coastMarker();
         this.river = context.preset.rivers().mainRivers;
         this.wetlandLow = .95 - clamp(context.preset.rivers().wetlands.chance, 0, 1);
@@ -375,6 +376,9 @@ public final class RollingHighlandsContinent implements Continent {
                 double run = Math.min(1, shoreDistance(x, z, location.edge()) / shoreface);
                 cell.height = Math.min(cell.height, normalized(-shelfDepth * Math.pow(run, 2.0 / 3)));
             }
+            // RH9 X: sea stacks off cliff coasts (ocean ground only, so drainage never sees them).
+            double floor = (cell.height - levels.water) * levels.terrainScaleFactor, stack = seaStack(x, z, location.edge(), floor);
+            if (stack > floor) { cell.height = normalized(stack); cell.highlandCoast = 1; }
             cell.terrainErosion = cell.erosion;
             cell.climateHeight = cell.height;
             return;
@@ -453,6 +457,46 @@ public final class RollingHighlandsContinent implements Continent {
         double slope = coast.edgeSlope(x, z, edge);
         return slope > 0 ? Math.abs(edge - coastEdge) / slope : Double.POSITIVE_INFINITY;
     }
+    /**
+     * RH9 X: ground height (blocks above water) of a sea stack at an ocean column, or {@code floor} where there is none.
+     * One candidate per STACK_SPACING grid cell (jittered centre, radius, top); it stands where the shore at its centre
+     * is a sea cliff (weight ≥ STACK_CLIFF), with chance STACK_CHANCE (×PNW_STACKS on cool/wet coasts), and its centre
+     * lies in the sea STACK_NEAR + radius to STACK_FAR blocks from the coastline. The outline is roughened by noise, the
+     * sides drop over STACK_SIDE blocks to the floor and the top is rough.
+     */
+    private double seaStack(double x, double z, double edge, double floor) {
+        if (edge < coastEdge - STACK_EDGE_REACH) return floor;
+        int gx = (int) Math.floor(x / STACK_SPACING), gz = (int) Math.floor(z / STACK_SPACING);
+        double best = floor;
+        for (int i = gx - 1; i <= gx + 1; i++) for (int j = gz - 1; j <= gz + 1; j++) {
+            long h = mix(stackSeed ^ (i * 0x9e3779b97f4a7c15L) ^ (j * 0x632be59bd9b4e019L));
+            double roll = unit(h);
+            if (roll >= STACK_CHANCE * PNW_STACKS) continue;
+            double cx = (i + unit(mix(h + 1))) * STACK_SPACING, cz = (j + unit(mix(h + 2))) * STACK_SPACING;
+            double r = STACK_MIN_RADIUS + (STACK_MAX_RADIUS - STACK_MIN_RADIUS) * unit(mix(h + 3));
+            double outline = r * (1 + STACK_ROUGH * (2 * noise(stackSeed, x, z, STACK_ROUGH_SCALE) - 1));
+            double rho = Math.hypot(x - cx, z - cz);
+            if (rho >= outline) continue;
+            var shore = coast.profile().shore(cx, cz);
+            if (shore.cliff() < STACK_CLIFF) continue;
+            if (roll >= STACK_CHANCE * (HighlandCoastProfile.climateClass(shore) == HighlandCoastProfile.PNW ? PNW_STACKS : 1)) continue;
+            double centreEdge = coast.sample(cx, cz).edge();
+            if (centreEdge > coastEdge) continue;
+            double d = shoreDistance(cx, cz, centreEdge);
+            if (d < STACK_NEAR + r || d > STACK_FAR) continue;
+            double top = STACK_MIN_TOP + (STACK_MAX_TOP - STACK_MIN_TOP) * unit(mix(h + 4)) - STACK_TOP_ROUGH * noise(stackSeed + 1, x, z, 3);
+            best = Math.max(best, floor + (top - floor) * (1 - smooth(outline - STACK_SIDE, outline, rho)));
+        }
+        return best;
+    }
+    private static double unit(long h) { return (h >>> 11) * 0x1.0p-53; }
+    /** Sea-stack grid spacing, chance and cool/wet multiplier, minimum centre cliff weight (SPEC-RH9 X). */
+    static final double STACK_SPACING = 48, STACK_CHANCE = .25, PNW_STACKS = 1.5, STACK_CLIFF = .6;
+    /** Stack radius, outline roughness (fraction) and its wavelength, side drop, top range and roughness (blocks). */
+    static final double STACK_MIN_RADIUS = 1.5, STACK_MAX_RADIUS = 6, STACK_ROUGH = .25, STACK_ROUGH_SCALE = 4,
+        STACK_SIDE = 1.5, STACK_MIN_TOP = 5, STACK_MAX_TOP = 25, STACK_TOP_ROUGH = 2;
+    /** Centre distance from the coastline (blocks: STACK_NEAR + radius to STACK_FAR); edge reach that skips the search. */
+    static final double STACK_NEAR = 10, STACK_FAR = 60, STACK_EDGE_REACH = .04;
     /** Shoreface run (blocks from the coastline to the shelf depth) and how much of it a sea cliff takes away. */
     static final double SHOREFACE_RUN = 48, CLIFF_SHOREFACE = .8;
     /** Vanilla's low weirdness slice (normal side) and erosion levels 3-4, inset from the slice boundaries. */

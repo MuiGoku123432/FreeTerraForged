@@ -15,7 +15,8 @@ import etcodehome.freeterraforged.world.worldgen.cell.terrain.TerrainType;
  * <li>type: by geometry (height 4 blocks inland ≥ 15 cliff, ≥ 6 bluff, else beach) until the coast profile exists;</li>
  * <li>beach width: BEACH columns from the waterline inland (first {@link #MAX_BEACH} blocks);</li>
  * <li>sinuosity and stretches: along coastlines traced on an 8-block grid (path / chord over 2 km; runs of one type);</li>
- * <li>stacks: transects with a column ≥ 5 above water 10-60 blocks offshore, per 10 km of cliff coast.</li>
+ * <li>stacks: transects with a sea column (edge at or below the coast point) ≥ 5 above water 10-60 blocks offshore,
+ * per 10 km of cliff coast (land of a neighbouring headland does not count).</li>
  * </ul>
  */
 final class HighlandCoastProbe {
@@ -61,11 +62,13 @@ final class HighlandCoastProbe {
                 double[] height = new double[INLAND + OFFSHORE + 1];
                 var terrain = new etcodehome.freeterraforged.world.worldgen.cell.terrain.Terrain[INLAND + 1];
                 boolean wet = false;
+                boolean[] sea = new boolean[OFFSHORE + 1];
                 int sunk = 0;
                 for (int d = -OFFSHORE; d <= INLAND; d++) {
                     context.lookup.applyCell(cell.reset(), (int) Math.round(x + gx * d), (int) Math.round(z + gz * d), false, true);
                     height[d + OFFSHORE] = (cell.height - levels.water) * levels.terrainScaleFactor;
                     if (d >= 0) terrain[d] = cell.terrain;
+                    else sea[-d] = cell.continentEdge <= coastEdge;
                     if (d >= 0) wet |= cell.hasRiverWater;
                     // Dry land below sea level beside the coast (it would flood or show as a pit).
                     if (d >= 1 && !cell.hasRiverWater && cell.continentEdge > coastEdge && height[d + OFFSHORE] < -.5) sunk++;
@@ -79,7 +82,7 @@ final class HighlandCoastProbe {
                 double h4 = height[OFFSHORE + 4], h8 = height[OFFSHORE + 8], h32 = height[OFFSHORE + 32];
                 double depth8 = -height[OFFSHORE - 8];
                 boolean stack = false;
-                for (int d = 10; d <= OFFSHORE; d++) if (height[OFFSHORE - d] >= 5) { stack = true; break; }
+                for (int d = 10; d <= OFFSHORE; d++) if (sea[d] && height[OFFSHORE - d] >= 5) { stack = true; break; }
                 String geometry = h4 >= 15 ? "cliff" : h4 >= 6 ? "bluff" : "beach";
                 String type = coast.profile().shore(x, z).dominant().name().toLowerCase(Locale.ROOT);
                 // Hollow behind a scarp: the coast profile's ground (before the plan's valleys, which always drain)

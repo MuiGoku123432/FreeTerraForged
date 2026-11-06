@@ -114,6 +114,36 @@ class HighlandCoastTest {
         }
     }
 
+    /** X: sea stacks stand only off cliff coasts, clear of the shore. */
+    @Test void stacksOnlyOffCliffs() throws Exception {
+        try (var context = WorldgenFixture.context(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED)) {
+            var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+            double coastEdge = context.preset.world().controlPoints.coast;
+            var c = new etcodehome.freeterraforged.world.worldgen.cell.Cell();
+            int stack = 0, misplaced = 0;
+            String example = "";
+            for (int z = SITE_Z - 2048; z <= SITE_Z + 2048; z += 2) for (int x = SITE_X - 2048; x <= SITE_X + 2048; x += 2) {
+                double edge = coast.sample(x, z).edge();
+                if (edge > coastEdge || edge < coastEdge - .04) continue;
+                context.lookup.applyCell(c.reset(), x, z, false, true);
+                if ((c.height - context.levels.water) * context.levels.terrainScaleFactor <= .5) continue;
+                stack++;
+                double slope = coast.edgeSlope(x, z, edge), d = slope > 0 ? (coastEdge - edge) / slope : Double.POSITIVE_INFINITY;
+                // Stack columns lie within a stack's radius (≤ 6) of a centre that obeys the rule (cliff ≥ .6, ≥ 10 out).
+                if (coast.profile().shore(x, z).cliff() < .5 || d < 4) { misplaced++; example = x + "," + z + " d=" + d; }
+            }
+            assertTrue(stack > 0, "no sea-stack columns");
+            assertEquals(0, misplaced, misplaced + " of " + stack + " stack columns off a cliff coast or at the shore, e.g. " + example);
+        }
+    }
+
+    @Test void stacksAreRecorded() throws Exception {
+        try (var context = WorldgenFixture.context(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED)) {
+            var report = HighlandCoastProbe.measure(context, SITE_X, SITE_Z, RADIUS);
+            assertTrue(report.stacksPer10km() > 0, "no sea stacks off cliff coasts: " + report.summary("user"));
+        }
+    }
+
     private static double[] inland(HighlandCoast coast, double x, double z) {
         double e = coast.sample(x, z).edge();
         double gx = coast.sample(x + 2, z).edge() - e, gz = coast.sample(x, z + 2).edge() - e, n = Math.hypot(gx, gz);
