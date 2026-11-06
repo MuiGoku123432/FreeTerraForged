@@ -72,10 +72,12 @@ coves and points, coastal materials, sea stacks. Generation model 8.
 **Plans** (PLAN-RH9 §2):
 - [x] P0: coast probe and model-7 baseline (`3d4f135c`)
 - [x] C: model 8, coast profile fields, coves/points (`69c47e3f`)
-- [ ] S: shore profiles, shifted land, rivers/creeks, beach tag (in progress in main checkout)
-- [ ] M: coastal rock and beach materials
-- [ ] X: sea stacks
-- [ ] V: tuning, in-game validation, release
+- [x] S: beaches, bluffs and sea cliffs (`470c6928`)
+- [x] M: coastal rock and beach materials by climate (`4f86823b`)
+- [x] X: sea stacks off cliff coasts (`7f739e24`, `50e3c9e3`)
+- [x] V: tuning and release 1.0.0023-rh9 (`f63e8866`)
+**Status**: all plans done, automated gates met, integrated (`515b25b6`). In-game UAT outstanding —
+[09-VERIFICATION](phases/09-rh9-real-coast/09-VERIFICATION.md) (`human_needed`).
 **Upstream**: fork-only (part of RH).
 
 ### Phase 10: Upstream PR preparation

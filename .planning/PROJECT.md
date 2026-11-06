@@ -36,8 +36,10 @@ an upstream PR is cut. Some work is fork-only by design.
 
 | Workstream | Branch(es) | Upstream | Status |
 |---|---|---|---|
-| [rolling-highlands](workstreams/rolling-highlands/ROADMAP.md) | `feature/rolling-highlands` | candidate (maintainer discussion first) | RH9 coast in progress |
-| [structure-placement](workstreams/structure-placement/ROADMAP.md) | `feature/structure-placement`, `fix/structure-ground-fit` | candidate | ground-fit not yet integrated |
+| [rolling-highlands](workstreams/rolling-highlands/ROADMAP.md) | `feature/rolling-highlands` | candidate (maintainer discussion first) | RH9 built, in-game UAT pending |
+| [structure-placement](workstreams/structure-placement/ROADMAP.md) | `feature/structure-placement`, `fix/structure-ground-fit` | candidate | ground fit integrated; verification record owed |
+
+**Code graph:** the main checkout is tracked in Gortex as `freeTerraForged-Custom` (indexes `feature/rolling-highlands`).
 | [upstream-fixes](workstreams/upstream-fixes/ROADMAP.md) | one branch per issue | per issue | PRs #322, #323, #301 open |
 
 **Archived:** native latitude climate — removed at the user's request; code on `archive/native-latitude-c6f98b83`,

@@ -44,8 +44,8 @@ ground are left alone.
 **Branch**: `fix/structure-ground-fit` (worktree `/private/tmp/ftf-structure-ground-fit`). This is an
 upstream-shaped branch: 5 code-only commits on `upstream/1.21.1_unstable` (`efc7565b`) — rebased Phases 1–2
 (`c6630740`, `00ac277d`, `3f47583d`) plus ground fit `33ff89e8` and set-in exception `8af97233`.
-**Status**: ground fit is in `1_21_1-unstable-custom` as `7d94ce42` (same patch as `33ff89e8`); `8af97233` (leave
-set-in structures alone) is **not yet integrated**. No spec/verification doc yet — record one before closing.
+**Status**: both commits integrated into `1_21_1-unstable-custom` (`7d94ce42` = `33ff89e8`, `f46d33de` =
+`8af97233`). No spec/verification doc yet — record one before closing.
 **Plans**: TBD (verification + integration). **Upstream**: candidate.
 
 ### Phase 4: Acceptance
