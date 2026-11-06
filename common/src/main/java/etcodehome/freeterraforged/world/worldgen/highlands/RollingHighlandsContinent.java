@@ -358,6 +358,7 @@ public final class RollingHighlandsContinent implements Continent {
         clearWater(cell);
         cell.waterTable = 0;
         cell.highlandRange = 0; cell.highlandSnowline = 0; cell.highlandTreeline = 0; cell.highlandFoot = 0;
+        cell.highlandCoast = 0; cell.highlandCoastClimate = HighlandCoastProfile.CALIFORNIA;
         cell.continentX = location.centerX(); cell.continentZ = location.centerZ();
         cell.continentId = (float) noise(971, location.ownerX(), location.ownerZ(), 1.37);
         cell.continentEdge = (float) location.edge();
@@ -397,6 +398,7 @@ public final class RollingHighlandsContinent implements Continent {
         cell.height = normalized(height);
         cell.climateHeight = normalized(Math.min(ceiling, index.climateHeight(x, z)));
         rangeBands(cell, height, blend * cell.highlandFoot - incision);
+        coastFace(cell, x, z, location.edge());
         classify(cell);
     }
     /**
@@ -427,6 +429,22 @@ public final class RollingHighlandsContinent implements Continent {
         cell.weirdness = (float) clamp(cell.weirdness, BEACH_WEIRDNESS_MIN, BEACH_WEIRDNESS_MAX);
         if (cell.erosion >= BEACH_EROSION_MIN) cell.erosion = (float) Math.min(cell.erosion, BEACH_EROSION_MAX);
     }
+    /**
+     * RH9 M: coastal scarp weight (bluff faces from W_b, sea-cliff faces from the waterline, fading over COAST_FACE
+     * blocks behind the face) and the shore's climate class, within the coastal band only.
+     */
+    private void coastFace(Cell cell, double x, double z, double edge) {
+        if (edge - coastEdge >= HighlandDrainage.COAST_BAND) return;
+        var shore = coast.profile().shore(x, z);
+        cell.highlandCoastClimate = HighlandCoastProfile.climateClass(shore);
+        if (shore.bluff() + shore.cliff() <= 0) return;
+        double d = shoreDistance(x, z, edge), wb = HighlandCoastProfile.bluffWidth(shore.width());
+        double cliff = 1 - smooth(HighlandDrainage.CLIFF_FACE, HighlandDrainage.CLIFF_FACE + COAST_FACE, d);
+        double bluff = smooth(wb - 1, wb, d) * (1 - smooth(wb + HighlandDrainage.BLUFF_SCARP, wb + HighlandDrainage.BLUFF_SCARP + COAST_FACE, d));
+        cell.highlandCoast = (float) (shore.cliff() * cliff + shore.bluff() * bluff);
+    }
+    /** Blocks behind a scarp's face over which its rock cover weight fades. */
+    static final double COAST_FACE = 8;
     /**
      * Blocks from the coastline, from the edge value's distance to the coast point over its local slope: close to exact
      * near the shore, larger where the edge field levels off (the middle of a strait or bay), infinite where it is flat.

@@ -55,6 +55,9 @@ public class Cell {
     public float highlandRange, highlandSnowline, highlandTreeline;
     /** RH7 S: scratch, land height under the range (blocks above sea level) while a Rolling Highlands column is built. */
     public float highlandFoot;
+    /** RH9 M: coastal scarp weight (0 off bluff/cliff faces, 1 on a sea cliff's face) and its climate class (HighlandCoastProfile.PNW / CALIFORNIA / BAJA). */
+    public float highlandCoast;
+    public byte highlandCoastClimate;
     public boolean hasRiverWater;
     public int continentX;
     public int continentZ;
@@ -119,6 +122,8 @@ public class Cell {
         this.highlandRange = other.highlandRange;
         this.highlandSnowline = other.highlandSnowline;
         this.highlandTreeline = other.highlandTreeline;
+        this.highlandCoast = other.highlandCoast;
+        this.highlandCoastClimate = other.highlandCoastClimate;
         this.hasRiverWater = other.hasRiverWater;
         this.riverZone = other.riverZone;
         this.waterTable = other.waterTable;

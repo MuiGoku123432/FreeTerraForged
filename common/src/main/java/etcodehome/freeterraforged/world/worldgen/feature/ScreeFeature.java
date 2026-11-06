@@ -31,6 +31,7 @@ import etcodehome.freeterraforged.world.worldgen.cell.Cell;
 import etcodehome.freeterraforged.world.worldgen.cell.heightmap.Levels;
 import etcodehome.freeterraforged.world.worldgen.cell.rivermap.ContinentalHydrology;
 import etcodehome.freeterraforged.world.worldgen.cell.terrain.TerrainType;
+import etcodehome.freeterraforged.world.worldgen.highlands.HighlandCoastProfile;
 import etcodehome.freeterraforged.world.worldgen.highlands.HighlandSurface;
 import etcodehome.freeterraforged.world.worldgen.feature.ScreeFeature.Config;
 import etcodehome.freeterraforged.world.worldgen.noise.module.Noise;
@@ -109,11 +110,11 @@ public class ScreeFeature extends Feature<Config> {
 
                     pos.set(worldX, surfaceY, worldZ);
 
-                    if (cell.rollingHighlands && cell.highlandRange >= HighlandSurface.MIN_RANGE && surfaceY <= scaledY
+                    if (cell.rollingHighlands && (cell.highlandRange >= HighlandSurface.MIN_RANGE || cell.highlandCoast >= HighlandSurface.MIN_RANGE) && surfaceY <= scaledY
                         && surfaceY >= generator.getSeaLevel() - 1 && !cell.terrain.isRiver() && !cell.terrain.isWetland()) {
                         double slope = slope(generatorContext, levels, chunkCells, chunkPos, x, z);
                         var cover = HighlandSurface.choose(slope, surfaceY, levels.scale(cell.highlandSnowline), levels.scale(cell.highlandTreeline),
-                            cell.highlandRange, 2 * clusterNoise.compute(worldX * .08F, worldZ * .08F, 31) - 1);
+                            cell.highlandRange, cell.highlandCoast, 2 * clusterNoise.compute(worldX * .08F, worldZ * .08F, 31) - 1);
                         if (cover != HighlandSurface.Cover.BIOME) {
                             coverColumn(cover, rand, clusterNoise, warpX, warpZ, chunk, cell, pos, surfaceY);
                             pos.setY(surfaceY);
@@ -122,6 +123,14 @@ public class ScreeFeature extends Feature<Config> {
                             }
                             continue;
                         }
+                    }
+
+                    // RH9 M: cool, wet (PNW) beaches are part gravel, in clusters; snowy beaches stay vanilla.
+                    if (cell.rollingHighlands && cell.terrain == TerrainType.BEACH && cell.highlandCoastClimate == HighlandCoastProfile.PNW
+                        && chunk.getBlockState(pos.setY(surfaceY)).is(Blocks.SAND) && clusterNoise.compute(worldX * .06F, worldZ * .06F, 47) > BEACH_GRAVEL) {
+                        ColumnDecorator.fillDownSolid(chunk, pos, surfaceY, surfaceY - 2, Blocks.GRAVEL.defaultBlockState());
+                        pos.setY(surfaceY);
+                        continue;
                     }
 
                     if(biome.is(Biomes.DESERT)) {
@@ -156,6 +165,28 @@ public class ScreeFeature extends Feature<Config> {
             new WeightedBlockEntry(Blocks.TUFF.defaultBlockState(), 1)
     ));
 
+    /**
+     * RH9 M: sea-cliff and bluff rock by coast climate class (HighlandCoastProfile.CALIFORNIA, PNW, BAJA): sandstone
+     * with a little terracotta; dark stone, andesite and tuff; red sandstone and orange/red terracotta.
+     */
+    private static final WeightedBlockSelector[] COAST_ROCK = {
+        new WeightedBlockSelector(List.of(
+            new WeightedBlockEntry(Blocks.SANDSTONE.defaultBlockState(), 4),
+            new WeightedBlockEntry(Blocks.SMOOTH_SANDSTONE.defaultBlockState(), 2),
+            new WeightedBlockEntry(Blocks.TERRACOTTA.defaultBlockState(), 1))),
+        new WeightedBlockSelector(List.of(
+            new WeightedBlockEntry(Blocks.STONE.defaultBlockState(), 3),
+            new WeightedBlockEntry(Blocks.ANDESITE.defaultBlockState(), 2),
+            new WeightedBlockEntry(Blocks.TUFF.defaultBlockState(), 2))),
+        new WeightedBlockSelector(List.of(
+            new WeightedBlockEntry(Blocks.RED_SANDSTONE.defaultBlockState(), 4),
+            new WeightedBlockEntry(Blocks.ORANGE_TERRACOTTA.defaultBlockState(), 2),
+            new WeightedBlockEntry(Blocks.RED_TERRACOTTA.defaultBlockState(), 1)))
+    };
+    /** Depth (blocks) of coastal rock cover; cluster noise above which a PNW beach column is gravel (about 30%). */
+    private static final int COAST_ROCK_DEPTH = 4;
+    private static final float BEACH_GRAVEL = .4F;
+
     /** RH7 S: surface slope (degrees) at a chunk column from the cell heights two blocks either side. */
     private static double slope(GeneratorContext context, Levels levels, @Nullable Cell[] cells, ChunkPos chunk, int x, int z) {
         int x0 = Math.max(0, x - 2), x1 = Math.min(15, x + 2), z0 = Math.max(0, z - 2), z1 = Math.min(15, z + 2);
@@ -173,7 +204,11 @@ public class ScreeFeature extends Feature<Config> {
         BlockState top = chunk.getBlockState(pos.setY(surfaceY));
         if (top.isAir() || !top.getFluidState().isEmpty()) return;
         switch (cover) {
-            case CLIFF -> erodeRock(chunk, cell, pos, surfaceY);
+            case CLIFF -> {
+                if (cell.highlandRange >= HighlandSurface.MIN_RANGE) erodeRock(chunk, cell, pos, surfaceY);
+                else ColumnDecorator.fillDownSolid(chunk, pos, surfaceY, surfaceY - COAST_ROCK_DEPTH, sampleMaterial(
+                    COAST_ROCK[cell.highlandCoastClimate], pos.getX(), pos.getZ(), clusterNoise, warpX, warpZ, rand, 7, Blocks.STONE.defaultBlockState()));
+            }
             case SCREE -> ColumnDecorator.fillDownSolid(chunk, pos, surfaceY, surfaceY - 2,
                 sampleMaterial(RANGE_SCREE, pos.getX(), pos.getZ(), clusterNoise, warpX, warpZ, rand, 5, Blocks.GRAVEL.defaultBlockState()));
             case SNOW -> ColumnDecorator.fillDownSolid(chunk, pos, surfaceY, surfaceY - 2, Blocks.SNOW_BLOCK.defaultBlockState());

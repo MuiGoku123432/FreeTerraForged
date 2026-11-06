@@ -60,6 +60,77 @@ class HighlandCoastTest {
         }
     }
 
+    /** M: steep coastal faces are bare rock (SPEC-RH9 M). */
+    @Test void cliffFacesAreRock() throws Exception {
+        try (var context = WorldgenFixture.context(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED)) {
+            var report = HighlandCoastProbe.measure(context, SITE_X, SITE_Z, RADIUS);
+            var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+            var c = new etcodehome.freeterraforged.world.worldgen.cell.Cell();
+            int steep = 0, rock = 0;
+            for (var s : report.list()) {
+                if (!s.type().equals("cliff")) continue;
+                double[] g = inland(coast, s.x(), s.z());
+                for (int d = 0; d <= 8; d++) {
+                    int x = (int) Math.round(s.x() + g[0] * d), z = (int) Math.round(s.z() + g[1] * d);
+                    context.lookup.applyCell(c.reset(), x, z, false, true);
+                    if (c.hasRiverWater || c.continentEdge <= context.preset.world().controlPoints.coast) continue;
+                    double slope = slope(context, x, z);
+                    if (slope < HighlandSurface.FOREST_CLIFF_SLOPE) continue;
+                    steep++;
+                    var cover = HighlandSurface.choose(slope, context.levels.scale(c.height), context.levels.scale(c.highlandSnowline),
+                        context.levels.scale(c.highlandTreeline), c.highlandRange, c.highlandCoast, 0);
+                    if (cover == HighlandSurface.Cover.CLIFF) rock++;
+                }
+            }
+            assertTrue(steep >= 20, "too few steep cliff columns: " + steep);
+            assertTrue(rock >= .9 * steep, rock + " of " + steep + " steep cliff columns are rock");
+        }
+    }
+
+    /** M: cool, wet (PNW) beaches stay beaches, never cliff cover. */
+    @Test void coldBeachesStayBeaches() throws Exception {
+        try (var context = WorldgenFixture.context(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED)) {
+            var report = HighlandCoastProbe.measure(context, SITE_X, SITE_Z, RADIUS);
+            var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+            var c = new etcodehome.freeterraforged.world.worldgen.cell.Cell();
+            int checked = 0, wrong = 0;
+            for (var s : report.list()) {
+                var shore = coast.profile().shore(s.x(), s.z());
+                if (!s.type().equals("beach") || HighlandCoastProfile.climateClass(shore) != HighlandCoastProfile.PNW) continue;
+                double[] g = inland(coast, s.x(), s.z());
+                for (int d = 2; d <= 10; d++) {
+                    int x = (int) Math.round(s.x() + g[0] * d), z = (int) Math.round(s.z() + g[1] * d);
+                    context.lookup.applyCell(c.reset(), x, z, false, true);
+                    if (c.hasRiverWater) continue;
+                    checked++;
+                    var cover = HighlandSurface.choose(slope(context, x, z), context.levels.scale(c.height), context.levels.scale(c.highlandSnowline),
+                        context.levels.scale(c.highlandTreeline), c.highlandRange, c.highlandCoast, 0);
+                    if (c.terrain != etcodehome.freeterraforged.world.worldgen.cell.terrain.TerrainType.BEACH
+                        || cover == HighlandSurface.Cover.CLIFF || c.highlandCoastClimate != HighlandCoastProfile.PNW) wrong++;
+                }
+            }
+            assertTrue(checked >= 20, "too few PNW beach columns: " + checked);
+            assertTrue(wrong <= .05 * checked, wrong + " of " + checked + " PNW beach columns are not plain beach");
+        }
+    }
+
+    private static double[] inland(HighlandCoast coast, double x, double z) {
+        double e = coast.sample(x, z).edge();
+        double gx = coast.sample(x + 2, z).edge() - e, gz = coast.sample(x, z + 2).edge() - e, n = Math.hypot(gx, gz);
+        return new double[]{gx / n, gz / n};
+    }
+
+    /** Surface slope (degrees) from cell heights two blocks either side, as ScreeFeature measures it. */
+    private static double slope(etcodehome.freeterraforged.world.worldgen.GeneratorContext context, int x, int z) {
+        double dx = (blocksAt(context, x + 2, z) - blocksAt(context, x - 2, z)) / 4, dz = (blocksAt(context, x, z + 2) - blocksAt(context, x, z - 2)) / 4;
+        return Math.toDegrees(Math.atan(Math.hypot(dx, dz)));
+    }
+    private static double blocksAt(etcodehome.freeterraforged.world.worldgen.GeneratorContext context, int x, int z) {
+        var c = new etcodehome.freeterraforged.world.worldgen.cell.Cell();
+        context.lookup.applyCell(c, x, z, false, true);
+        return (c.height - context.levels.water) * context.levels.terrainScaleFactor;
+    }
+
     @Test void profileIsDeterministic() throws Exception {
         try (var a = WorldgenFixture.context(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
              var b = WorldgenFixture.context(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED)) {

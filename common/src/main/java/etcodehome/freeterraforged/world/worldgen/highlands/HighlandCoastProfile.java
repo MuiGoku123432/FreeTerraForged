@@ -78,6 +78,13 @@ public final class HighlandCoastProfile {
         return WARP_AMPLITUDE * clamp(.45 * hard + .55 * cove, -1, 1);
     }
 
+    /** Coast climate classes (A-3): middle (0, also off the coast), cool/wet, warm/dry. */
+    public static final byte CALIFORNIA = 0, PNW = 1, BAJA = 2;
+    /** Climate class of a shore: PNW or Baja where that lean is more than half on, otherwise California. */
+    public static byte climateClass(Shore shore) {
+        double lean = (shore.moisture() - shore.temperature()) * .5;
+        return smooth(.05, .45, lean) > .5 ? PNW : smooth(.05, .45, -lean) > .5 ? BAJA : CALIFORNIA;
+    }
     /** Dry beach in front of a bluff's scarp (blocks): half the beach width, 8-20 (A-1). */
     public static double bluffWidth(double width) { return clamp(width * .5, MIN_BLUFF_BEACH, MAX_BLUFF_BEACH); }
     /** Beach berm height at {@code d} blocks from the waterline: rises over BERM_RUN to BERM. */
