@@ -120,10 +120,13 @@ tasks.named("runBenchmarkServer").configure {
         delete(new File(benchDir, "perf-reports/structure-probe.json"))
         delete(new File(benchDir, "world"))
         benchDir.mkdirs()
+        def packs = new File(benchDir, "world/datapacks"); packs.mkdirs()
+        java.nio.file.Files.copy(file("/private/tmp/claude-501/-Users-cfanch06-repos-mine-JavaApps-freeTerraForged-Custom/debcc7bb-c7b1-4eaf-9a0d-a2e51527c419/scratchpad/rhpack/freeterraforged-preset.zip").toPath(), new File(packs, "freeterraforged-preset.zip").toPath())
         new File(benchDir, "eula.txt").text = "eula=true\n"
         new File(benchDir, "server.properties").text = """\
 level-type=freeterraforged\\:freeterraforged
 level-seed=${project.findProperty('ftfBenchmarkSeed') ?: '-7442486958049957310'}
+initial-enabled-packs=vanilla,file/freeterraforged-preset.zip
 online-mode=false
 server-ip=127.0.0.1
 server-port=0
