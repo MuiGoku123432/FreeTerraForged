@@ -26,6 +26,24 @@ class HighlandCoastTest {
         }
     }
 
+    /** V: the coast gates also hold on the ROCKIES profile (tall frame, Range Height 400), same seed and box. */
+    @Test void rockiesCoastMeetsGates() throws Exception {
+        try (var context = WorldgenFixture.context(BiomeCensusProbe.rockies(), HighlandPlanformProbe.USER_SEED)) {
+            var report = HighlandCoastProbe.measure(context, SITE_X, SITE_Z, RADIUS);
+            String summary = report.summary("rockies");
+            System.out.println(summary);
+            java.nio.file.Files.writeString(java.nio.file.Path.of("build/rh9-coast-rockies.txt"), summary + "\n");
+            assertTrue(report.samples() >= 100, "too few coast samples to judge: " + report.samples());
+            assertTrue(report.sinuosity() >= 1.15, "coastline too straight: " + summary);
+            assertTrue(Math.abs(report.beachShare() - .55) <= .08 && Math.abs(report.bluffShare() - .25) <= .08
+                && Math.abs(report.cliffShare() - .20) <= .08, "type shares off: " + summary);
+            assertTrue(report.beachWidthMedian() >= 18 && report.beachWidthP10() >= 8, "beaches too narrow: " + summary);
+            assertTrue(report.cliffHeight4Median() >= 15, "cliffs too low: " + summary);
+            assertTrue(report.cliffDepth8Median() >= 5, "water at cliff foot too shallow: " + summary);
+            assertEquals(0, report.sunk(), "dry land below sea level beside the coast: " + summary);
+        }
+    }
+
     /** S: beaches, bluffs and sea cliffs on the ground (SPEC-RH9 §3 S gates, A-6, A-8). */
     @Test void shoresHaveTheirShape() throws Exception {
         try (var context = WorldgenFixture.context(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED)) {
@@ -141,6 +159,73 @@ class HighlandCoastTest {
         try (var context = WorldgenFixture.context(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED)) {
             var report = HighlandCoastProbe.measure(context, SITE_X, SITE_Z, RADIUS);
             assertTrue(report.stacksPer10km() > 0, "no sea stacks off cliff coasts: " + report.summary("user"));
+        }
+    }
+
+    /** Review Focus 1: lakes inside the coastal band of bluff/cliff shores keep water-tight banks. */
+    @Test void coastalLakesKeepTheirBanks() throws Exception {
+        try (var context = WorldgenFixture.context(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED)) {
+            var rh = (RollingHighlandsContinent) context.heightmap.continent();
+            var coast = rh.coast();
+            double coastEdge = context.preset.world().controlPoints.coast;
+            var basins = rh.planOf(SITE_X, SITE_Z).plan().basins();
+            var wet = new etcodehome.freeterraforged.world.worldgen.cell.Cell();
+            var dry = new etcodehome.freeterraforged.world.worldgen.cell.Cell();
+            int lakes = 0, checked = 0, spills = 0;
+            String example = "";
+            for (int id = 0; id < basins.count(); id++) {
+                double[] b = basins.lakeBounds(id);
+                boolean coastal = false;
+                for (double z = b[1]; z <= b[3] && !coastal; z += 4) for (double x = b[0]; x <= b[2] && !coastal; x += 4) {
+                    var shore = coast.profile().shore(x, z);
+                    coastal = coast.sample(x, z).edge() - coastEdge < HighlandDrainage.COAST_BAND && shore.bluff() + shore.cliff() > 0;
+                }
+                if (!coastal) continue;
+                lakes++;
+                for (int z = (int) b[1]; z <= b[3]; z++) for (int x = (int) b[0]; x <= b[2]; x++) {
+                    var lake = basins.sample(x, z);
+                    if (lake == null || lake.lake() != id) continue;
+                    for (int[] d : new int[][]{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) {
+                        if (basins.sample(x + d[0], z + d[1]) != null) continue;
+                        context.heightmap.apply(wet.reset(), x, z, false);
+                        context.heightmap.apply(dry.reset(), x + d[0], z + d[1], false);
+                        if (!wet.hasRiverWater || dry.hasRiverWater) continue;
+                        checked++;
+                        if (context.levels.scale(dry.height) < context.levels.scale(wet.riverWaterLevel)) {
+                            spills++; example = (x + d[0]) + "," + (z + d[1]);
+                        }
+                    }
+                }
+            }
+            System.out.println("RHC coastal lakes=" + lakes + " banks=" + checked + " spills=" + spills);
+            assertTrue(checked > 0, "no coastal lake banks in the site's owner (lakes=" + lakes + ")");
+            assertEquals(0, spills, spills + " of " + checked + " coastal lake banks below the water, e.g. " + example);
+        }
+    }
+
+    /** Review Focus 2: no dry land below sea level anywhere in the coastal band, peninsulas and straits included. */
+    @Test void narrowLandHasNoSeaPits() throws Exception {
+        try (var context = WorldgenFixture.context(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED)) {
+            var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+            double coastEdge = context.preset.world().controlPoints.coast;
+            var c = new etcodehome.freeterraforged.world.worldgen.cell.Cell();
+            int land = 0, narrow = 0, pits = 0;
+            String example = "";
+            for (int z = SITE_Z - RADIUS; z <= SITE_Z + RADIUS; z += 4) for (int x = SITE_X - RADIUS; x <= SITE_X + RADIUS; x += 4) {
+                double edge = coast.sample(x, z).edge();
+                if (edge <= coastEdge || edge - coastEdge >= HighlandDrainage.COAST_BAND) continue;
+                context.lookup.applyCell(c.reset(), x, z, false, true);
+                if (c.hasRiverWater) continue;
+                land++;
+                double[] g = inland(coast, x, z);
+                boolean thin = false;
+                for (int k = 16; k <= 96 && !thin; k += 16) thin = coast.sample(x + g[0] * k, z + g[1] * k).edge() <= coastEdge;
+                if (thin) narrow++;
+                if (blocksAt(context, x, z) < -.5) { pits++; example = x + "," + z + (thin ? " (narrow)" : ""); }
+            }
+            System.out.println("RHC band land=" + land + " narrow=" + narrow + " pits=" + pits);
+            assertTrue(narrow > 0, "no narrow land in the box to judge");
+            assertEquals(0, pits, pits + " of " + land + " coastal land columns below sea level, e.g. " + example);
         }
     }
 
