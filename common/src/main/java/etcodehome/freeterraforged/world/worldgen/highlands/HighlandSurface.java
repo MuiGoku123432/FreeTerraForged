@@ -27,7 +27,12 @@ public final class HighlandSurface {
      * @param jitter noise in [-1, 1]
      */
     public static Cover choose(double slope, double y, double snow, double tree, double range, double jitter) {
-        if (range < MIN_RANGE) return Cover.BIOME;
+        return choose(slope, y, snow, tree, range, 0, jitter);
+    }
+    /** As above, with the RH9 coastal scarp weight (cell.highlandCoast). */
+    public static Cover choose(double slope, double y, double snow, double tree, double range, double coast, double jitter) {
+        // RH9 M: off the ranges, steep bluff and sea-cliff faces are bare rock; the rest of the coast keeps its biome.
+        if (range < MIN_RANGE) return coast >= MIN_RANGE && slope >= FOREST_CLIFF_SLOPE ? Cover.CLIFF : Cover.BIOME;
         double h = y + JITTER * jitter;
         if (h < tree) return slope >= FOREST_CLIFF_SLOPE ? Cover.CLIFF : Cover.BIOME;
         if (slope >= CLIFF_SLOPE) return Cover.CLIFF;

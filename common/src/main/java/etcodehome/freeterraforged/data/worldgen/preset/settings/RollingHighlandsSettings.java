@@ -31,9 +31,10 @@ public record RollingHighlandsSettings(int modelVersion, int uplandSpacing, int 
      * 5 = RH5 (flat routing friction, creek-to-river hierarchy, structural lakes independent of River Count, tarns,
      * contour shorelines, smoothed climate height, mountain ranges); 6 = RH6 (water-relative floor, tilted valley
      * floors, thalweg-following valley axes, valley lakes with clean junctions, ranges that replace the legacy
-     * mountains); 7 = RH7 (drainage-carved ranges, Range Height up to 640, no legacy mountains under ranges).
+     * mountains); 7 = RH7 (drainage-carved ranges, Range Height up to 640, no legacy mountains under ranges);
+     * 8 = RH9 (coast: wide beaches, bluffs and sea cliffs by climate, coves and points).
      */
-    public static final int MODEL_VERSION = 7;
+    public static final int MODEL_VERSION = 8;
     public static final int DEFAULT_MEANDERS = 100;
     /** RH5 mountain ranges: off by default (0 blocks); length scale 6144 blocks. */
     public static final int DEFAULT_RANGE_HEIGHT = 0, DEFAULT_RANGE_LENGTH = 6144;

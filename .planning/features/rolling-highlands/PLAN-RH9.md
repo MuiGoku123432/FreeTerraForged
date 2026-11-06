@@ -266,3 +266,39 @@ Golden hashes re-recorded: `ranges-model7.sha256` → `ranges-model8.sha256` (th
 near the coast, which moves drainage and lakes across the whole owner). `HighlandIntegrationTest` now checks cells
 against the lake-resolved plan: on seed 0 the moved drainage puts a lake on a reach, and lake binding lowers that
 reach to the lake's water (cell = resolved plan exactly, 11.657), 8.09 below the raw plan the test used to compare.
+
+### S (model 8)
+`RHC user n=275 beachWidth median=29 p10=20 cliffH4=15.9 cliffDepth8=12.5 hollow=0.9% sunk=0 ns/column=10725`.
+The plan sees the beach shift only; bluff/cliff scarps are rendered and channels' valleys cut through them (see
+ledger). `ranges-model8.sha256` re-recorded for the S ground. Cliff height median sits just over its gate (15.9 ≥ 15):
+tune in V. `stacks/10km` reads 29.8 before Task X: the probe counts any ground ≥ 5 within 10-60 offshore, which at
+points includes the next headland; X refines it.
+
+### M (model 8)
+`highlandCoast` (scarp-face weight) and `highlandCoastClimate` (California 0 / PNW 1 / Baja 2) on the cell. Steep coast
+columns get CLIFF cover from a per-climate palette (4 deep): California sandstone / smooth sandstone / terracotta, PNW
+stone / andesite / tuff, Baja red sandstone / orange and red terracotta. PNW beaches get gravel patches. 101/101 steep
+cliff columns are rock at the user site (was 0); PNW beach columns stay BEACH.
+
+### X (model 8)
+One stack candidate per 48-block cell (chance 0.25, ×1.5 PNW) on centres with cliff weight ≥ 0.6, 10 + r to 60 blocks
+offshore; radius 1.5-6 with a noisy outline, top 5-25 with a rough top, sides falling over 1.5 blocks. Ocean columns
+only. `stacks/10km` 7.4 user, 15.8 ROCKIES (sea columns only; the 29.8 before X counted headland land).
+
+### V (as built)
+| Metric | Model 7 | Model 8 user | Model 8 ROCKIES | Gate |
+|---|---|---|---|---|
+| beach / bluff / cliff | 100 / 0 / 0 | 60 / 25 / 15 | 53 / 21 / 26 | 55 / 25 / 20 ± 8 |
+| beach width median / p10 | 6 / 5 | 29 / 20 | 26 / 20 | ≥ 18 / ≥ 8 |
+| sinuosity | 1.079 | 1.212 | 1.225 | ≥ 1.15 |
+| cliff height 4 in / depth 8 out | – | 15.9 / 12.5 | 30.3 / 25.3 | ≥ 15 / ≥ 5 |
+| stacks per 10 km cliff | 0 | 7.4 | 15.8 | recorded |
+| stretch median | – | 382 | 471 | ≥ 300 |
+| hollow / sunk | – | 0.9% / 0 | 7.8% / 0 | ≤ 5% (user) / 0 |
+| ns per column (warm) | 10.5k | 10.3k | – | ≤ +15% |
+
+No values moved in V. `MIN_CLIFF` 20 was tried (user cliffH4 15.9 → 16.4: cliff height is land-limited, A-8) and
+reverted. Capping the terrace at the plain ramp 64 blocks inland was tried against the ROCKIES hollows and reverted
+(cliffH4 2.6 user, hollows up); the ROCKIES hollows are dry dips where a scarp top follows a coastal hill down inland
+(Known limits). Review Focus tests added in V: `coastalLakesKeepTheirBanks`, `narrowLandHasNoSeaPits`, plus
+`rockiesCoastMeetsGates`.

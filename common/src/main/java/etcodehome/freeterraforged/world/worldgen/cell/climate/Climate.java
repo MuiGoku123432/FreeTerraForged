@@ -30,10 +30,16 @@ public record Climate(int randomSeed, Noise offsetX, Noise offsetZ, int offsetDi
 	}
 
 	/**
+	 * Raw regional climate at these block coordinates, without the edge displacement (no cell needed): the RH9 coast
+	 * reads it before the column's height exists. Does not mutate anything; safe from any thread.
+	 */
+	public ClimateModule.RawSample sampleRegional(float x, float z) {
+		return this.biomeNoise.sampleRaw(x, z);
+	}
+
+	/**
 	 * Raw regional climate for an already populated cell at these block coordinates.
-	 * Reuses this owner's edge policy and noise graphs. The caller must supply a cell
-	 * from this Climate's terrain context and position. Does not mutate the cell,
-	 * acquire terrain, or retain mutable inputs; safe for a read-only snapshot.
+	 * As {@link #sampleRegional} plus this owner's edge displacement, which needs the cell.
 	 */
 	public ClimateModule.RawSample sampleRaw(Cell cell, float x, float z) {
 		if (cell.height > this.levels.water && this.usesEdgeClimate(cell)) {

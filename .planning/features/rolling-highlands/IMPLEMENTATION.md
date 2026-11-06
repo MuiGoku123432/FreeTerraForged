@@ -1,6 +1,6 @@
-# Rolling Highlands RH4
+# Rolling Highlands
 
-Branch: `feature/rolling-highlands`. Build `1.0.0014-rh4`, generation model 4. Plans and per-phase logs:
+Branch: `feature/rolling-highlands`. Build `1.0.0023-rh9`, generation model 8 (coasts: item 9). Plans and per-phase logs:
 [PLAN-RH4.md](PLAN-RH4.md) (river planform), [PLAN-RH3.md](PLAN-RH3.md) (land, drainage, valleys). Research:
 [RESEARCH-RH4.md](../../research/rolling-highlands/RESEARCH-RH4.md), [RESEARCH-RH3.md](../../research/rolling-highlands/RESEARCH-RH3.md).
 Earlier models (RH1–RH3) are in git history.
@@ -8,7 +8,7 @@ Earlier models (RH1–RH3) are in git history.
 ## Trying it
 
 Create a **new world**, open the FTF preset editor and select **Rolling Highlands (Experimental)** under
-World → Continent Type. Presets from models 1–3 are rejected with a "create a new world" message.
+World → Continent Type. Presets from earlier models are rejected with a "create a new world" message.
 
 - **Terrain page:** four RH controls (upland spacing, upland height, valley depth, valley width) followed by the full
   normal FTF terrain controls — they shape RH3's land exactly as for other continent types.
@@ -47,12 +47,24 @@ World → Continent Type. Presets from models 1–3 are rejected with a "create 
    climate pass, RH land drops the region-wide COAST tag (it became a beach only on WorldLookup paths) and low dry
    ground within a ragged ~6-block strip of the coastline becomes BEACH with coast continentalness and the low
    weirdness slice (beach biome; stony shore at erosion levels 0–2). Gate: `HighlandShoreTest`.
+9. **Coasts** (RH9, model 8; [PLAN-RH9.md](PLAN-RH9.md)): a position-only coast profile (`HighlandCoastProfile`)
+   picks beach (~55-60%), bluff (~25%) or sea cliff (~15-25%) in stretches of 300-3000 blocks from a slow hardness
+   noise, and warps the coastline up to 200 blocks (hard rock out as points, soft rock in as coves; sinuosity 1.21).
+   The regional climate leans it: cool/wet (PNW) coasts get more cliff, narrower beaches, dark stone/andesite/tuff
+   faces, gravel patches and more sea stacks; warm/dry (Baja) coasts get wider beaches with dunes and red sandstone
+   / terracotta faces; the middle (California) gets sandstone bluffs. Beaches are 15-40 blocks of dry sand with a
+   berm; bluffs are 6-16 block scarps with an 8-20 block beach at the foot; sea cliffs are 15-40 blocks (limited by
+   the land behind) straight into deep water (shoreface shortened under cliffs). The drainage plan sees only the beach
+   shift, so channels cut gullies through the scarps. Sparse sea stacks (3-12 wide, 5-25 high) stand 10-60 blocks
+   off cliff stretches. Gates: `HighlandCoastTest` (user world and ROCKIES), `HighlandShoreTest`.
 
 ## Known limits
 
 - Hack exponent 0.85–0.94 (basins elongated toward the coast; real ≈ 0.6).
 - Concavity of water surfaces 0.19–0.28 (dam backwater flattens long profiles).
 - River mouths can sit 1–2 blocks above sea level for the last few blocks.
+- On high coastal hills (ROCKIES) a bluff or cliff top can follow the hill down inland, leaving a dry dip of 2-10
+  blocks behind the scarp (~7% of ROCKIES scarp transects; under 1% on the user world).
 - Channels that start with a large drainage area begin abruptly (a square head against a valley wall).
 - Where a channel stands on a terrace, its 0.5 support slope can show faint 16-block facets in hillshades.
 - Faint grid-scale patterns and occasional straight axis-aligned lines remain on some uplands (pre-RH4).

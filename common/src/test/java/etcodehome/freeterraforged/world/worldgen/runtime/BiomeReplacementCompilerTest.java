@@ -117,6 +117,22 @@ class BiomeReplacementCompilerTest {
 	}
 
 	@Test
+	void testBeforeModsReplacement() {
+		String content = """
+			minecraft:plains >> minecraft:desert
+			minecraft:forest > minecraft:taiga
+			""";
+		BiomeReplacementPlan plan = BiomeReplacementCompiler.compile(createOwner(content, LevelStem.OVERWORLD), mod -> false);
+
+		assertFalse(plan.isConfigIgnored());
+		assertEquals(desert, plan.applyBeforeMods(plains));
+		assertEquals(forest, plan.applyBeforeMods(forest));
+		assertEquals(taiga, plan.apply(forest, null));
+		// A mod producing the '>>' source after selection is still replaced at the end.
+		assertEquals(desert, plan.apply(plains, null));
+	}
+
+	@Test
 	void testRemoval() {
 		String content = "minecraft:deep_dark > null";
 		WorldgenOwner owner = createOwner(content, LevelStem.OVERWORLD);

@@ -58,6 +58,10 @@ public final class BiomeReplacementConfigStore {
 		! To replace every biome in a tag:
 		! #minecraft:is_forest > minecraft:desert
 
+		! To replace a biome before other biome mods (e.g. Biolith or Lithostitched mods) pick their
+		! variants, so their variants of the new biome can appear in its place:
+		! minecraft:dark_forest >> minecraft:old_growth_spruce_taiga
+
 
 		! To remove a biome:
 		! minecraft:deep_dark > null

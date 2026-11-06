@@ -397,9 +397,18 @@ public final class WorldgenBiomeSelection {
 				sampler, quartX, quartY, quartZ
 			);
 			WorldgenPlans.ProviderResult selection = this.providerSelection(spatial, target);
+			Holder<Biome> provided = selection.biome();
+			Holder<Biome> early = this.replacement.applyBeforeMods(provided);
 			Holder<Biome> decorated = this.decoration.apply(
-				selection, spatial, selection.target(), quartX, quartY, quartZ, sampler, generatorContext
+				selection.withBiome(early), spatial, selection.target(), quartX, quartY, quartZ, sampler, generatorContext
 			);
+			// note: same before-mods/one-hop handling as select(); a '>>' result no mod changed is not replaced again.
+			if (early != provided && decorated == early) {
+				return new BiomeReplacementPlan.PreviewSelection(
+					early, provided, BiomeReplacementPlan.OverrideKind.REPLACED,
+					this.replacement.decision(provided).orElseThrow().rule()
+				);
+			}
 			return this.replacement.describe(decorated, selection.baseBiome());
 		}
 
@@ -413,9 +422,16 @@ public final class WorldgenBiomeSelection {
 			GeneratorContext generatorContext
 		) {
 			WorldgenPlans.ProviderResult selection = this.providerSelection(spatial, target);
+			Holder<Biome> provided = selection.biome();
+			Holder<Biome> early = this.replacement.applyBeforeMods(provided);
 			Holder<Biome> decorated = this.decoration.apply(
-				selection, spatial, selection.target(), quartX, quartY, quartZ, sampler, generatorContext
+				selection.withBiome(early), spatial, selection.target(), quartX, quartY, quartZ, sampler, generatorContext
 			);
+			// note: same before-mods/one-hop handling as resolveDetailedOwnedInCell(); rules stay one hop, so a '>>'
+			// result no mod changed is not replaced again.
+			if (early != provided && decorated == early) {
+				return decorated;
+			}
 			return this.replacement.apply(decorated, selection.baseBiome());
 		}
 

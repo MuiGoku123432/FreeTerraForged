@@ -58,14 +58,20 @@ public record Heightmap(
     public void apply(Cell cell, int x, int z, boolean applyClimate) {
         if (this.continent instanceof RollingHighlandsContinent highlands) {
             highlands.apply(cell, (double) x, z);
+            // note: same RH sequence in applyPrecise.
+            var land = cell.terrain;
             this.applyClimate(cell, x, z, applyClimate);
+            highlands.shore(cell, land, x, z);
         } else this.apply(cell, (float) x, (float) z, applyClimate);
     }
 
     public void applyPrecise(Cell cell, double x, double z, boolean applyClimate) {
         if (this.continent instanceof RollingHighlandsContinent highlands) {
             highlands.apply(cell, x, z);
+            // note: same RH sequence in apply.
+            var land = cell.terrain;
             this.applyClimate(cell, (float) x, (float) z, applyClimate);
+            highlands.shore(cell, land, x, z);
         } else this.apply(cell, (float) x, (float) z, applyClimate);
     }
 
@@ -143,7 +149,9 @@ public record Heightmap(
         if (ctx.preset.world().continent.continentType == ContinentType.ROLLING_HIGHLANDS) {
             var continent = new RollingHighlandsContinent(ctx);
             try {
-                return new Heightmap((c, x, z) -> {}, (c, x, z) -> {}, continent, Climate.make(continent, ctx),
+                var climate = Climate.make(continent, ctx);
+                continent.useClimate(climate);
+                return new Heightmap((c, x, z) -> {}, (c, x, z) -> {}, continent, climate,
                     ctx.levels, ctx.preset.world().controlPoints, 1, Noises.constant(0), null);
             } catch (RuntimeException | Error failure) { continent.close(); throw failure; }
         }

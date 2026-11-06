@@ -23,6 +23,7 @@ public final class BiomeReplacementPlan {
 	private final Set<Holder<Biome>> replacementTargets;
 	private final List<BiomeReplacementConfig.Diagnostic> diagnostics;
 	private final boolean active;
+	private final boolean beforeMods;
 
 	BiomeReplacementPlan(
 		BiomeReplacementConfigSnapshot config,
@@ -41,6 +42,8 @@ public final class BiomeReplacementPlan {
 		this.replacementTargets = immutableIdentitySet(replacementTargets);
 		this.diagnostics = List.copyOf(diagnostics);
 		this.active = !this.decisions.isEmpty();
+		this.beforeMods = this.decisions.values().stream()
+			.anyMatch(decision -> decision instanceof Replace && decision.rule().beforeMods());
 	}
 
 	private static Set<Holder<Biome>> immutableIdentitySet(Collection<Holder<Biome>> values) {
@@ -87,6 +90,20 @@ public final class BiomeReplacementPlan {
 
 	public boolean isRemoved(Holder<Biome> biome) {
 		return this.removals.contains(biome);
+	}
+
+	/**
+	 * Hot-path substitution of a provider's selection by '>>' rules, before mod selection decorators see it.
+	 * Other biomes return the original holder without allocation.
+	 */
+	public Holder<Biome> applyBeforeMods(Holder<Biome> provided) {
+		Objects.requireNonNull(provided, "provided");
+		if (!this.beforeMods) {
+			return provided;
+		}
+		return this.decisions.get(provided) instanceof Replace replace && replace.rule().beforeMods()
+			? replace.target()
+			: provided;
 	}
 
 	/** Hot-path terminal substitution. Missing rules return the original holder without allocation. */
@@ -186,7 +203,8 @@ public final class BiomeReplacementPlan {
 		String dimension,
 		String selector,
 		BiomeReplacementConfig.SelectorKind selectorKind,
-		BiomeReplacementConfig.ActionKind actionKind
+		BiomeReplacementConfig.ActionKind actionKind,
+		boolean beforeMods
 	) {
 		public RuleInfo {
 			if (index < 0 || line <= 0) {

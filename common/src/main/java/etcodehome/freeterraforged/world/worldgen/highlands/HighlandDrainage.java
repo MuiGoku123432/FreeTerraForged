@@ -143,8 +143,50 @@ public final class HighlandDrainage {
         return t * (2 - t);
     }
     public double planningHeight(double x, double z, double edge) {
-        return surface.height(x, z) * landBlend(edge);
+        return coastalLand(x, z, edge, surface.height(x, z), false);
     }
+    /**
+     * RH9 S: land height (blocks) on the coastal rise, replacing {@code landBlend(edge) * land}, for the plan and the
+     * renderer alike (A-6). Per coast type, mixed by the profile's weights:
+     * <ul>
+     * <li>beach: the rise starts W blocks inland (shift faded out linearly over COAST_BAND edge units, so the field
+     * stays monotone), with a berm and dunes in front;</li>
+     * <li>bluff and cliff: the rise is remapped to start at t0, where it already stands H_eff = min(H, land) high
+     * (A-8), and still reaches full relief at the inland edge, so no ground behind a scarp lies below it; a bluff keeps
+     * a beach to W_b and its scarp rises over BLUFF_SCARP blocks, a cliff stands within CLIFF_FACE blocks.</li>
+     * </ul>
+     * The plan sees the beach shift but not the scarps ({@code scarps} false): its grid cannot resolve a scarp, and
+     * channels planned on the lifted rise would sit perched above the beach beside them. Planned water stays low, and
+     * the renderer's valley carving cuts each channel's valley through the scarp down to it (creek gullies, A-5).
+     */
+    public double coastalLand(double x, double z, double edge, double land, boolean scarps) {
+        double range = inlandEdge - coastEdge, u = edge - coastEdge, t = clamp(u / range, 0, 1);
+        if (t >= 1 || land <= 0) return land * landBlend(edge);
+        var shore = coast.profile().shore(x, z);
+        double d = Double.POSITIVE_INFINITY, slope = 0;
+        if (u < COAST_BAND) {
+            slope = coast.edgeSlope(x, z, edge);
+            if (slope > 0) d = u / slope;
+        }
+        double fade = 1 - Math.min(1, u / COAST_BAND), berm = HighlandCoastProfile.berm(d) * fade;
+        double height = 0;
+        if (shore.beach() > 0) {
+            double shifted = ease(clamp((u - shore.width() * slope * fade) / range, 0, 1)) * land;
+            height += shore.beach() * Math.max(shifted, berm + coast.profile().dune(x, z, d, shore) * fade);
+        }
+        if (shore.bluff() + shore.cliff() > 0) {
+            double t0 = scarps ? 1 - Math.sqrt(1 - Math.min(1, shore.height() / land)) : 0;
+            double lifted = ease(t0 + (1 - t0) * t) * land;
+            double wb = HighlandCoastProfile.bluffWidth(shore.width());
+            double s = scarps ? smooth(wb, wb + BLUFF_SCARP, d) : 1;
+            height += shore.bluff() * (s * lifted + (1 - s) * berm);
+            height += shore.cliff() * (scarps ? smooth(0, CLIFF_FACE, d) : 1) * lifted;
+        }
+        return height;
+    }
+    private static double ease(double t) { return t * (2 - t); }
+    /** Edge band (edge units above the coast point) holding the beach shift, berm and scarps; scarp run and cliff face (blocks). */
+    static final double COAST_BAND = .08, BLUFF_SCARP = 4, CLIFF_FACE = 2;
     /** Refined channel sample. {@code head} ramps 0..1 over the first HEAD_TAPER blocks below a channel head. */
     public record Node(double x, double z, double ground, double water, double area, int parent, double head) {}
     /**
@@ -157,9 +199,10 @@ public final class HighlandDrainage {
     /**
      * Abandoned meander loop (oxbow): still water along the middle of the arc, infilled wetland toward its ends and
      * around it. {@code halfWidth} is the open-water half width per point (zero at the infilled ends); {@code water}
-     * the still-water level (the lowest level of the channel beside it).
+     * the still-water level (the lowest level of the channel beside it). The inclusive node range preserves its
+     * channel provenance when final lake constraints lower the profile.
      */
-    public record Oxbow(double[] x, double[] z, double[] halfWidth, double water) {}
+    public record Oxbow(double[] x, double[] z, double[] halfWidth, double water, int nodeFrom, int nodeTo) {}
     /**
      * {@code incision} holds, per plan grid node (origin, width, gridStep), how far stream-power incision lowered the
      * land; the rendered surface is the full-resolution land minus its smooth interpolation. {@code water} holds the
@@ -956,7 +999,7 @@ public final class HighlandDrainage {
         for (var site : channels.oxbows()) {
             double level = Double.POSITIVE_INFINITY;
             for (int j = site.nodeFrom(); j <= site.nodeTo(); j++) level = Math.min(level, profile[j]);
-            if (level > 0 && Double.isFinite(level)) oxbows.add(new Oxbow(site.x(), site.z(), site.halfWidth(), level));
+            if (level > 0 && Double.isFinite(level)) oxbows.add(new Oxbow(site.x(), site.z(), site.halfWidth(), level, site.nodeFrom(), site.nodeTo()));
         }
         List<Node> nodes = new ArrayList<>(refined);
         for (int j = 0; j < refined; j++) {

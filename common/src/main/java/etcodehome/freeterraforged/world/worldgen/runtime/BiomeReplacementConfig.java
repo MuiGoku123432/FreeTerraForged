@@ -54,11 +54,15 @@ public record BiomeReplacementConfig(
 		SelectorKind selectorKind,
 		String selector,
 		ActionKind actionKind,
-		String target
+		String target,
+		boolean beforeMods
 	) {
 		public Rule {
 			if (line <= 0) {
 				throw new IllegalArgumentException("Biome replacement rule line must be positive");
+			}
+			if (beforeMods && actionKind == ActionKind.REMOVE) {
+				throw new IllegalArgumentException("Removal rule cannot run before mods");
 			}
 			dimension = dimension == null ? null : dimension.trim();
 			selectorKind = Objects.requireNonNull(selectorKind, "selectorKind");
@@ -133,11 +137,13 @@ public record BiomeReplacementConfig(
 				continue;
 			}
 
-			String[] split = line.split(">", 2);
+			// '>>' replaces the provider's selection before mod selection decorators run; '>' replaces the final biome.
+			boolean beforeMods = line.contains(">>");
+			String[] split = line.split(beforeMods ? ">>" : ">", 2);
 			if (split.length != 2) {
 				diagnostics.add(error(
 					"malformed_rule", lineNumber,
-					"Expected 'source_biome > target_biome'"
+					"Expected 'source_biome > target_biome' or 'source_biome >> target_biome'"
 				));
 				continue;
 			}
@@ -171,13 +177,21 @@ public record BiomeReplacementConfig(
 			}
 			String target = targetParts[0].trim();
 			ActionKind actionKind = target.equals("null") ? ActionKind.REMOVE : ActionKind.REPLACE;
+			if (beforeMods && actionKind == ActionKind.REMOVE) {
+				diagnostics.add(error(
+					"before_mods_removal", lineNumber,
+					"Removals cannot run before mods; write 'source > null'"
+				));
+				continue;
+			}
 			rules.add(new Rule(
 				lineNumber,
 				currentDimension,
 				selectorKind,
 				selector,
 				actionKind,
-				actionKind == ActionKind.REPLACE ? target : null
+				actionKind == ActionKind.REPLACE ? target : null,
+				beforeMods
 			));
 		}
 

@@ -125,4 +125,26 @@ class BiomeReplacementConfigTest {
 		assertTrue(config.hasErrors());
 		assertTrue(config.diagnostics().stream().anyMatch(d -> "unsupported_probability".equals(d.code())));
 	}
+
+	@Test
+	void testBeforeModsRule() {
+		String content = """
+			minecraft:dark_forest >> minecraft:old_growth_spruce_taiga
+			minecraft:plains > minecraft:desert
+			""";
+		BiomeReplacementConfig config = BiomeReplacementConfig.parse(content);
+		assertFalse(config.hasErrors());
+		assertEquals("minecraft:dark_forest", config.rules().get(0).selector());
+		assertEquals("minecraft:old_growth_spruce_taiga", config.rules().get(0).target());
+		assertTrue(config.rules().get(0).beforeMods());
+		assertFalse(config.rules().get(1).beforeMods());
+	}
+
+	@Test
+	void testBeforeModsRemovalRejected() {
+		BiomeReplacementConfig config = BiomeReplacementConfig.parse("minecraft:deep_dark >> null");
+		assertTrue(config.hasErrors());
+		assertTrue(config.rules().isEmpty());
+		assertTrue(config.diagnostics().stream().anyMatch(d -> "before_mods_removal".equals(d.code())));
+	}
 }
