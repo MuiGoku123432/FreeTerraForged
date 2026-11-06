@@ -55,14 +55,22 @@ detached A/B controls referenced from verification notes and are not tracked as 
 |---|---|---|---|
 | `freeTerraForged-Custom` (main checkout) | `feature/rolling-highlands` | rolling-highlands | work |
 | `freeTerraForged-Custom.gsd` | `planning/gsd` → `1_21_1-unstable-custom` | — | planning / integration |
-| `/private/tmp/ftf-structure-performance` | `feature/structure-placement` | structure-placement | work |
+| `$TMPDIR/opencode/ftf-custom-sync` | `1_21_1-unstable-custom` | — | integration (opencode) |
 | `/private/tmp/ftf-structure-ground-fit` | `fix/structure-ground-fit` | structure-placement | work |
-| `/private/tmp/ftf-structure-original` | `c5076eb8` detached | structure-placement | baseline (pre-change) |
-| `/private/tmp/ftf-structure-perf-control` | `744c2f20` detached | structure-placement | baseline (perf control) |
 | `/private/tmp/ftf-grade-rh-test` | `6b63400b` detached | rolling-highlands | baseline |
-| `$TMPDIR/opencode/ftf-pr323` | `fixSnowVegetation` | upstream-fixes | work (prunable) |
 
-`/private/tmp` worktrees can vanish on reboot; recreate from the branch/commit above.
+Baselines without a worktree (recreate with `git worktree add --detach <path> <commit>`): pre-change `c5076eb8`,
+perf control `744c2f20`. `feature/structure-placement` and `fixSnowVegetation` have no worktree.
+
+**Temp-dir worktrees decay.** macOS periodic cleanup deletes untouched files under `/private/tmp` and `$TMPDIR`
+after a few days, `.git` link included (four worktrees were lost this way on 2026-11-06; all commits were safe on
+`origin`). Keep long-lived worktrees under `~/repos/mine/JavaApps/`, push branches to `origin` before leaving them,
+and run `git worktree prune` when `git worktree list` shows `prunable`.
+
+## Remote
+
+Every branch with unique work is pushed to `origin` (the fork). Nothing goes to `upstream` except through a PR
+branch the user chooses to open.
 
 ## Constraints
 
