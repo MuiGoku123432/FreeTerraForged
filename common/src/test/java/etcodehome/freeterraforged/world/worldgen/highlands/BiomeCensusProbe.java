@@ -5,6 +5,7 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.function.ToDoubleFunction;
 import com.mojang.datafixers.util.Pair;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import etcodehome.freeterraforged.data.worldgen.preset.settings.*;
 import etcodehome.freeterraforged.world.worldgen.cell.Cell;
@@ -20,6 +21,7 @@ import net.minecraft.world.level.levelgen.NoiseGeneratorSettings;
 import net.minecraft.world.level.levelgen.RandomState;
 
 /** Throwaway biome-balance census (investigation only, not a gate). */
+@Tag("probe")
 class BiomeCensusProbe {
     static final long[] SEEDS = {0, 42, 8675309};
     static final int HALF = 24576, STEP = 128;

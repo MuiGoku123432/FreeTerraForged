@@ -4,7 +4,7 @@ Status: confirmed by probe; not fixed (deferred).
 Date: 2026-11-06
 Severity: medium. Range layout is not translation-invariant, and the defect affects every world with ranges, at any ridge count.
 Probe: `common/src/test/java/etcodehome/freeterraforged/world/worldgen/highlands/HighlandRangeFieldProbe.java`
-(`./gradlew :common:test --tests '*HighlandRangeFieldProbe'`, writes `common/build/range-field-probe.txt`, runs in about 15 s).
+(`./gradlew :common:probeTest --tests '*HighlandRangeFieldProbe'`, writes `common/build/range-field-probe.txt`, runs in about 15 s).
 
 ## 1. Problem
 

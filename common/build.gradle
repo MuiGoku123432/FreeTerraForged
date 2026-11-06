@@ -18,12 +18,27 @@ dependencies {
 	testImplementation "org.junit.jupiter:junit-jupiter:5.11.4"
 }
 
-test {
-    useJUnitPlatform()
+tasks.withType(Test).configureEach {
     maxHeapSize = '2G'
     systemProperty 'ftf.captureBaseline', System.getProperty('ftf.captureBaseline', 'false')
     systemProperty 'ftf.render', System.getProperty('ftf.render', 'false')
     testLogging { events 'passed', 'skipped', 'failed' }
+}
+
+// Gate tests only. Classes tagged @Tag("probe") are investigation probes (minutes to tens of minutes each) and run
+// on demand with probeTest. Test classes run in parallel JVMs (forks share no in-memory state).
+test {
+    useJUnitPlatform { excludeTags 'probe' }
+    maxParallelForks = Math.max(1, Math.min(4, Runtime.runtime.availableProcessors().intdiv(2)))
+}
+
+// On-demand probes: ./gradlew :common:probeTest [--tests '*BiomeCensusProbe']
+tasks.register('probeTest', Test) {
+    description = 'Runs the @Tag("probe") investigation probes.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform { includeTags 'probe' }
 }
 
 repositories {
