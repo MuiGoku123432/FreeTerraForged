@@ -266,3 +266,10 @@ Golden hashes re-recorded: `ranges-model7.sha256` → `ranges-model8.sha256` (th
 near the coast, which moves drainage and lakes across the whole owner). `HighlandIntegrationTest` now checks cells
 against the lake-resolved plan: on seed 0 the moved drainage puts a lake on a reach, and lake binding lowers that
 reach to the lake's water (cell = resolved plan exactly, 11.657), 8.09 below the raw plan the test used to compare.
+
+### S (model 8)
+`RHC user n=275 beachWidth median=29 p10=20 cliffH4=15.9 cliffDepth8=12.5 hollow=0.9% sunk=0 ns/column=10725`.
+The plan sees the beach shift only; bluff/cliff scarps are rendered and channels' valleys cut through them (see
+ledger). `ranges-model8.sha256` re-recorded for the S ground. Cliff height median sits just over its gate (15.9 ≥ 15):
+tune in V. `stacks/10km` reads 29.8 before Task X: the probe counts any ground ≥ 5 within 10-60 offshore, which at
+points includes the next headland; X refines it.

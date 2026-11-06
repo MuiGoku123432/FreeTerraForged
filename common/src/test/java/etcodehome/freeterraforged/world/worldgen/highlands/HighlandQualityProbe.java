@@ -171,17 +171,19 @@ final class HighlandQualityProbe {
             long jumps = 0; double worst = 0; int wx = 0, wz = 0;
             for (int row = 0; row < 12; row++) {
                 int z = oz + 128 + row * 240;
-                double previous = Double.NaN, previousLand = Double.NaN; boolean previousWet = true;
+                double previous = Double.NaN, previousLand = Double.NaN; boolean previousWet = true, previousSea = true;
                 for (int x = ox; x < ox + WINDOW; x++) {
                     context.heightmap.apply(c.reset(), x, z, false);
                     double hh = blocks(context, c.height), ground = continent.uncarvedLand(x, z);
-                    if (!previousWet && !c.hasRiverWater && hh > 0 && !Double.isNaN(previous)) {
+                    // Land-to-land pairs only (RH9: a sea column's floor against a sea cliff is the shore, not a dry jump).
+                    boolean sea = c.continentEdge <= coastEdge;
+                    if (!previousWet && !previousSea && !sea && !c.hasRiverWater && hh > 0 && !Double.isNaN(previous)) {
                         // Only steps introduced by RH shaping count; legacy terrain (terraces, badlands) keeps its own.
                         double jump = Math.max(0, Math.abs(hh - previous) - Math.abs(ground - previousLand));
                         if (jump > 3) jumps++;
                         if (jump > worst) { worst = jump; wx = x; wz = z; }
                     }
-                    previous = hh; previousLand = ground; previousWet = c.hasRiverWater;
+                    previous = hh; previousLand = ground; previousWet = c.hasRiverWater; previousSea = sea;
                 }
             }
 

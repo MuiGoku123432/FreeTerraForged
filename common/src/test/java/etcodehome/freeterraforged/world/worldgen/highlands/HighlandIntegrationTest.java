@@ -13,12 +13,10 @@ class HighlandIntegrationTest {
         for (long seed : new long[]{0, 1, 42, 8675309, -314159}) {
             var preset = Presets.makeFTFDefault();
             preset.world().continent.continentType = ContinentType.ROLLING_HIGHLANDS;
-            try (var context = WorldgenFixture.context(preset, seed); var coast = new HighlandCoast(context)) {
-                var fields = HighlandLand.create(context);
-                var plan = new HighlandDrainage(coast, fields, 4096, preset.world().controlPoints).build(0, 0);
-                // Lake resolution may lower a reach to its lake's water, so cells are checked against the resolved plan.
+            try (var context = WorldgenFixture.context(preset, seed)) {
+                // The continent's own plan (its coast profile reads the game's climate), lake-resolved: lake binding
+                // may lower a reach to its lake's water.
                 var resolved = ((RollingHighlandsContinent) context.heightmap.continent()).planOf(0, 0).plan().nodes();
-                assertEquals(plan.nodes().size(), resolved.size());
                 int wet = 0;
                 for (var node : resolved) {
                     if (node.parent() < 0) continue;

@@ -82,14 +82,16 @@ final class HighlandCoastProbe {
                 for (int d = 10; d <= OFFSHORE; d++) if (height[OFFSHORE - d] >= 5) { stack = true; break; }
                 String geometry = h4 >= 15 ? "cliff" : h4 >= 6 ? "bluff" : "beach";
                 String type = coast.profile().shore(x, z).dominant().name().toLowerCase(Locale.ROOT);
-                // Hollow behind a scarp: dry ground within HOLLOW_REACH falling more than 2 blocks below the
-                // highest ground seaward of it (transects with river or lake water are left out).
+                // Hollow behind a scarp: the coast profile's ground (before the plan's valleys, which always drain)
+                // within HOLLOW_REACH falling more than 2 blocks below the highest ground seaward of it (transects with
+                // river or lake water are left out).
                 boolean hollow = false;
                 if (!type.equals("beach") && !wet) {
                     double top = Double.NEGATIVE_INFINITY;
-                    for (int d = 0; d <= HOLLOW_REACH; d++) {
-                        top = Math.max(top, height[d + OFFSHORE]);
-                        if (height[d + OFFSHORE] < top - 2) { hollow = true; break; }
+                    for (int d = 1; d <= HOLLOW_REACH; d++) {
+                        double ground = continent.uncarvedLand(Math.round(x + gx * d), Math.round(z + gz * d));
+                        top = Math.max(top, ground);
+                        if (ground < top - 2) { hollow = true; break; }
                     }
                 }
                 samples.add(new Sample(x, z, type, geometry, width, h4, h8, h32, depth8, stack, norm / 2, hollow, sunk));

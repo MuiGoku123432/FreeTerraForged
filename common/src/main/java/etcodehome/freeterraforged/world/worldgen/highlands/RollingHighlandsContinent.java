@@ -145,7 +145,7 @@ public final class RollingHighlandsContinent implements Continent {
             double blend = drainage.landBlend(location.edge());
             cell.reset();
             // Do not count channel support as an independent basin wall.
-            double raw = rawLand(cell,x,z,provisional,hits,blend,provisional.incision(x,z)*(1-land.rangeCore(x,z)));
+            double raw = rawLand(cell,x,z,location.edge(),provisional,hits,provisional.incision(x,z)*(1-land.rangeCore(x,z)));
             return Math.min(raw, groundBeforeLakes(cell, x, z, location.edge(), provisional, hits, blend, raw));
         });
         double[] caps = candidates.levelCaps();
@@ -158,7 +158,7 @@ public final class RollingHighlandsContinent implements Continent {
             if (location.ownerX() != original.ownerX() || location.ownerZ() != original.ownerZ()) return Double.NEGATIVE_INFINITY;
             var hits = coarse.near(x,z);
             double blend = drainage.landBlend(location.edge()); cell.reset();
-            double raw = rawLand(cell,x,z,coarse,hits,blend,coarse.incision(x,z)*(1-land.rangeCore(x,z)));
+            double raw = rawLand(cell,x,z,location.edge(),coarse,hits,coarse.incision(x,z)*(1-land.rangeCore(x,z)));
             double ground = Math.min(raw, groundBeforeLakes(cell,x,z,location.edge(),coarse,hits,blend,raw));
             double water = (cell.riverWaterLevel-levels.water)*levels.terrainScaleFactor;
             // A flowing outlet at the body's own level is an intentional opening. Its bed is not a dry-bank spill.
@@ -176,7 +176,7 @@ public final class RollingHighlandsContinent implements Continent {
                 if (location.ownerX() != original.ownerX() || location.ownerZ() != original.ownerZ()) return Double.NEGATIVE_INFINITY;
                 var hits = current.near(x,z); cell.reset();
                 double blend = drainage.landBlend(location.edge());
-                double raw = rawLand(cell,x,z,current,hits,blend,current.incision(x,z)*(1-land.rangeCore(x,z)));
+                double raw = rawLand(cell,x,z,location.edge(),current,hits,current.incision(x,z)*(1-land.rangeCore(x,z)));
                 double height = groundBeforeLakes(cell,x,z,location.edge(),current,hits,blend,raw);
                 return cell.hasRiverWater ? Double.POSITIVE_INFINITY : levels.scale(normalized(height));
             }, levels.water*levels.terrainScaleFactor, caps);
@@ -275,7 +275,7 @@ public final class RollingHighlandsContinent implements Continent {
     double uncarvedLand(double x, double z) {
         var location = coast.sample(x, z);
         if (location.edge() <= coastEdge) return 0;
-        return drainage.landBlend(location.edge()) * land.height(x, z);
+        return drainage.coastalLand(x, z, location.edge(), land.height(x, z), true);
     }
     /** Diagnostics: the rendered land before channel, lake and wetland shaping. */
     double incisedLand(double x, double z) {
@@ -283,7 +283,7 @@ public final class RollingHighlandsContinent implements Continent {
         if (location.edge() <= coastEdge) return 0;
         var index = plan(location.ownerX(), location.ownerZ());
         double blend = drainage.landBlend(location.edge());
-        return floored(blend, blend * land.height(x, z) - index.incision(x, z), index.near(x, z));
+        return floored(blend, drainage.coastalLand(x, z, location.edge(), land.height(x, z), true) - index.incision(x, z), index.near(x, z));
     }
     /**
      * Water-relative floor (RH6 F3). Dry ground is held up only where water needs it:
@@ -369,7 +369,9 @@ public final class RollingHighlandsContinent implements Continent {
             // leaves wide one-block-deep flats wherever the edge field lingers just under the coast point (in-game
             // 2026-11-04: dirt/gravel/clay patchwork seabeds). The floor instead deepens with distance from the shoreline.
             if (location.edge() > shallowOceanEdge) {
-                double run = Math.min(1, shoreDistance(x, z, location.edge()) / SHOREFACE_RUN);
+                // RH9: below sea cliffs the floor drops within a few blocks (the run shortens with the cliff weight).
+                double shoreface = SHOREFACE_RUN * (1 - CLIFF_SHOREFACE * coast.profile().shore(x, z).cliff());
+                double run = Math.min(1, shoreDistance(x, z, location.edge()) / shoreface);
                 cell.height = Math.min(cell.height, normalized(-shelfDepth * Math.pow(run, 2.0 / 3)));
             }
             cell.terrainErosion = cell.erosion;
@@ -400,8 +402,9 @@ public final class RollingHighlandsContinent implements Continent {
     /**
      * Sea shore, after the shared climate pass (it tags whole biome regions near the coast as COAST, which only some
      * lookup paths later turn into beaches, so beaches came and went with cache state). RH land keeps its own terrain;
-     * low dry ground within a ragged BEACH_WIDTH-block strip of the coastline becomes BEACH, with the beach noise cleared
-     * so its continentalness reads as coast and it takes the beach biome.
+     * low dry ground within the coast profile's beach width (W on beaches, W_b in front of bluffs; none below sea
+     * cliffs) becomes BEACH, with the beach noise cleared so its continentalness reads as coast and it takes the beach
+     * biome.
      *
      * @param landTerrain the cell's terrain as {@link #apply} left it, before the climate pass
      */
@@ -410,8 +413,12 @@ public final class RollingHighlandsContinent implements Continent {
         if (cell.terrain == TerrainType.COAST || cell.terrain == TerrainType.SHALLOW_OCEAN) cell.terrain = landTerrain;
         if (cell.hasRiverWater || cell.terrain.isWetland()) return;
         double height = (cell.height - levels.water) * levels.terrainScaleFactor;
-        if (height <= 0 || height > BEACH_HEIGHT) return;
-        double width = BEACH_WIDTH * (.5 + cell.beachNoise / levels.scale(5));
+        if (height <= 0) return;
+        var profile = coast.profile().shore(x, z);
+        if (profile.cliff() >= .5) return;
+        if (height > HighlandCoastProfile.BERM + HighlandCoastProfile.DUNE * profile.dunes() + 1) return;
+        double width = (profile.beach() * profile.width() + profile.bluff() * HighlandCoastProfile.bluffWidth(profile.width()))
+            / (profile.beach() + profile.bluff());
         if (shoreDistance(x, z, cell.continentEdge) > width) return;
         cell.terrain = TerrainType.BEACH;
         cell.beachNoise = 0;
@@ -425,12 +432,11 @@ public final class RollingHighlandsContinent implements Continent {
      * near the shore, larger where the edge field levels off (the middle of a strait or bay), infinite where it is flat.
      */
     private double shoreDistance(double x, double z, double edge) {
-        double gx = coast.sample(x + SHORE_PROBE, z).edge() - edge, gz = coast.sample(x, z + SHORE_PROBE).edge() - edge;
-        double slope = Math.hypot(gx, gz) / SHORE_PROBE;
+        double slope = coast.edgeSlope(x, z, edge);
         return slope > 0 ? Math.abs(edge - coastEdge) / slope : Double.POSITIVE_INFINITY;
     }
-    /** Shoreface run (blocks from the coastline to the shelf depth), beach strip mean width and top (blocks), slope probe. */
-    static final double SHOREFACE_RUN = 48, BEACH_WIDTH = 6, BEACH_HEIGHT = 3, SHORE_PROBE = 2;
+    /** Shoreface run (blocks from the coastline to the shelf depth) and how much of it a sea cliff takes away. */
+    static final double SHOREFACE_RUN = 48, CLIFF_SHOREFACE = .8;
     /** Vanilla's low weirdness slice (normal side) and erosion levels 3-4, inset from the slice boundaries. */
     static final double BEACH_WEIRDNESS_MIN = -.26, BEACH_WEIRDNESS_MAX = -.06, BEACH_EROSION_MIN = -.2225, BEACH_EROSION_MAX = .44;
     /**
@@ -494,7 +500,7 @@ public final class RollingHighlandsContinent implements Continent {
      */
     private double groundBeforeTarns(Cell cell, double x, double z, double edge, HighlandPlanIndex index, double blend, double incision) {
         var hits = index.near(x, z);
-        double raw = rawLand(cell,x,z,index,hits,blend,incision);
+        double raw = rawLand(cell,x,z,edge,index,hits,incision);
         var lake = index.lake(x, z);
         double height = groundBeforeLakes(cell, x, z, edge, index, hits, blend, raw);
         if (lake != null) height = shapeLake(cell, x, z, index, lake, height);
@@ -507,9 +513,10 @@ public final class RollingHighlandsContinent implements Continent {
         return height;
     }
 
-    private double rawLand(Cell cell, double x, double z, HighlandPlanIndex index, HighlandPlanIndex.Hits hits,
-                           double blend, double incision) {
-        return blend*(land.apply(cell,x,z)-dissection(index,x,z,hits))-incision;
+    /** Legacy land on the coastal rise (RH9 coast profile, as the plan sees it) lowered by the plan's incision. */
+    private double rawLand(Cell cell, double x, double z, double edge, HighlandPlanIndex index, HighlandPlanIndex.Hits hits,
+                           double incision) {
+        return drainage.coastalLand(x, z, edge, land.apply(cell,x,z)-dissection(index,x,z,hits), true)-incision;
     }
 
     private double groundBeforeLakes(Cell cell, double x, double z, double edge, HighlandPlanIndex index,

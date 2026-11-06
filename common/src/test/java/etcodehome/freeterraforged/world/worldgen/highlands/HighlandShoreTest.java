@@ -21,8 +21,10 @@ class HighlandShoreTest {
             float coastEdge = context.preset.world().controlPoints.coast;
             long sea = 0, oneDeep = 0, shores = 0, beaches = 0, coastal = 0, landCoast = 0;
             Cell c = new Cell(), next = new Cell();
+            var profile = ((RollingHighlandsContinent) hm.continent()).coast().profile();
             for (int[] site : new int[][]{{10427, 18050}, {10891, 17853}}) {
-                for (int z = site[1] - 256; z <= site[1] + 256; z += 16) {
+                // RH9: rows every 8 over ±384 (the coves/points warp left these sites mostly sea cliff, no low shore).
+                for (int z = site[1] - 384; z <= site[1] + 384; z += 8) {
                     context.lookup.applyCell(c.reset(), site[0] - 384, z, false, true);
                     for (int x = site[0] - 384; x < site[0] + 384; x++) {
                         context.lookup.applyCell(next.reset(), x + 1, z, false, true);
@@ -34,9 +36,11 @@ class HighlandShoreTest {
                         // A low dry column whose neighbour is the sea.
                         boolean nextOcean = next.continentEdge <= coastEdge;
                         Cell shore = ocean && !nextOcean ? next : !ocean && nextOcean ? c : null;
-                        if (shore != null && !shore.hasRiverWater) {
+                        int shoreX = shore == c ? x : x + 1;
+                        // RH9: below sea cliffs a low column at the waterline is the cliff's foot, not a beach.
+                        if (shore != null && !shore.hasRiverWater && profile.shore(shoreX, z).cliff() < .5) {
                             double h = (shore.height - context.levels.water) * context.levels.terrainScaleFactor;
-                            if (h > 0 && h <= RollingHighlandsContinent.BEACH_HEIGHT) {
+                            if (h > 0 && h <= HighlandCoastProfile.BERM + 1) {
                                 shores++;
                                 if (shore.terrain == TerrainType.BEACH) beaches++;
                                 float continent = Field.CONTINENT.read(shore, hm);

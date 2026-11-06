@@ -26,6 +26,19 @@ class HighlandCoastTest {
         }
     }
 
+    /** S: beaches, bluffs and sea cliffs on the ground (SPEC-RH9 §3 S gates, A-6, A-8). */
+    @Test void shoresHaveTheirShape() throws Exception {
+        try (var context = WorldgenFixture.context(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED)) {
+            var report = HighlandCoastProbe.measure(context, SITE_X, SITE_Z, RADIUS);
+            String summary = report.summary("user");
+            assertTrue(report.beachWidthMedian() >= 18 && report.beachWidthP10() >= 8, "beaches too narrow: " + summary);
+            assertTrue(report.cliffHeight4Median() >= 15, "cliffs too low: " + summary);
+            assertTrue(report.cliffDepth8Median() >= 5, "water at cliff foot too shallow: " + summary);
+            assertTrue(report.hollowShare() <= .05, "hollows behind scarps: " + summary);
+            assertEquals(0, report.sunk(), "dry land below sea level beside the coast: " + summary);
+        }
+    }
+
     /** Beaches must not come and go with the lookup path (the reason RollingHighlandsContinent.shore exists). */
     @Test void beachTagIsPathIndependent() throws Exception {
         try (var context = WorldgenFixture.context(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED)) {

@@ -9,9 +9,20 @@ class HighlandLakeBoundaryTest {
     @Test void terrainFiltersPreserveTheBanksOfTheIcedLake() {
         try (var context = WorldgenFixture.context(HighlandQualityProbe.preset(),42)) {
             Cell wet = new Cell(), dry = new Cell(), raw = new Cell();
-            for (int[] point : new int[][]{{-1545,-1746},{-1546,-1745}}) {
-                context.lookup.applyCell(wet.reset(),point[0],point[1],true,false);
-                assertTrue(wet.hasRiverWater);
+            // Edge columns of the iced lake near -1545,-1746 (found, not pinned: the edge moves a block or two with
+            // the model, RH9 moved it off the original pair).
+            int edges = 0;
+            for (int pz = -1754; pz <= -1738; pz++) for (int px = -1553; px <= -1537; px++) {
+                context.lookup.applyCell(wet.reset(),px,pz,true,false);
+                if (!wet.hasRiverWater) continue;
+                boolean edge = false;
+                for (int[] d : new int[][]{{1,0},{-1,0},{0,1},{0,-1}}) {
+                    context.lookup.applyCell(dry.reset(),px+d[0],pz+d[1],true,false);
+                    edge |= !dry.hasRiverWater;
+                }
+                if (!edge) continue;
+                edges++;
+                int[] point = {px, pz};
                 for (int[] d : new int[][]{{1,0},{-1,0},{0,1},{0,-1}}) {
                     int x=point[0]+d[0],z=point[1]+d[1];
                     context.lookup.applyCell(dry.reset(),x,z,true,false);
@@ -23,6 +34,7 @@ class HighlandLakeBoundaryTest {
                         "filtered lake bank below water at "+x+","+z);
                 }
             }
+            assertTrue(edges >= 2, "iced lake edge not found near -1545,-1746: " + edges);
         }
     }
     @Test void dryNeighboursContainWaterAtEveryLakeEdge() throws Exception {

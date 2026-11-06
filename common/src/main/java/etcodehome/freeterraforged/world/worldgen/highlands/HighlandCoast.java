@@ -20,6 +20,12 @@ public final class HighlandCoast extends AdvancedContinentGenerator {
         this.coastEdge = context.preset.world().controlPoints.coast;
     }
     public HighlandCoastProfile profile() { return profile; }
+    /** Edge-field slope (edge units per block) at a position whose edge is {@code edge}, from two SLOPE_PROBE steps. */
+    public double edgeSlope(double x, double z, double edge) {
+        double gx = sample(x + SLOPE_PROBE, z).edge() - edge, gz = sample(x, z + SLOPE_PROBE).edge() - edge;
+        return Math.hypot(gx, gz) / SLOPE_PROBE;
+    }
+    static final double SLOPE_PROBE = 2;
     /**
      * RH9 coves and points: edge-value offset per block of coastline displacement (the edge field's typical slope
      * at the coast, measured by HighlandCoastProbe), and the edge band around the coast point it is applied in. The

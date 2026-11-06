@@ -78,5 +78,19 @@ public final class HighlandCoastProfile {
         return WARP_AMPLITUDE * clamp(.45 * hard + .55 * cove, -1, 1);
     }
 
+    /** Dry beach in front of a bluff's scarp (blocks): half the beach width, 8-20 (A-1). */
+    public static double bluffWidth(double width) { return clamp(width * .5, MIN_BLUFF_BEACH, MAX_BLUFF_BEACH); }
+    /** Beach berm height at {@code d} blocks from the waterline: rises over BERM_RUN to BERM. */
+    public static double berm(double d) { return BERM * smooth(0, BERM_RUN, d); }
+    /** Dune height at {@code d} blocks inland on a beach: hummocks over the back of the beach, up to DUNE blocks. */
+    public double dune(double x, double z, double d, Shore shore) {
+        if (shore.dunes() <= 0 || d < .4 * shore.width()) return 0;
+        double band = smooth(.4 * shore.width(), .7 * shore.width(), d) * (1 - smooth(shore.width(), shore.width() + DUNE_BACK, d));
+        return band <= 0 ? 0 : shore.dunes() * DUNE * band * noise(seed + 5, x, z, DUNE_SCALE);
+    }
+    /** Beach berm top and its rise (blocks); dune height, hummock wavelength and back slope (blocks). */
+    public static final double BERM = 2.5, BERM_RUN = 6, DUNE = 4, DUNE_SCALE = 20, DUNE_BACK = 16;
+    static final double MIN_BLUFF_BEACH = 8, MAX_BLUFF_BEACH = 20;
+
     private double hardness(double x, double z) { return noise(seed + 1, x, z, HARDNESS_SCALE); }
 }
