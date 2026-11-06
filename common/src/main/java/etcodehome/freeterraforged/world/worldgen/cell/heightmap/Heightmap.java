@@ -149,7 +149,9 @@ public record Heightmap(
         if (ctx.preset.world().continent.continentType == ContinentType.ROLLING_HIGHLANDS) {
             var continent = new RollingHighlandsContinent(ctx);
             try {
-                return new Heightmap((c, x, z) -> {}, (c, x, z) -> {}, continent, Climate.make(continent, ctx),
+                var climate = Climate.make(continent, ctx);
+                continent.useClimate(climate);
+                return new Heightmap((c, x, z) -> {}, (c, x, z) -> {}, continent, climate,
                     ctx.levels, ctx.preset.world().controlPoints, 1, Noises.constant(0), null);
             } catch (RuntimeException | Error failure) { continent.close(); throw failure; }
         }

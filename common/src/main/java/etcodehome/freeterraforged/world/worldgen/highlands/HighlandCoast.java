@@ -9,12 +9,24 @@ import etcodehome.freeterraforged.world.worldgen.util.Seed;
 public final class HighlandCoast extends AdvancedContinentGenerator {
     public final int tectonicScale;
     public final double warpBound;
+    private final HighlandCoastProfile profile;
+    private final double coastEdge;
 
     public HighlandCoast(GeneratorContext context) {
         super(new Seed(context.seed.root()).offset(731993), context);
         this.tectonicScale = context.preset.world().continent.continentScale * 4;
         this.warpBound = Math.round(tectonicScale * .33F) / 2.0;
+        this.profile = new HighlandCoastProfile(context);
+        this.coastEdge = context.preset.world().controlPoints.coast;
     }
+    public HighlandCoastProfile profile() { return profile; }
+    /**
+     * RH9 coves and points: edge-value offset per block of coastline displacement (the edge field's typical slope
+     * at the coast, measured by HighlandCoastProbe), and the edge band around the coast point it is applied in. The
+     * offset never reaches region borders or skipped cells (edge 0), so owners, bounds and land bridges are unchanged.
+     * The fade is wide enough (offset slope ≤ .3 per edge unit) that the warped edge stays monotone in the raw edge.
+     */
+    static final double EDGE_PER_BLOCK = 2.9e-4, WARP_FULL = .06, WARP_FADE = .35;
     public record Sample(int ownerX, int ownerZ, int centerX, int centerZ, double edge) {}
     public record Bounds(double minX, double minZ, double maxX, double maxZ) {}
 
@@ -83,6 +95,7 @@ public final class HighlandCoast extends AdvancedContinentGenerator {
             }
         }
         double edge = shouldSkip(ownerX, ownerZ) ? 0 : NoiseUtil.map(NoiseUtil.sqrt(getVariedDistanceValue(ownerX, ownerZ, (float) edgeDistance)), 0.05F, 0.25F, 0.2F);
+        if (edge > 0) edge += profile.warp(rawX, rawZ) * EDGE_PER_BLOCK * (1 - HighlandMath.smooth(WARP_FULL, WARP_FADE, Math.abs(edge - coastEdge)));
         return new Sample(ownerX, ownerZ, (int) ((pointX * .65 + sumX / 8 * .35) * tectonicScale),
             (int) ((pointZ * .65 + sumZ / 8 * .35) * tectonicScale), edge);
     }

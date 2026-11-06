@@ -215,7 +215,7 @@ class HighlandRangeTest {
             }
         }
         String actual = java.util.HexFormat.of().formatHex(hash.digest()) + "\n";
-        var fixture = java.nio.file.Path.of("src/test/resources/rolling-highlands/ranges-model7.sha256");
+        var fixture = java.nio.file.Path.of("src/test/resources/rolling-highlands/ranges-model8.sha256");
         if (Boolean.getBoolean("ftf.captureBaseline")) java.nio.file.Files.writeString(fixture, actual);
         assertEquals(java.nio.file.Files.readString(fixture), actual);
     }

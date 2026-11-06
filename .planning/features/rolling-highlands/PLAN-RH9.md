@@ -252,9 +252,17 @@ palette).
 | coast samples | 265 |
 | type by geometry | beach 100%, bluff 0%, cliff 0% |
 | BEACH-tag width median / p10 | 6 / 5 |
-| sinuosity (Cauchy-Crofton length, 16-block grid / 512-block grid) | 0.989 |
+| sinuosity (traced coastline, path/chord over 2 km windows) | 1.079 |
 | stacks per 10 km cliff | 0 |
 | column cost (warm plans) | 10.5 µs |
 
-Sinuosity is measured as the coastline length ratio between a 16- and a 512-block grid, not path/chord over 2 km
-windows: the probe has no ordered coast path. Same intent (detail at the cove scale); gate stays ≥ 1.15.
+Sinuosity is path/chord over 2 km windows on coastlines traced by crack following on an 8-block grid (resampled
+every 8 cracks). A Cauchy-Crofton length ratio (0.989) was tried first and read ≈ 1 whatever the coast did, so it
+was dropped. Gate stays ≥ 1.15.
+
+### C (model 8)
+`RHC user n=275 beach=60% bluff=25% cliff=15% sinuosity=1.212 stretch=382` (warp 200, fade .06-.35 edge units).
+Golden hashes re-recorded: `ranges-model7.sha256` → `ranges-model8.sha256` (the coastline warp changes the edge field
+near the coast, which moves drainage and lakes across the whole owner). `HighlandIntegrationTest` now checks cells
+against the lake-resolved plan: on seed 0 the moved drainage puts a lake on a reach, and lake binding lowers that
+reach to the lake's water (cell = resolved plan exactly, 11.657), 8.09 below the raw plan the test used to compare.

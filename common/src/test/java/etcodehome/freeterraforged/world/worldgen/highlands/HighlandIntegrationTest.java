@@ -16,8 +16,11 @@ class HighlandIntegrationTest {
             try (var context = WorldgenFixture.context(preset, seed); var coast = new HighlandCoast(context)) {
                 var fields = HighlandLand.create(context);
                 var plan = new HighlandDrainage(coast, fields, 4096, preset.world().controlPoints).build(0, 0);
+                // Lake resolution may lower a reach to its lake's water, so cells are checked against the resolved plan.
+                var resolved = ((RollingHighlandsContinent) context.heightmap.continent()).planOf(0, 0).plan().nodes();
+                assertEquals(plan.nodes().size(), resolved.size());
                 int wet = 0;
-                for (var node : plan.nodes()) {
+                for (var node : resolved) {
                     if (node.parent() < 0) continue;
                     Cell c = new Cell();
                     context.heightmap.applyPrecise(c, node.x(), node.z(), false);
