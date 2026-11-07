@@ -10,6 +10,7 @@ public final class HighlandCoast extends AdvancedContinentGenerator {
     public final int tectonicScale;
     public final double warpBound;
     private final HighlandCoastProfile profile;
+    private final HighlandDrowned drowned;
     private final double coastEdge;
 
     public HighlandCoast(GeneratorContext context) {
@@ -17,9 +18,13 @@ public final class HighlandCoast extends AdvancedContinentGenerator {
         this.tectonicScale = context.preset.world().continent.continentScale * 4;
         this.warpBound = Math.round(tectonicScale * .33F) / 2.0;
         this.profile = new HighlandCoastProfile(context);
+        this.drowned = new HighlandDrowned(context, this);
         this.coastEdge = context.preset.world().controlPoints.coast;
     }
     public HighlandCoastProfile profile() { return profile; }
+    HighlandDrowned drowned() { return drowned; }
+    /** RH10: arms stay inert (the RH9 coast) until the land is bound, after the continent is built. */
+    void bindDrowned(HighlandLand land) { drowned.bind(land); }
     /** Edge-field slope (edge units per block) at a position whose edge is {@code edge}, from two SLOPE_PROBE steps. */
     public double edgeSlope(double x, double z, double edge) {
         double gx = sample(x + SLOPE_PROBE, z).edge() - edge, gz = sample(x, z + SLOPE_PROBE).edge() - edge;
@@ -33,7 +38,8 @@ public final class HighlandCoast extends AdvancedContinentGenerator {
      * The fade is wide enough (offset slope ≤ .3 per edge unit) that the warped edge stays monotone in the raw edge.
      */
     static final double EDGE_PER_BLOCK = 2.9e-4, WARP_FULL = .06, WARP_FADE = .35;
-    public record Sample(int ownerX, int ownerZ, int centerX, int centerZ, double edge) {}
+    /** {@code drowned}: drowned-region weight 0..1 (0 outside RH10 regions and away from the coast band). */
+    public record Sample(int ownerX, int ownerZ, int centerX, int centerZ, double edge, double drowned) {}
     public record Bounds(double minX, double minZ, double maxX, double maxZ) {}
 
     /** Exact bounds of the limited 3x3 selection regions, expanded by the bounded warp. */
@@ -75,6 +81,15 @@ public final class HighlandCoast extends AdvancedContinentGenerator {
     }
 
     public Sample sample(double rawX, double rawZ) {
+        var base = undrowned(rawX, rawZ);
+        if (!(base.edge() > 0)) return base;
+        var at = drowned.at(rawX, rawZ, base.edge());
+        if (at.drowned() == 0 && at.edge() == base.edge()) return base;
+        return new Sample(base.ownerX(), base.ownerZ(), base.centerX(), base.centerZ(), at.edge(), at.drowned());
+    }
+
+    /** The RH9 coast sample: the edge before the drowned transform (RH10 reads region orientation from it). */
+    Sample undrowned(double rawX, double rawZ) {
         // A single bounded, precise warp avoids the legacy high-frequency coastal cliff modulation.
         double x = (rawX + warpBound * (2 * HighlandMath.noise(seed + 11003L, rawX, rawZ, tectonicScale * .225) - 1)) / tectonicScale;
         double z = (rawZ + warpBound * (2 * HighlandMath.noise(seed + 19001L, rawX, rawZ, tectonicScale * .225) - 1)) / tectonicScale;
@@ -103,6 +118,6 @@ public final class HighlandCoast extends AdvancedContinentGenerator {
         double edge = shouldSkip(ownerX, ownerZ) ? 0 : NoiseUtil.map(NoiseUtil.sqrt(getVariedDistanceValue(ownerX, ownerZ, (float) edgeDistance)), 0.05F, 0.25F, 0.2F);
         if (edge > 0) edge += profile.warp(rawX, rawZ) * EDGE_PER_BLOCK * (1 - HighlandMath.smooth(WARP_FULL, WARP_FADE, Math.abs(edge - coastEdge)));
         return new Sample(ownerX, ownerZ, (int) ((pointX * .65 + sumX / 8 * .35) * tectonicScale),
-            (int) ((pointZ * .65 + sumZ / 8 * .35) * tectonicScale), edge);
+            (int) ((pointZ * .65 + sumZ / 8 * .35) * tectonicScale), edge, 0);
     }
 }

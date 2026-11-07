@@ -267,7 +267,10 @@ public final class RollingHighlandsContinent implements Continent {
     HighlandPlanIndex planAt(double x, double z) { var s = coast.sample(x, z); return plan(s.ownerX(), s.ownerZ()); }
     HighlandCoast coast() { return coast; }
     /** RH9: the game's climate, for the coast profile's regional climate (built after this continent). */
-    public void useClimate(etcodehome.freeterraforged.world.worldgen.cell.climate.Climate climate) { coast.profile().climate(climate); }
+    public void useClimate(etcodehome.freeterraforged.world.worldgen.cell.climate.Climate climate) {
+        coast.profile().climate(climate);
+        coast.bindDrowned(land); // RH10: drowned arms switch on only now; nothing samples the continent before this point
+    }
     HighlandDrainage drainage() { return drainage; }
     HighlandPlanIndex planOf(int ownerX, int ownerZ) { return plan(ownerX, ownerZ); }
     /** Test access: builds the owner plan at a block position afresh (uncached), for cost measurements. */

@@ -173,7 +173,7 @@
       "weight": 2.7263823
     },
     "rollingHighlands": {
-      "modelVersion": 8.0,
+      "modelVersion": 9.0,
       "uplandSpacing": 4096.0,
       "valleyWidth": 256.0
     },
