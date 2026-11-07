@@ -466,7 +466,7 @@ public final class RollingHighlandsContinent implements Continent {
      * is a sea cliff (weight ≥ STACK_CLIFF), with chance STACK_CHANCE (×PNW_STACKS on cool/wet coasts), and its centre
      * lies in the sea STACK_NEAR + radius to STACK_FAR blocks from the coastline. The outline is roughened by noise, the
      * sides drop over STACK_SIDE blocks to the floor and the top is rough. The tallest stack here writes its coast
-     * climate class to the cell (its rock palette).
+     * climate class to the cell (its rock palette). RH10: the chance falls with the drowned-region weight at the centre.
      */
     private double seaStack(Cell cell, double x, double z, double edge, double floor) {
         if (edge < coastEdge - STACK_EDGE_REACH) return floor;
@@ -484,9 +484,13 @@ public final class RollingHighlandsContinent implements Continent {
             var shore = coast.profile().shore(cx, cz);
             if (shore.cliff() < STACK_CLIFF) continue;
             byte climate = HighlandCoastProfile.climateClass(shore);
-            if (roll >= STACK_CHANCE * (climate == HighlandCoastProfile.PNW ? PNW_STACKS : 1)) continue;
-            double centreEdge = coast.sample(cx, cz).edge();
+            double chance = STACK_CHANCE * (climate == HighlandCoastProfile.PNW ? PNW_STACKS : 1);
+            if (roll >= chance) continue;
+            var centre = coast.sample(cx, cz);
+            double centreEdge = centre.edge();
             if (centreEdge > coastEdge) continue;
+            // RH10: fewer stacks in drowned regions, so they do not clog the arms.
+            if (roll >= chance * (1 - centre.drowned())) continue;
             double d = shoreDistance(cx, cz, centreEdge);
             if (d < STACK_NEAR + r || d > STACK_FAR) continue;
             double top = STACK_MIN_TOP + (STACK_MAX_TOP - STACK_MIN_TOP) * unit(mix(h + 4)) - STACK_TOP_ROUGH * noise(stackSeed + 1, x, z, 3);

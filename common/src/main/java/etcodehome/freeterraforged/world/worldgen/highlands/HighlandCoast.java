@@ -82,7 +82,7 @@ public final class HighlandCoast extends AdvancedContinentGenerator {
 
     public Sample sample(double rawX, double rawZ) {
         var base = undrowned(rawX, rawZ);
-        if (!(base.edge() > 0)) return base;
+        if (!(base.edge() > 0) || !drowned.inBand(base.edge())) return base;
         var at = drowned.at(rawX, rawZ, base.edge());
         if (at.drowned() == 0 && at.edge() == base.edge()) return base;
         return new Sample(base.ownerX(), base.ownerZ(), base.centerX(), base.centerZ(), at.edge(), at.drowned());

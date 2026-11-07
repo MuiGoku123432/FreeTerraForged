@@ -20,19 +20,38 @@ import etcodehome.freeterraforged.world.worldgen.GeneratorContext;
  */
 final class HighlandDrowned {
     /** Region cell size and chance, disc radius (fraction of the cell size, plus its jitter) and the share of it that is full weight. */
-    static final double REGION_SIZE = 4000, REGION_CHANCE = .3, REGION_RADIUS = .4, REGION_RADIUS_JITTER = .2, REGION_CORE = .35;
+    static final double REGION_SIZE = 5500, REGION_CHANCE = .3, REGION_RADIUS = .4, REGION_RADIUS_JITTER = .2, REGION_CORE = .8;
     /** Valley network: stretch along the inland direction, trunk and branch wavelengths (blocks), branch weight, valley thresholds. */
     static final double ANISO = 2.5, TRUNK_SCALE = 2000, BRANCH_SCALE = 700, BRANCH_WEIGHT = .8, VALLEY_LOW = .45, VALLEY_HIGH = .85;
     /** Blocks inland of the coast point over which arms shoal, and how far below the beach point arm water sits (fraction of beach to shallow ocean). */
     static final double ARM_REACH = 2500, DROWN_MARGIN = .3;
     /** Half distance (blocks) of the central differences that orient a region. */
     private static final double GRADIENT_STEP = 256;
+    /**
+     * Region seed salt. REGION_SIZE, REGION_CHANCE, REGION_CORE and this salt were tuned together (11-02 Task 2, a sweep over
+     * sizes 3000-6000, cores .35/.6/.8 and salts 0-900) so that the drowned share is 20-30% of the RH9 coastline in both
+     * calibration boxes (user world, ROCKIES) and the RH9 coast gates, which measure outside the regions, keep a
+     * representative non-drowned coast (including the PNW bay shore of the user box).
+     */
+    private static final long SEED_SALT = 257;
     private static final int MEMO = 4;
 
     /** Transformed edge value and the drowned-region weight (0..1) at the position. */
     record At(double edge, double drowned) {}
     private record Region(int i, int j, double cx, double cz, double radius, double gx, double gz, double ox, double oz) {}
-    private static final class Memo { final Region[] slots = new Region[MEMO]; int next; }
+    /**
+     * Per-thread memos: the orientation of recently used regions, and the active discs of the 3x3 cells around the last
+     * cell looked up (consecutive samples almost always share a cell, so the neighbour hashing is done once).
+     */
+    private static final class Memo {
+        final Region[] slots = new Region[MEMO];
+        int next;
+        int gi, gj, count;
+        boolean valid;
+        final long[] h = new long[9];
+        final int[] ci = new int[9], cj = new int[9];
+        final double[] cx = new double[9], cz = new double[9], radius = new double[9];
+    }
 
     private final HighlandCoast coast;
     private final long seed;
@@ -43,7 +62,7 @@ final class HighlandDrowned {
     HighlandDrowned(GeneratorContext context, HighlandCoast coast) {
         var points = context.preset.world().controlPoints;
         this.coast = coast;
-        this.seed = mix(context.seed.root() ^ 0x5248313044L);
+        this.seed = mix(context.seed.root() ^ 0x5248313044L ^ SEED_SALT);
         this.coastEdge = points.coast;
         this.riaTarget = points.beach - DROWN_MARGIN * (points.beach - points.shallowOcean);
         this.reachEdge = ARM_REACH * HighlandCoast.EDGE_PER_BLOCK;
@@ -53,32 +72,45 @@ final class HighlandDrowned {
     void bind(HighlandLand land) { this.land = land; }
     HighlandLand land() { return land; }
 
-    /** Position-only region weight (0..1): the largest weight over the regions near the position. */
-    double weight(double x, double z) {
-        int gi = (int) Math.floor(x / REGION_SIZE), gj = (int) Math.floor(z / REGION_SIZE);
-        double best = 0;
+    /** Active discs of the 3x3 cells around (gi, gj), memoized per thread for the last cell. */
+    private Memo discs(int gi, int gj) {
+        var m = memo.get();
+        if (m.valid && m.gi == gi && m.gj == gj) return m;
+        m.count = 0;
         for (int j = gj - 1; j <= gj + 1; j++) for (int i = gi - 1; i <= gi + 1; i++) {
             long h = hash(i, j);
             if (unit(h) >= REGION_CHANCE) continue;
-            best = Math.max(best, discWeight(h, i, j, x, z));
+            int n = m.count++;
+            m.h[n] = h; m.ci[n] = i; m.cj[n] = j;
+            m.cx[n] = centreX(h, i); m.cz[n] = centreZ(h, j); m.radius[n] = radius(h);
         }
+        m.gi = gi; m.gj = gj; m.valid = true;
+        return m;
+    }
+
+    /** Position-only region weight (0..1): the largest weight over the regions near the position. */
+    double weight(double x, double z) {
+        var m = discs((int) Math.floor(x / REGION_SIZE), (int) Math.floor(z / REGION_SIZE));
+        double best = 0;
+        for (int n = 0; n < m.count; n++) best = Math.max(best, discWeight(m.cx[n], m.cz[n], m.radius[n], x, z));
         return best;
     }
 
+    /** True where the transform can change an edge value: above the arm target and inside the inland reach. */
+    boolean inBand(double edge) { return land != null && edge > riaTarget && edge < coastEdge + reachEdge; }
+
     /** The edge value at a raw position given the standalone (pre-drowning) edge there, and the region weight. */
     At at(double rawX, double rawZ, double edge) {
-        if (land == null || edge <= riaTarget || edge >= coastEdge + reachEdge) return new At(edge, 0);
-        int gi = (int) Math.floor(rawX / REGION_SIZE), gj = (int) Math.floor(rawZ / REGION_SIZE);
+        if (!inBand(edge)) return new At(edge, 0);
+        var m = discs((int) Math.floor(rawX / REGION_SIZE), (int) Math.floor(rawZ / REGION_SIZE));
         double weight = 0, k = 0, fade = -1;
-        for (int j = gj - 1; j <= gj + 1; j++) for (int i = gi - 1; i <= gi + 1; i++) {
-            long h = hash(i, j);
-            if (unit(h) >= REGION_CHANCE) continue;
-            double w = discWeight(h, i, j, rawX, rawZ);
+        for (int n = 0; n < m.count; n++) {
+            double w = discWeight(m.cx[n], m.cz[n], m.radius[n], rawX, rawZ);
             if (w <= 0) continue;
             weight = Math.max(weight, w);
             if (fade < 0) fade = edge <= coastEdge ? 1 : 1 - smooth(0, reachEdge, edge - coastEdge);
-            if (fade <= 0) continue;
-            k = Math.max(k, w * fade * valley(region(h, i, j), rawX, rawZ));
+            if (w * fade <= k) continue; // the valley factor is at most 1: this region cannot raise the maximum
+            k = Math.max(k, w * fade * valley(region(m.h[n], m.ci[n], m.cj[n], m.cx[n], m.cz[n]), rawX, rawZ));
         }
         if (k <= 0) return new At(edge, weight);
         return new At(edge + k * (riaTarget - edge), weight);
@@ -92,15 +124,16 @@ final class HighlandDrowned {
         return smooth(VALLEY_LOW, VALLEY_HIGH, Math.max(ridge(0x5248313045L, u, v, TRUNK_SCALE, 2), BRANCH_WEIGHT * ridge(0x5248313046L, u, v, BRANCH_SCALE, 2)));
     }
 
-    private double discWeight(long h, int i, int j, double x, double z) {
-        double radius = radius(h), cx = centreX(h, i), cz = centreZ(h, j);
-        return 1 - smooth(REGION_CORE * radius, radius, Math.hypot(x - cx, z - cz));
+    /** Disc weight at a position: 1 inside the core, falling smoothly to 0 at the rim (squared distances until needed; hypot is slow). */
+    private static double discWeight(double cx, double cz, double radius, double x, double z) {
+        double dx = x - cx, dz = z - cz, d2 = dx * dx + dz * dz, core = REGION_CORE * radius;
+        if (d2 >= radius * radius) return 0;
+        return d2 <= core * core ? 1 : 1 - smooth(core, radius, Math.sqrt(d2));
     }
 
-    private Region region(long h, int i, int j) {
+    private Region region(long h, int i, int j, double cx, double cz) {
         var m = memo.get();
         for (var slot : m.slots) if (slot != null && slot.i == i && slot.j == j) return slot;
-        double cx = centreX(h, i), cz = centreZ(h, j);
         double gx = coast.undrowned(cx + GRADIENT_STEP, cz).edge() - coast.undrowned(cx - GRADIENT_STEP, cz).edge();
         double gz = coast.undrowned(cx, cz + GRADIENT_STEP).edge() - coast.undrowned(cx, cz - GRADIENT_STEP).edge();
         double norm = Math.hypot(gx, gz);

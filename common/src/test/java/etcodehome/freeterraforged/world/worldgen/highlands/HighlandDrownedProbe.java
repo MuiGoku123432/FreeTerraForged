@@ -13,8 +13,9 @@ import etcodehome.freeterraforged.world.worldgen.densityfunction.CellSampler;
 /**
  * RH10 P0: drowned-coast metrics, measured on a box around a site. Land/sea comes from the coast edge field against the
  * preset's coast control point, sampled once on a {@link #NAV_GRID}-block lattice; the {@link #GRID}-block metric mask
- * is every eighth sample of it, so both masks agree. Scope is the sea within {@link #NEAR_SHORE} of land (at model 8
- * there are no drowned regions; later plans add a drowned-region scope beside it).
+ * is every eighth sample of it, so both masks agree. Two scopes are reported side by side: the sea within
+ * {@link #NEAR_SHORE} of land, and the drowned scope (those sea points whose coast sample reports a drowned-region
+ * weight of at least {@link #DROWNED_WEIGHT}); islands, edge slope, plan cost and the drowned share are global.
  *
  * <ul>
  * <li>islands: 4-connected land components on the GRID mask that do not touch the box border;</li>
@@ -29,20 +30,40 @@ import etcodehome.freeterraforged.world.worldgen.densityfunction.CellSampler;
 final class HighlandDrownedProbe {
     static final int GRID = 16, NAV_GRID = 2, FETCH_RAYS = 16, FETCH_STEP = 8, FETCH_CAP = 1500, SHELTER_FETCH = 400,
         SHELTER_DEPTH = 3, NAV_DEPTH = 2, HARBOR_AREA = 20000, NEAR_SHORE = 1500, CHAIN_GAP = 300;
+    /** Drowned scope threshold (region weight), and the side and column lattice (blocks) of the drowned cost box. */
+    static final double DROWNED_WEIGHT = .5;
+    static final int COST_BOX = 2048, COST_STEP = 16;
 
-    record Report(int samples, double seaArea, int islands, double islandsPer10km2, int[] islandSizes, int islandsInChains,
-                  double shelteredShare, double navigableShare, double harborsPer25km2, double oceanBandShare,
-                  double edgeSlopeP10, double edgeSlopeP50, double edgeSlopeP90, double nanosPerColumn, int planStep, long planBuildNanos) {
-        String summary(String label) {
-            return String.format(Locale.ROOT,
-                "RHD %s n=%d seaArea=%.0f islands=%d islands/10km2=%.2f sizes(<300,<1000,<3000,more)=%d/%d/%d/%d chained=%d "
-                    + "sheltered=%.1f%% navigable=%.1f%% harbors/25km2=%.2f oceanBand=%.1f%% edgeSlope p10=%.2e p50=%.2e p90=%.2e "
-                    + "ns/column=%.0f planStep=%d planBuildMs=%.0f",
-                label, samples, seaArea, islands, islandsPer10km2, islandSizes[0], islandSizes[1], islandSizes[2], islandSizes[3],
-                islandsInChains, 100 * shelteredShare, 100 * navigableShare, harborsPer25km2, 100 * oceanBandShare,
-                edgeSlopeP10, edgeSlopeP50, edgeSlopeP90, nanosPerColumn, planStep, planBuildNanos / 1e6);
+    /** Metrics of one scope: sea points (GRID lattice) with their area, fetch, navigability, harbors, ocean band and column cost. */
+    record Scope(int samples, double seaArea, double shelteredShare, double navigableShare, double harborsPer25km2,
+                 double oceanBandShare, double nanosPerColumn) {
+        String summary() {
+            return String.format(Locale.ROOT, "n=%d seaArea=%.0f sheltered=%.1f%% navigable=%.1f%% harbors/25km2=%.2f oceanBand=%.1f%% ns/column=%.0f",
+                samples, seaArea, 100 * shelteredShare, 100 * navigableShare, harborsPer25km2, 100 * oceanBandShare, nanosPerColumn);
         }
     }
+
+    /**
+     * {@code nearShore} and {@code drowned} are the two scopes; {@code drownedShare} is the share of the RH9 coastline
+     * (traced on the unbound standalone coast) where the bound coast's drowned weight is at least DROWNED_WEIGHT;
+     * {@code drownedBoxNanos} is the column cost (all lookups on a COST_STEP lattice) of the COST_BOX box with the highest
+     * mean weight inside the box, centred at ({@code boxX}, {@code boxZ}).
+     */
+    record Report(Scope nearShore, Scope drowned, int islands, double islandsPer10km2, int[] islandSizes, int islandsInChains,
+                  double edgeSlopeP10, double edgeSlopeP50, double edgeSlopeP90, int planStep, long planBuildNanos,
+                  double drownedShare, double drownedBoxNanos, int boxX, int boxZ) {
+        int samples() { return nearShore.samples; }
+        String summary(String label) {
+            return String.format(Locale.ROOT,
+                "RHD %s nearShore[%s] drowned[%s] islands=%d islands/10km2=%.2f sizes(<300,<1000,<3000,more)=%d/%d/%d/%d chained=%d "
+                    + "edgeSlope p10=%.2e p50=%.2e p90=%.2e planStep=%d planBuildMs=%.0f drownedShare=%.1f%% drownedBox=(%d,%d) boxNs/column=%.0f",
+                label, nearShore.summary(), drowned.summary(), islands, islandsPer10km2, islandSizes[0], islandSizes[1], islandSizes[2], islandSizes[3],
+                islandsInChains, edgeSlopeP10, edgeSlopeP50, edgeSlopeP90, planStep, planBuildNanos / 1e6, 100 * drownedShare, boxX, boxZ, drownedBoxNanos);
+        }
+    }
+
+    /** The shared lattices a scope is measured on. */
+    private record Frame(boolean[] land, int w, int gw, int step, boolean[] open, int[] waterId, double[] depth, boolean[] band, float[] cost) {}
 
     private HighlandDrownedProbe() {}
 
@@ -61,27 +82,27 @@ final class HighlandDrownedProbe {
         boolean[] gridLand = new boolean[gw * gw];
         for (int j = 0; j < gw; j++) for (int i = 0; i < gw; i++) gridLand[j * gw + i] = land[j * step * w + i * step];
 
-        // Scope, depth and the ocean-band share: one column lookup per scoped sea point.
+        // Near-shore scope: one column lookup per scoped sea point gives depth, ocean band and cost for every scope.
         float[] near = distanceToLand(gridLand, gw);
         boolean[] scoped = new boolean[gw * gw];
         double[] depth = new double[gw * gw];
+        boolean[] band = new boolean[gw * gw];
+        float[] cost = new float[gw * gw];
+        double[] weight = new double[gw * gw];
         var cell = new Cell();
-        int samples = 0, wet = 0, band = 0;
-        long nanos = 0;
         for (int j = 0; j < gw; j++) for (int i = 0; i < gw; i++) {
             int at = j * gw + i;
             if (gridLand[at] || near[at] * GRID > NEAR_SHORE) continue;
             scoped[at] = true;
-            samples++;
+            weight[at] = coast.sample(x0 + i * GRID, z0 + j * GRID).drowned();
             long start = System.nanoTime();
             context.lookup.applyCell(cell.reset(), x0 + i * GRID, z0 + j * GRID, false, true);
-            nanos += System.nanoTime() - start;
+            cost[at] = System.nanoTime() - start;
             depth[at] = -(cell.height - levels.water) * levels.terrainScaleFactor;
-            if (depth[at] < 1) continue;
-            wet++;
-            if (CellSampler.Field.CONTINENT.read(cell, context.heightmap) < Continentalness.COAST.min()) band++;
+            band[at] = depth[at] >= 1 && CellSampler.Field.CONTINENT.read(cell, context.heightmap) < Continentalness.COAST.min();
         }
-        double seaArea = (double) samples * GRID * GRID;
+        boolean[] drowned = new boolean[gw * gw];
+        for (int at = 0; at < drowned.length; at++) drowned[at] = scoped[at] && weight[at] >= DROWNED_WEIGHT;
 
         // Islands: land components not touching the box border; chained when within CHAIN_GAP of another island.
         var parts = label(gridLand, gw);
@@ -111,44 +132,16 @@ final class HighlandDrownedProbe {
         }
         for (int id = 1; id < chain.length; id++) if (chain[id]) chained++;
 
-        // Sheltered water by effective fetch.
-        boolean[] sheltered = new boolean[gw * gw];
-        int deepEnough = 0, shelteredCount = 0;
-        for (int j = 0; j < gw; j++) for (int i = 0; i < gw; i++) {
-            int at = j * gw + i;
-            if (!scoped[at] || depth[at] < SHELTER_DEPTH) continue;
-            deepEnough++;
-            if (!sheltered(land, w, i * step, j * step)) continue;
-            sheltered[at] = true;
-            shelteredCount++;
-        }
-
-        // Navigability: erode the water by one cell, then see which scoped points sit in the open-sea component.
+        // Navigability water: erode the water by one cell; its components touching the box border are the open sea.
         boolean[] eroded = new boolean[w * w];
         for (int j = 0; j < w; j++) for (int i = 0; i < w; i++) {
             int at = j * w + i;
             eroded[at] = !land[at] && (i == 0 || !land[at - 1]) && (i == w - 1 || !land[at + 1]) && (j == 0 || !land[at - w]) && (j == w - 1 || !land[at + w]);
         }
         var water = label(eroded, w);
-        boolean[] open = borderTouching(water.id, w, water.area.length - 1);
-        boolean[] navigable = new boolean[gw * gw];
-        int navTotal = 0, navOpen = 0;
-        for (int j = 0; j < gw; j++) for (int i = 0; i < gw; i++) {
-            int at = j * gw + i;
-            if (!scoped[at] || depth[at] < NAV_DEPTH) continue;
-            navTotal++;
-            int id = water.id[j * step * w + i * step];
-            if (id == 0 || !open[id]) continue;
-            navigable[at] = true;
-            navOpen++;
-        }
-
-        // Harbors: sheltered components big enough and connected to the open sea.
-        var coves = label(sheltered, gw);
-        boolean[] reaches = new boolean[coves.area.length];
-        for (int at = 0; at < gw * gw; at++) if (sheltered[at] && navigable[at]) reaches[coves.id[at]] = true;
-        int harbors = 0;
-        for (int id = 1; id < coves.area.length; id++) if (reaches[id] && coves.area[id] * (double) GRID * GRID >= HARBOR_AREA) harbors++;
+        var frame = new Frame(land, w, gw, step, borderTouching(water.id, w, water.area.length - 1), water.id, depth, band, cost);
+        var nearScope = scope(frame, scoped);
+        var drownedScope = scope(frame, drowned);
 
         // Edge slope at the land/sea crossings of the GRID rows, as HighlandCoastProbe's transects measure it.
         var slopes = new ArrayList<Double>();
@@ -161,10 +154,102 @@ final class HighlandDrownedProbe {
         double[] sorted = slopes.stream().mapToDouble(Double::doubleValue).sorted().toArray();
 
         var plan = continent.rebuildAt(originX, originZ).plan();
-        return new Report(samples, seaArea, islands, samples > 0 ? islands * 1e7 / seaArea : Double.NaN, sizes, chained,
-            ratio(shelteredCount, deepEnough), ratio(navOpen, navTotal), samples > 0 ? harbors * 25e6 / seaArea : Double.NaN,
-            ratio(band, wet), HighlandCoastProbe.quantile(sorted, .1), HighlandCoastProbe.quantile(sorted, .5),
-            HighlandCoastProbe.quantile(sorted, .9), samples > 0 ? (double) nanos / samples : Double.NaN, plan.gridStep(), plan.buildNanos());
+        double share = drownedShare(context, originX, originZ, radius);
+        int[] box = drownedBox(weight, gw, x0, z0);
+        return new Report(nearScope, drownedScope, islands, nearScope.samples > 0 ? islands * 1e7 / nearScope.seaArea : Double.NaN, sizes, chained,
+            HighlandCoastProbe.quantile(sorted, .1), HighlandCoastProbe.quantile(sorted, .5), HighlandCoastProbe.quantile(sorted, .9),
+            plan.gridStep(), plan.buildNanos(), share, boxNanos(context, box[0], box[1]), box[0], box[1]);
+    }
+
+    /** Metrics of the scoped sea points of a frame. */
+    private static Scope scope(Frame f, boolean[] scoped) {
+        int gw = f.gw, w = f.w, step = f.step;
+        int samples = 0, wet = 0, band = 0;
+        double nanos = 0;
+        for (int at = 0; at < scoped.length; at++) {
+            if (!scoped[at]) continue;
+            samples++;
+            nanos += f.cost[at];
+            if (f.depth[at] < 1) continue;
+            wet++;
+            if (f.band[at]) band++;
+        }
+        double seaArea = (double) samples * GRID * GRID;
+        // Sheltered water by effective fetch (always judged against all land of the frame).
+        boolean[] sheltered = new boolean[gw * gw];
+        int deepEnough = 0, shelteredCount = 0;
+        for (int j = 0; j < gw; j++) for (int i = 0; i < gw; i++) {
+            int at = j * gw + i;
+            if (!scoped[at] || f.depth[at] < SHELTER_DEPTH) continue;
+            deepEnough++;
+            if (!sheltered(f.land, w, i * step, j * step)) continue;
+            sheltered[at] = true;
+            shelteredCount++;
+        }
+        boolean[] navigable = new boolean[gw * gw];
+        int navTotal = 0, navOpen = 0;
+        for (int j = 0; j < gw; j++) for (int i = 0; i < gw; i++) {
+            int at = j * gw + i;
+            if (!scoped[at] || f.depth[at] < NAV_DEPTH) continue;
+            navTotal++;
+            int id = f.waterId[j * step * w + i * step];
+            if (id == 0 || !f.open[id]) continue;
+            navigable[at] = true;
+            navOpen++;
+        }
+        // Harbors: sheltered components big enough and connected to the open sea.
+        var coves = label(sheltered, gw);
+        boolean[] reaches = new boolean[coves.area.length];
+        for (int at = 0; at < gw * gw; at++) if (sheltered[at] && navigable[at]) reaches[coves.id[at]] = true;
+        int harbors = 0;
+        for (int id = 1; id < coves.area.length; id++) if (reaches[id] && coves.area[id] * (double) GRID * GRID >= HARBOR_AREA) harbors++;
+        return new Scope(samples, seaArea, ratio(shelteredCount, deepEnough), ratio(navOpen, navTotal),
+            samples > 0 ? harbors * 25e6 / seaArea : Double.NaN, ratio(band, wet), samples > 0 ? nanos / samples : Double.NaN);
+    }
+
+    /**
+     * Share of the RH9 coastline length (the unbound standalone coast, so arm shores do not inflate it) lying where
+     * the bound coast's drowned weight is at least DROWNED_WEIGHT; each traced segment takes its start point's weight.
+     */
+    static double drownedShare(GeneratorContext context, int originX, int originZ, int radius) {
+        var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+        var lines = HighlandCoastProbe.coastlines(new HighlandCoast(context), context.preset.world().controlPoints.coast, originX, originZ, radius);
+        double total = 0, drowned = 0;
+        for (var line : lines) for (int i = 1; i < line.size(); i++) {
+            double length = Math.hypot(line.get(i)[0] - line.get(i - 1)[0], line.get(i)[1] - line.get(i - 1)[1]);
+            total += length;
+            if (coast.sample(line.get(i - 1)[0], line.get(i - 1)[1]).drowned() >= DROWNED_WEIGHT) drowned += length;
+        }
+        return total > 0 ? drowned / total : Double.NaN;
+    }
+
+    /** Centre of the COST_BOX tile of the site box with the highest mean weight (tiles of the GRID lattice). */
+    private static int[] drownedBox(double[] weight, int gw, int x0, int z0) {
+        int tile = COST_BOX / GRID, tiles = gw / tile;
+        double best = -1;
+        int[] centre = {x0 + COST_BOX / 2, z0 + COST_BOX / 2};
+        for (int tj = 0; tj < tiles; tj++) for (int ti = 0; ti < tiles; ti++) {
+            double sum = 0;
+            for (int j = tj * tile; j < (tj + 1) * tile; j++) for (int i = ti * tile; i < (ti + 1) * tile; i++) sum += weight[j * gw + i];
+            if (sum > best) { best = sum; centre = new int[]{x0 + ti * COST_BOX + COST_BOX / 2, z0 + tj * COST_BOX + COST_BOX / 2}; }
+        }
+        return centre;
+    }
+
+    /** Warm column cost (ns) of every COST_STEP lattice column of the COST_BOX box centred at (cx, cz): land and sea alike. */
+    static double boxNanos(GeneratorContext context, int cx, int cz) {
+        var cell = new Cell();
+        double nanos = 0;
+        for (int pass = 0; pass < 2; pass++) {
+            int columns = 0;
+            long start = System.nanoTime();
+            for (int z = cz - COST_BOX / 2; z < cz + COST_BOX / 2; z += COST_STEP) for (int x = cx - COST_BOX / 2; x < cx + COST_BOX / 2; x += COST_STEP) {
+                context.lookup.applyCell(cell.reset(), x, z, false, true);
+                columns++;
+            }
+            nanos = (double) (System.nanoTime() - start) / columns;
+        }
+        return nanos;
     }
 
     /** A candidate test box: its centre and what its coast crossings offer (fjord: PNW share and range core; ria: river mouths). */
