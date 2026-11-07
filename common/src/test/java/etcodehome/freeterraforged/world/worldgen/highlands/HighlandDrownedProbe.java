@@ -1,10 +1,14 @@
 package etcodehome.freeterraforged.world.worldgen.highlands;
 
+import java.awt.image.BufferedImage;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.stream.IntStream;
+import javax.imageio.ImageIO;
 import etcodehome.freeterraforged.world.worldgen.GeneratorContext;
 import etcodehome.freeterraforged.world.worldgen.biome.Continentalness;
 import etcodehome.freeterraforged.world.worldgen.cell.Cell;
@@ -250,6 +254,93 @@ final class HighlandDrownedProbe {
             nanos = (double) (System.nanoTime() - start) / columns;
         }
         return nanos;
+    }
+
+    /** Mask image colours: land, RH9 (model-8) sea, drowned-arm sea, and the drowned-weight tint blended over land and RH9 sea. */
+    private static final int MASK_LAND = 0x7a7a62, MASK_SEA = 0x163a65, MASK_ARM = 0x00e5ff, MASK_TINT = 0xff3366;
+
+    /**
+     * Drowned-arm water of a box: columns (GRID lattice) that are land on the standalone RH9 coast and sea on the bound
+     * coast. {@code count} is the arm components (4-connected) of at least {@link #MIN_ARM} columns; length is the largest
+     * distance of an arm column from RH9 sea, width twice the largest distance of an arm column from land, both per
+     * component in blocks.
+     */
+    record Arms(int count, double areaKm2, double largestKm2, double lengthMedian, double lengthMax, double widthMedian, double widthMax) {
+        String summary() {
+            return String.format(Locale.ROOT, "arms=%d area=%.2fkm2 largest=%.2fkm2 length median=%.0f max=%.0f width median=%.0f max=%.0f",
+                count, areaKm2, largestKm2, lengthMedian, lengthMax, widthMedian, widthMax);
+        }
+    }
+    static final int MIN_ARM = 4;
+
+    static Arms arms(GeneratorContext context, int originX, int originZ, int radius) {
+        var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+        var standalone = new HighlandCoast(context);
+        double coastEdge = context.preset.world().controlPoints.coast;
+        int gw = 2 * radius / GRID + 1, x0 = originX - radius, z0 = originZ - radius;
+        boolean[] arm = new boolean[gw * gw], rh9Sea = new boolean[gw * gw], boundLand = new boolean[gw * gw];
+        IntStream.range(0, gw).parallel().forEach(j -> {
+            for (int i = 0; i < gw; i++) {
+                double x = x0 + i * GRID, z = z0 + j * GRID;
+                boolean land = coast.sample(x, z).edge() > coastEdge, base = standalone.sample(x, z).edge() > coastEdge;
+                boundLand[j * gw + i] = land;
+                rh9Sea[j * gw + i] = !base;
+                arm[j * gw + i] = base && !land;
+            }
+        });
+        float[] fromSea = distanceToLand(rh9Sea, gw), fromLand = distanceToLand(boundLand, gw);
+        var parts = label(arm, gw);
+        float[] length = new float[parts.area.length], width = new float[parts.area.length];
+        for (int at = 0; at < arm.length; at++) {
+            if (!arm[at]) continue;
+            int id = parts.id[at];
+            length[id] = Math.max(length[id], fromSea[at]);
+            width[id] = Math.max(width[id], fromLand[at]);
+        }
+        var lengths = new ArrayList<Double>();
+        var widths = new ArrayList<Double>();
+        int count = 0;
+        double area = 0, largest = 0;
+        for (int id = 1; id < parts.area.length; id++) {
+            if (parts.area[id] < MIN_ARM) continue;
+            count++;
+            double km2 = parts.area[id] * (double) GRID * GRID / 1e6;
+            area += km2;
+            largest = Math.max(largest, km2);
+            lengths.add((double) length[id] * GRID);
+            widths.add(2.0 * width[id] * GRID);
+        }
+        double[] l = lengths.stream().mapToDouble(Double::doubleValue).sorted().toArray(), v = widths.stream().mapToDouble(Double::doubleValue).sorted().toArray();
+        return new Arms(count, area, largest, count > 0 ? HighlandCoastProbe.quantile(l, .5) : 0, count > 0 ? l[l.length - 1] : 0,
+            count > 0 ? HighlandCoastProbe.quantile(v, .5) : 0, count > 0 ? v[v.length - 1] : 0);
+    }
+
+    /** Mask image of a square area: land, RH9 sea, drowned-arm sea (land under the standalone coast), tinted by the drowned weight. */
+    static void maskImage(GeneratorContext context, int cx, int cz, int size, int res, Path out) throws Exception {
+        var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+        var standalone = new HighlandCoast(context);
+        double coastEdge = context.preset.world().controlPoints.coast;
+        int px = size / res;
+        int[] rgb = new int[px * px];
+        IntStream.range(0, px).parallel().forEach(j -> {
+            for (int i = 0; i < px; i++) {
+                double x = cx - size / 2 + i * res, z = cz - size / 2 + j * res;
+                var sample = coast.sample(x, z);
+                boolean land = sample.edge() > coastEdge;
+                if (!land && standalone.sample(x, z).edge() > coastEdge) { rgb[j * px + i] = MASK_ARM; continue; }
+                rgb[j * px + i] = blend(land ? MASK_LAND : MASK_SEA, MASK_TINT, .4 * sample.drowned());
+            }
+        });
+        var image = new BufferedImage(px, px, BufferedImage.TYPE_INT_RGB);
+        image.setRGB(0, 0, px, px, rgb, 0, px);
+        Files.createDirectories(out.getParent());
+        ImageIO.write(image, "png", out.toFile());
+    }
+
+    private static int blend(int a, int b, double t) {
+        int rgb = 0;
+        for (int shift = 16; shift >= 0; shift -= 8) rgb |= (int) Math.round(((a >> shift) & 255) * (1 - t) + ((b >> shift) & 255) * t) << shift;
+        return rgb;
     }
 
     /** A candidate test box: its centre and what its coast crossings offer (fjord: PNW share and range core; ria: river mouths). */

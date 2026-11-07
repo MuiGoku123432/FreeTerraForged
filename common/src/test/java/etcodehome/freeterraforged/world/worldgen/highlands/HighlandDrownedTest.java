@@ -2,6 +2,7 @@ package etcodehome.freeterraforged.world.worldgen.highlands;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import etcodehome.freeterraforged.world.worldgen.GeneratorContext;
 import etcodehome.freeterraforged.world.worldgen.biome.Continentalness;
 import etcodehome.freeterraforged.world.worldgen.cell.Cell;
 import etcodehome.freeterraforged.world.worldgen.densityfunction.CellSampler;
@@ -24,6 +25,12 @@ class HighlandDrownedTest {
      * inert, model-8, coast on the same box, see modelEightBoxCost) was measured in 11-02 Task 2 (box 7037,19260: 11397 ns model 8, 11622 ns model 9) and is recorded here.
      */
     static final double MODEL8_COAST_NS = 10_062, MODEL8_PLAN_NS = 8_516e6, MODEL8_BOX_NS = 11_397;
+    /**
+     * Test sites fixed in 11-03 (see 11-03-SUMMARY.md): box centres and half side (an 8 km box). RIA is the user-world box
+     * (USER_SEED) with the most drowned-scope sea at model 9, FJORD the best ROCKIES PNW + range box; every later gate that
+     * needs a ria or fjord site uses these.
+     */
+    static final int RIA_SITE_X = 20349, RIA_SITE_Z = 28476, FJORD_SITE_X = 8061, FJORD_SITE_Z = 20284, SITE_RADIUS = 4096;
     /** D-02: drowned share of the RH9 coastline, inclusive bounds. */
     static final double MIN_SHARE = .20, MAX_SHARE = .30;
 
@@ -234,6 +241,93 @@ class HighlandDrownedTest {
             Files.writeString(Path.of("build/rh10-drowned-rockies.txt"), report.summary("rockies") + "\n");
             assertTrue(report.samples() > 0, "no sea in the ROCKIES box: " + report.summary("rockies"));
         }
+    }
+
+    /**
+     * 11-03 review renders: the ria site (user world) and the fjord candidate site (ROCKIES), each as a hillshade and a
+     * mask image with the arm metrics, into build/rh10-arms as {prefix}-{site}.png, {prefix}-mask-{site}.png and
+     * {prefix}.txt. The prefix is $FTF_ARMS_PREFIX (default noise, the production network; lowness is the temporary
+     * variant). The noise run also writes targets.txt, the D-15 proposal from the measured drowned scope.
+     */
+    @Tag("probe")
+    @Test void rendersArms() throws Exception {
+        String prefix = System.getenv().getOrDefault("FTF_ARMS_PREFIX", "noise");
+        var dir = Path.of("build/rh10-arms");
+        Files.createDirectories(dir);
+        var out = new StringBuilder();
+        HighlandDrownedProbe.Report ria, fjord;
+        var user = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
+        ria = renderSite(out, dir, prefix, "ria", user, RIA_SITE_X, RIA_SITE_Z);
+        try (var rockies = WorldgenFixture.context(BiomeCensusProbe.rockies(), HighlandPlanformProbe.USER_SEED)) {
+            fjord = renderSite(out, dir, prefix, "fjord", rockies, FJORD_SITE_X, FJORD_SITE_Z);
+        }
+        Files.writeString(dir.resolve(prefix + ".txt"), out.toString());
+        if (prefix.equals("noise")) Files.writeString(dir.resolve("targets.txt"), targets(ria.drowned(), fjord.drowned()));
+        assertTrue(ria.drowned().samples() > 0 && fjord.nearShore().samples() > 0, "no drowned sea or no coast at the sites:\n" + out);
+    }
+
+    /** Renders one site and appends its metrics: the probe summary, the arm geometry and the plan/render link check. */
+    private static HighlandDrownedProbe.Report renderSite(StringBuilder out, Path dir, String prefix, String label,
+                                                          GeneratorContext context, int x, int z) throws Exception {
+        HighlandPlanformProbe.render(context, x, z, 2 * SITE_RADIUS, 8, dir.resolve(prefix + "-" + label + ".png"));
+        HighlandDrownedProbe.maskImage(context, x, z, 2 * SITE_RADIUS, 8, dir.resolve(prefix + "-mask-" + label + ".png"));
+        var report = HighlandDrownedProbe.measure(context, x, z, SITE_RADIUS);
+        var arms = HighlandDrownedProbe.arms(context, x, z, SITE_RADIUS);
+        var continent = (RollingHighlandsContinent) context.heightmap.continent();
+        var coast = continent.coast();
+        double coastEdge = context.preset.world().controlPoints.coast;
+        var plan = continent.planAt(x, z).plan();
+        var nodes = plan.nodes();
+        // note: same link walk as planAndRenderAgree, which asserts; this one counts, because the conservative
+        // narrow-arm plan mask is 11-04's and the tracer still lets rivers cross thin arms.
+        int links = 0, crossing = 0;
+        for (var node : nodes) {
+            if (node.parent() < 0) continue;
+            var parent = nodes.get(node.parent());
+            if (coast.sample(node.x(), node.z()).edge() <= coastEdge || coast.sample(parent.x(), parent.z()).edge() <= coastEdge) continue;
+            links++;
+            double length = Math.hypot(parent.x() - node.x(), parent.z() - node.z());
+            for (double d = 0; d <= length; d += 8) {
+                double t = length > 0 ? d / length : 0;
+                if (coast.sample(node.x() + (parent.x() - node.x()) * t, node.z() + (parent.z() - node.z()) * t).edge() <= coastEdge) { crossing++; break; }
+            }
+        }
+        out.append(String.format(java.util.Locale.ROOT, "%s site (%d,%d) radius %d%n  %s%n  %s%n  plan links=%d crossingSea=%d%n",
+            label, x, z, SITE_RADIUS, report.summary(label), arms.summary(), links, crossing));
+        System.out.print(out);
+        return report;
+    }
+
+    /**
+     * D-15 proposal from the measured drowned scope: the research starting target where the tracer is below it, else
+     * 5 points below the measured value (never below the starting target for the shares; harbors per 25 km2 are a count
+     * per box, so the starting target stays).
+     */
+    private static String targets(HighlandDrownedProbe.Scope ria, HighlandDrownedProbe.Scope fjord) {
+        double sheltered = pool(ria, fjord, HighlandDrownedProbe.Scope::shelteredShare);
+        double navigable = pool(ria, fjord, HighlandDrownedProbe.Scope::navigableShare);
+        double harbors = pool(ria, fjord, HighlandDrownedProbe.Scope::harborsPer25km2);
+        return target("sheltered", ria.shelteredShare(), fjord.shelteredShare(), sheltered, .25, sheltered < .25 ? .25 : Math.max(.25, sheltered - .05))
+            + target("harbors", ria.harborsPer25km2(), fjord.harborsPer25km2(), harbors, 1, 1)
+            + target("navigable", ria.navigableShare(), fjord.navigableShare(), navigable, .95, navigable < .95 ? .95 : Math.max(.95, navigable - .05))
+            + "note: shares are of drowned-scope sea (region weight >= .5, within 1500 blocks of land) in the two 8 km site boxes, pooled by sea area;\n"
+            + "fjords (11-04), narrow bay mouths (11-05) and islands (11-06) will raise sheltered water; 11-07 enforces the agreed numbers.\n";
+    }
+
+    /** Sea-area-weighted mean of a scope metric over the two sites; a site without drowned sea (NaN) does not count. */
+    private static double pool(HighlandDrownedProbe.Scope ria, HighlandDrownedProbe.Scope fjord, java.util.function.ToDoubleFunction<HighlandDrownedProbe.Scope> metric) {
+        double sum = 0, sea = 0;
+        for (var scope : List.of(ria, fjord)) {
+            double value = metric.applyAsDouble(scope);
+            if (scope.samples() == 0 || Double.isNaN(value)) continue;
+            sum += value * scope.seaArea();
+            sea += scope.seaArea();
+        }
+        return sea > 0 ? sum / sea : Double.NaN;
+    }
+
+    private static String target(String name, double ria, double fjord, double pooled, double start, double proposed) {
+        return String.format(java.util.Locale.ROOT, "%-10s measured ria=%.3f fjord=%.3f pooled=%.3f | research start %.3f | proposed %.3f%n", name, ria, fjord, pooled, start, proposed);
     }
 
     /**
