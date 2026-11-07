@@ -20,8 +20,8 @@ created: 2026-11-05
 
 ## Open items
 
-- Port `f91ddaf6` (RH continent baseline + jitter cap 0.8, from the 2026-11-07 upstream sync) onto
-  `feature/rolling-highlands` once that checkout is idle; expect conflicts with `34022e2f` (bounds-sweep split).
+- `feature/rolling-highlands` (`4b41bb34`) has the RH continent baseline + jitter cap 0.8 (port of `f91ddaf6`) and
+  test-speed commits `7b75c1e2`/`34022e2f` that custom lacks; merge it into custom at the next integration.
 - Phase 9: in-game UAT (6 items in 09-VERIFICATION.md).
 - Phase 8.1: cold-start performance and full-modpack visual acceptance of the raised-lake fix.
 - Candidate next phase: drowned glacial coast (fjords / islands / archipelagos, BACKLOG option B) — not yet promoted.
