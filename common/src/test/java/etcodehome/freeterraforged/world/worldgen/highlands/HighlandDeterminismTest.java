@@ -10,7 +10,7 @@ import etcodehome.freeterraforged.world.worldgen.cell.filter.ChunkFilterGrid;
 
 class HighlandDeterminismTest {
     private static Preset preset(RollingHighlandsSettings settings) {
-        var p = Presets.makeFTFDefault(); p.world().continent.continentType = ContinentType.ROLLING_HIGHLANDS;
+        var p = WorldgenFixture.preset(); p.world().continent.continentType = ContinentType.ROLLING_HIGHLANDS;
         p.terrain().rollingHighlands = settings; return p;
     }
     @Test void orderConcurrencyRebuildAndOwnerIsolation() throws Exception {

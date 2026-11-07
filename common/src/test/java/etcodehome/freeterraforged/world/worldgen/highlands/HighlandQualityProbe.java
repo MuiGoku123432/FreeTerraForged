@@ -44,7 +44,7 @@ final class HighlandQualityProbe {
     }
 
     static Preset preset() {
-        var preset = Presets.makeFTFDefault();
+        var preset = WorldgenFixture.preset();
         preset.world().continent.continentType = ContinentType.ROLLING_HIGHLANDS;
         return preset;
     }

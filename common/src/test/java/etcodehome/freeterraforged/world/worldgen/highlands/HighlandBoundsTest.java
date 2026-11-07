@@ -7,7 +7,7 @@ import etcodehome.freeterraforged.data.worldgen.preset.settings.*;
 
 class HighlandBoundsTest {
     @org.junit.jupiter.api.Test void preciseCoastBoundsContainFarAndNegativeOwners() {
-        var p = Presets.makeFTFDefault();
+        var p = WorldgenFixture.preset();
         try (var context = WorldgenFixture.context(p,42); var coast = new HighlandCoast(context)) {
             var random = new java.util.Random(731993);
             var boxes = new java.util.HashMap<String, HighlandCoast.Bounds>();
@@ -23,7 +23,7 @@ class HighlandBoundsTest {
     @ParameterizedTest @CsvSource({"1000,4096", "1000,8192", "3000,4096", "4000,4096", "4000,8192", "5000,4096", "5000,8192"})
     void supportedDomainBounds(int continentScale, int spacing) {
         for (long seed : java.util.stream.LongStream.concat(java.util.stream.LongStream.range(0, 50), java.util.stream.LongStream.of(8675309, -314159)).toArray()) {
-            var p = Presets.makeFTFDefault(); p.world().continent.continentScale = continentScale;
+            var p = WorldgenFixture.preset(); p.world().continent.continentScale = continentScale;
             new RollingHighlandsSettings(RollingHighlandsSettings.MODEL_VERSION, spacing, 80, 100, 256).validate(p.world());
             try (var context = WorldgenFixture.context(p, seed); var coast = new HighlandCoast(context)) {
                 var planner = new HighlandDrainage(coast, HighlandLand.create(context), spacing, p.world().controlPoints);

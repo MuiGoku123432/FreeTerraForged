@@ -16,6 +16,13 @@ final class WorldgenFixture {
 
     static void initialize() {}
 
+    /** The FTF default preset with the continent settings RH is calibrated for (type left as the default). */
+    static Preset preset() {
+        Preset preset = etcodehome.freeterraforged.data.worldgen.preset.settings.Presets.makeFTFDefault();
+        etcodehome.freeterraforged.data.worldgen.preset.settings.RollingHighlandsSettings.applyContinentBaseline(preset.world().continent);
+        return preset;
+    }
+
     static GeneratorContext context(Preset preset, long seed) {
         var registries = new RegistrySetBuilder()
             .add(FTFRegistries.NOISE, ctx -> PresetNoiseData.bootstrap(preset, ctx))

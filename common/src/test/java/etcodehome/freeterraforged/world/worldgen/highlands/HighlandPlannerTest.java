@@ -7,7 +7,7 @@ import etcodehome.freeterraforged.data.worldgen.preset.settings.Presets;
 class HighlandPlannerTest {
     @Test void actualContinentDomainsAndProfiles() {
         for (long seed : new long[]{0, 1, 42, 8675309, -314159}) {
-            var preset = Presets.makeFTFDefault();
+            var preset = WorldgenFixture.preset();
             try (var context = WorldgenFixture.context(preset, seed); var coast = new HighlandCoast(context)) {
                 var fields = HighlandLand.create(context);
                 var builder = new HighlandDrainage(coast, fields, 4096, preset.world().controlPoints);
@@ -39,7 +39,7 @@ class HighlandPlannerTest {
     }
 
     @Test void riverlessFallbackPlanIsValidAndQuiet() {
-        var preset = Presets.makeFTFDefault();
+        var preset = WorldgenFixture.preset();
         try (var context = WorldgenFixture.context(preset, 0); var coast = new HighlandCoast(context)) {
             var plan = new HighlandDrainage(coast, HighlandLand.create(context), 4096, preset.world().controlPoints).emptyPlan(3, -2);
             var index = new HighlandPlanIndex(plan);

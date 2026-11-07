@@ -96,6 +96,7 @@ class BiomeCensusProbe {
     static Preset rockies() {
         Preset preset = ftf(ContinentType.ROLLING_HIGHLANDS);
         var continent = preset.world().continent;
+        RollingHighlandsSettings.applyContinentBaseline(continent);
         continent.continentScale = Math.max(1000, Math.min(5000, continent.continentScale));
         preset.world().properties.worldHeight = Math.max(736, preset.world().properties.worldHeight);
         preset.world().properties.worldDepth = Math.max(128, preset.world().properties.worldDepth);
