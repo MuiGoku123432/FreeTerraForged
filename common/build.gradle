@@ -25,20 +25,20 @@ tasks.withType(Test).configureEach {
     testLogging { events 'passed', 'skipped', 'failed' }
 }
 
-// Gate tests only. Classes tagged @Tag("probe") are investigation probes (minutes to tens of minutes each) and run
-// on demand with probeTest. Test classes run in parallel JVMs (forks share no in-memory state).
+// Gate tests only. @Tag("probe") (investigation probes, timing checks) and @Tag("slow") (long sweeps) run on demand
+// with probeTest. Test classes run in parallel JVMs (forks share no in-memory state).
 test {
-    useJUnitPlatform { excludeTags 'probe' }
+    useJUnitPlatform { excludeTags 'probe', 'slow' }
     maxParallelForks = Math.max(1, Math.min(4, Runtime.runtime.availableProcessors().intdiv(2)))
 }
 
 // On-demand probes: ./gradlew :common:probeTest [--tests '*BiomeCensusProbe']
 tasks.register('probeTest', Test) {
-    description = 'Runs the @Tag("probe") investigation probes.'
+    description = 'Runs the @Tag("probe") and @Tag("slow") tests.'
     group = 'verification'
     testClassesDirs = sourceSets.test.output.classesDirs
     classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform { includeTags 'probe' }
+    useJUnitPlatform { includeTags 'probe', 'slow' }
 }
 
 repositories {

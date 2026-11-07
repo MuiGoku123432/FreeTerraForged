@@ -20,9 +20,24 @@ class HighlandBoundsTest {
             }
         }
     }
+    /** Gate seeds: the first ten and the two seeds used across the highlands tests. */
+    static final long[] GATE_SEEDS = java.util.stream.LongStream.concat(java.util.stream.LongStream.range(0, 10), java.util.stream.LongStream.of(8675309, -314159)).toArray();
+    /** The rest of the 52-seed sweep, run on demand with probeTest (about 5 min). */
+    static final long[] SWEEP_SEEDS = java.util.stream.LongStream.range(10, 50).toArray();
+
     @ParameterizedTest @CsvSource({"1000,4096", "1000,8192", "3000,4096", "4000,4096", "4000,8192", "5000,4096", "5000,8192"})
     void supportedDomainBounds(int continentScale, int spacing) {
-        for (long seed : java.util.stream.LongStream.concat(java.util.stream.LongStream.range(0, 50), java.util.stream.LongStream.of(8675309, -314159)).toArray()) {
+        checkDomainBounds(continentScale, spacing, GATE_SEEDS);
+    }
+
+    @ParameterizedTest @CsvSource({"1000,4096", "1000,8192", "3000,4096", "4000,4096", "4000,8192", "5000,4096", "5000,8192"})
+    @org.junit.jupiter.api.Tag("slow")
+    void supportedDomainBoundsSweep(int continentScale, int spacing) {
+        checkDomainBounds(continentScale, spacing, SWEEP_SEEDS);
+    }
+
+    private static void checkDomainBounds(int continentScale, int spacing, long[] seeds) {
+        for (long seed : seeds) {
             var p = Presets.makeFTFDefault(); p.world().continent.continentScale = continentScale;
             new RollingHighlandsSettings(RollingHighlandsSettings.MODEL_VERSION, spacing, 80, 100, 256).validate(p.world());
             try (var context = WorldgenFixture.context(p, seed); var coast = new HighlandCoast(context)) {

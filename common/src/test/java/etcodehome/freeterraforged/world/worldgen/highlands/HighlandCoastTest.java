@@ -10,7 +10,7 @@ class HighlandCoastTest {
     static final int SITE_X = 10109, SITE_Z = 18236, RADIUS = 4096;
 
     @Test void reportsCoast() throws Exception {
-        try (var context = WorldgenFixture.context(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED)) {
+        { var context = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
             HighlandCoastProbe.measure(context, SITE_X, SITE_Z, RADIUS); // warm the owner plans so ns/column is column cost
             var report = HighlandCoastProbe.measure(context, SITE_X, SITE_Z, RADIUS);
             System.out.println(report.summary("user"));
@@ -46,7 +46,7 @@ class HighlandCoastTest {
 
     /** S: beaches, bluffs and sea cliffs on the ground (SPEC-RH9 §3 S gates, A-6, A-8). */
     @Test void shoresHaveTheirShape() throws Exception {
-        try (var context = WorldgenFixture.context(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED)) {
+        { var context = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
             var report = HighlandCoastProbe.measure(context, SITE_X, SITE_Z, RADIUS);
             String summary = report.summary("user");
             assertTrue(report.beachWidthMedian() >= 18 && report.beachWidthP10() >= 8, "beaches too narrow: " + summary);
@@ -59,7 +59,7 @@ class HighlandCoastTest {
 
     /** Beaches must not come and go with the lookup path (the reason RollingHighlandsContinent.shore exists). */
     @Test void beachTagIsPathIndependent() throws Exception {
-        try (var context = WorldgenFixture.context(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED)) {
+        { var context = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
             var report = HighlandCoastProbe.measure(context, SITE_X, SITE_Z, 1024);
             var a = new etcodehome.freeterraforged.world.worldgen.cell.Cell();
             var b = new etcodehome.freeterraforged.world.worldgen.cell.Cell();
@@ -80,7 +80,7 @@ class HighlandCoastTest {
 
     /** M: steep coastal faces are bare rock (SPEC-RH9 M). */
     @Test void cliffFacesAreRock() throws Exception {
-        try (var context = WorldgenFixture.context(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED)) {
+        { var context = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
             var report = HighlandCoastProbe.measure(context, SITE_X, SITE_Z, RADIUS);
             var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
             var c = new etcodehome.freeterraforged.world.worldgen.cell.Cell();
@@ -107,7 +107,7 @@ class HighlandCoastTest {
 
     /** M: cool, wet (PNW) beaches stay beaches, never cliff cover. */
     @Test void coldBeachesStayBeaches() throws Exception {
-        try (var context = WorldgenFixture.context(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED)) {
+        { var context = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
             var report = HighlandCoastProbe.measure(context, SITE_X, SITE_Z, RADIUS);
             var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
             var c = new etcodehome.freeterraforged.world.worldgen.cell.Cell();
@@ -134,7 +134,7 @@ class HighlandCoastTest {
 
     /** X: sea stacks stand only off cliff coasts, clear of the shore. */
     @Test void stacksOnlyOffCliffs() throws Exception {
-        try (var context = WorldgenFixture.context(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED)) {
+        { var context = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
             var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
             double coastEdge = context.preset.world().controlPoints.coast;
             var c = new etcodehome.freeterraforged.world.worldgen.cell.Cell();
@@ -158,7 +158,7 @@ class HighlandCoastTest {
     }
 
     @Test void stacksAreRecorded() throws Exception {
-        try (var context = WorldgenFixture.context(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED)) {
+        { var context = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
             var report = HighlandCoastProbe.measure(context, SITE_X, SITE_Z, RADIUS);
             assertTrue(report.stacksPer10km() > 0, "no sea stacks off cliff coasts: " + report.summary("user"));
         }
@@ -166,7 +166,7 @@ class HighlandCoastTest {
 
     /** Review Focus 1: lakes inside the coastal band of bluff/cliff shores keep water-tight banks. */
     @Test void coastalLakesKeepTheirBanks() throws Exception {
-        try (var context = WorldgenFixture.context(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED)) {
+        { var context = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
             var rh = (RollingHighlandsContinent) context.heightmap.continent();
             var coast = rh.coast();
             double coastEdge = context.preset.world().controlPoints.coast;
@@ -207,7 +207,7 @@ class HighlandCoastTest {
 
     /** Review Focus 2: no dry land below sea level anywhere in the coastal band, peninsulas and straits included. */
     @Test void narrowLandHasNoSeaPits() throws Exception {
-        try (var context = WorldgenFixture.context(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED)) {
+        { var context = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
             var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
             double coastEdge = context.preset.world().controlPoints.coast;
             var c = new etcodehome.freeterraforged.world.worldgen.cell.Cell();
@@ -263,7 +263,7 @@ class HighlandCoastTest {
     }
 
     @Test void warpStaysInBound() throws Exception {
-        try (var context = WorldgenFixture.context(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED)) {
+        { var context = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
             var profile = new HighlandCoastProfile(context);
             var random = new Random(11);
             for (int i = 0; i < 10000; i++) {

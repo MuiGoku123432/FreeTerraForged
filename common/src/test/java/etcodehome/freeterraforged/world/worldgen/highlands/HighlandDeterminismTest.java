@@ -30,7 +30,8 @@ class HighlandDeterminismTest {
                     assertEquals(Float.floatToIntBits(reference[index]), Float.floatToIntBits(c.height));
                 }));
             }
-            for (var future : futures) future.get(30, TimeUnit.SECONDS);
+            // Hang guard, not a speed gate: the first tasks build a continent plan, slower while test forks share the CPU.
+            for (var future : futures) future.get(180, TimeUnit.SECONDS);
             try (var rebuilt = WorldgenFixture.context(p.copy(), 0)) {
                 for (int i = 0; i < reference.length; i++) {
                     Cell c = new Cell(); rebuilt.heightmap.apply(c, 5000 + i * 11, 6000 + i * 7, false);
