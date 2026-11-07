@@ -72,6 +72,15 @@ and run `git worktree prune` when `git worktree list` shows `prunable`.
 Every branch with unique work is pushed to `origin` (the fork). Nothing goes to `upstream` except through a PR
 branch the user chooses to open.
 
+## Upstream syncs
+
+`upstream/1.21.1_unstable` is merged into `1_21_1-unstable-custom` on a short-lived `integrate/upstream-<date>`
+branch, gated by `./gradlew --offline build :common:test`, then fast-forwarded.
+
+| Date | Upstream tip | Merge | Notes |
+|---|---|---|---|
+| 2026-11-07 | `16f68124` (28 commits) | `c81b5585` + `f91ddaf6` | Upstream `9a507eec` moved the FTF default continent to jitter 1.0 (scale 3000, skipping 0.686, size variance 0.4). Jitter 1.0 lets neighbouring continents touch, and RH drainage throws "land bridge requires shared ports" (seed 42). Fix `f91ddaf6`: RH keeps its own continent baseline (4000 / 0.8 / 0.2 / 0.6161), and jitter is capped at 0.8 in the UI and in validation. UPLIFT and MULTI_IMPROVED golden hashes re-recorded. 135/135 tests pass. |
+
 ## Constraints
 
 - Preserve FTF terrain quality and functionality; no reduction in erosion detail, terrain sampling or structure checks
