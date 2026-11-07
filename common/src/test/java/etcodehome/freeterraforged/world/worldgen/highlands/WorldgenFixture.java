@@ -16,6 +16,13 @@ final class WorldgenFixture {
 
     static void initialize() {}
 
+    /** The FTF default preset with the continent settings RH is calibrated for (type left as the default). */
+    static Preset preset() {
+        Preset preset = etcodehome.freeterraforged.data.worldgen.preset.settings.Presets.makeFTFDefault();
+        etcodehome.freeterraforged.data.worldgen.preset.settings.RollingHighlandsSettings.applyContinentBaseline(preset.world().continent);
+        return preset;
+    }
+
     /** Shared contexts kept per test JVM, least recently used first; evicted ones are closed. */
     private static final int SHARED_MAX = 2;
     private static final java.util.LinkedHashMap<String, GeneratorContext> SHARED = new java.util.LinkedHashMap<>(4, .75F, true);

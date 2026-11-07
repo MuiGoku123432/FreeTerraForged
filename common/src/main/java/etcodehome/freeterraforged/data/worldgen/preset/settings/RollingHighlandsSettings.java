@@ -43,6 +43,26 @@ public record RollingHighlandsSettings(int modelVersion, int uplandSpacing, int 
     public static final int DEFAULT_SNOWLINE = 60, MIN_SNOWLINE = 20, MAX_SNOWLINE = 100;
     /** RH8: ridges per range (optional; 1 keeps model-7 worlds unchanged, so no model bump). */
     public static final int DEFAULT_RANGE_RIDGES = 1, MAX_RANGE_RIDGES = 4;
+    /**
+     * Continent settings RH is calibrated and verified against (the FTF default before upstream 9a507eec). A preset
+     * switched to Rolling Highlands starts from these; the shared FTF default no longer matches them.
+     */
+    public static final int BASELINE_CONTINENT_SCALE = 4000;
+    public static final float BASELINE_CONTINENT_JITTER = 0.8F, BASELINE_CONTINENT_SKIPPING = 0.2F, BASELINE_CONTINENT_SIZE_VARIANCE = 0.6161F;
+    /**
+     * Highest supported continent jitter. RH drainage needs ocean between neighbouring continents; at jitter 1.0
+     * neighbouring land can touch (seed 42 at the FTF defaults), which RH does not route ("land bridge requires
+     * shared ports").
+     */
+    public static final float MAX_CONTINENT_JITTER = 0.8F;
+
+    /** Sets the continent controls RH is calibrated for; the continent type is left alone. */
+    public static void applyContinentBaseline(WorldSettings.Continent continent) {
+        continent.continentScale = BASELINE_CONTINENT_SCALE;
+        continent.continentJitter = BASELINE_CONTINENT_JITTER;
+        continent.continentSkipping = BASELINE_CONTINENT_SKIPPING;
+        continent.continentSizeVariance = BASELINE_CONTINENT_SIZE_VARIANCE;
+    }
     public static final RollingHighlandsSettings DEFAULT = new RollingHighlandsSettings(MODEL_VERSION, 4096, 80, 100, 256, DEFAULT_MEANDERS);
     /**
      * Profile a new Rolling Highlands world starts from (RH7, the "Rockies" setup): broad high uplands, wide gently
@@ -132,6 +152,9 @@ public record RollingHighlandsSettings(int modelVersion, int uplandSpacing, int 
         }
         if (world.continent.continentScale < 1000 || world.continent.continentScale > 5000) {
             throw new IllegalArgumentException("Experimental Rolling Highlands supports continent scale 1000..5000");
+        }
+        if (world.continent.continentJitter > MAX_CONTINENT_JITTER + 1e-4F) {
+            throw new IllegalArgumentException("Experimental Rolling Highlands supports continent jitter up to " + MAX_CONTINENT_JITTER);
         }
         double span = world.continent.continentScale * 4 * 3.33 + 4;
         // Mirrors the routing grid budget (HighlandDrainage.MAX_GRID_NODES).

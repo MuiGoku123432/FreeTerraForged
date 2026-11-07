@@ -79,6 +79,12 @@ public class WorldSettingsPage extends PresetEditorPage {
 					// A preset switched to Rolling Highlands for the first time starts from the Rockies profile.
 					var terrain = this.preset.getPreset().terrain();
 					if (terrain.rollingHighlands == null) terrain.rollingHighlands = etcodehome.freeterraforged.data.worldgen.preset.settings.RollingHighlandsSettings.ROCKIES;
+					// RH starts from the continent settings it is calibrated for, not the shared FTF default.
+					etcodehome.freeterraforged.data.worldgen.preset.settings.RollingHighlandsSettings.applyContinentBaseline(continent);
+					this.continentScale.setValue(this.continentScale.getSliderValue(continent.continentScale));
+					this.continentJitter.setValue(this.continentJitter.getSliderValue(continent.continentJitter));
+					this.continentSkipping.setValue(this.continentSkipping.getSliderValue(continent.continentSkipping));
+					this.continentSizeVariance.setValue(this.continentSizeVariance.getSliderValue(continent.continentSizeVariance));
 				}
 				this.applyContinentType(value);
 				this.regenerate();
@@ -263,6 +269,8 @@ public class WorldSettingsPage extends PresetEditorPage {
         boolean highlands = type == ContinentType.ROLLING_HIGHLANDS;
         this.continentScale.setRange(highlands ? 1000 : 100, highlands ? 5000 : 10000);
         if (highlands) this.preset.getPreset().world().continent.continentScale = (int) this.continentScale.getLerpedValue();
+        this.continentJitter.setRange(0.5F, highlands ? etcodehome.freeterraforged.data.worldgen.preset.settings.RollingHighlandsSettings.MAX_CONTINENT_JITTER : 1.0F);
+        if (highlands) this.preset.getPreset().world().continent.continentJitter = (float) this.continentJitter.getLerpedValue();
 		this.continentShape.active = type == ContinentType.MULTI || type == ContinentType.SINGLE;
 		
 		boolean isMultiImproved = type == ContinentType.MULTI_IMPROVED || type == ContinentType.UPLIFT;

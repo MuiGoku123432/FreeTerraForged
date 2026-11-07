@@ -11,7 +11,7 @@ import etcodehome.freeterraforged.world.worldgen.cell.rivermap.*;
 class HighlandSettingsTest {
     @BeforeAll static void setup() { WorldgenFixture.initialize(); }
     @Test void savedProfilesAreExplicitAndCopiesIndependent() throws Exception {
-        Preset p = Presets.makeFTFDefault(); p.world().continent.continentType = ContinentType.ROLLING_HIGHLANDS;
+        Preset p = WorldgenFixture.preset(); p.world().continent.continentType = ContinentType.ROLLING_HIGHLANDS;
         var encoded = Preset.DIRECT_CODEC.encodeStart(JsonOps.INSTANCE, p).getOrThrow();
         var decoded = Preset.DIRECT_CODEC.parse(JsonOps.INSTANCE, encoded).getOrThrow();
         assertEquals(RollingHighlandsSettings.DEFAULT, decoded.terrain().rollingHighlands);
@@ -91,8 +91,14 @@ class HighlandSettingsTest {
     }
     @Test void rockiesProfileIsValidAndRoundTrips() {
         var world = WorldSettings.makeDefault();
+        RollingHighlandsSettings.applyContinentBaseline(world.continent);
         world.continent.continentScale = 3000;
         world.properties.worldHeight = 736; world.properties.worldDepth = 128;
+        RollingHighlandsSettings.ROCKIES.validate(world);
+        // Jitter above the supported limit lets neighbouring continents touch, which RH drainage cannot route.
+        world.continent.continentJitter = 1.0F;
+        assertThrows(IllegalArgumentException.class, () -> RollingHighlandsSettings.ROCKIES.validate(world));
+        world.continent.continentJitter = RollingHighlandsSettings.MAX_CONTINENT_JITTER;
         RollingHighlandsSettings.ROCKIES.validate(world);
         var json = RollingHighlandsSettings.CODEC.encodeStart(JsonOps.INSTANCE, RollingHighlandsSettings.ROCKIES).getOrThrow();
         assertEquals(RollingHighlandsSettings.ROCKIES, RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).getOrThrow());
