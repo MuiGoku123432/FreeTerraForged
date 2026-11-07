@@ -188,7 +188,7 @@ class HighlandRangeTest {
     }
 
     /**
-     * RH8 D-b: one ridge per range reproduces the model-7 ranges exactly (rendered heights, water and range fields of the
+     * RH8 D-b: one ridge per range reproduces the frozen ranges exactly (golden re-recorded at model 9: RH10 moves the coastline) (rendered heights, water and range fields of the
      * user world at Range Height 400 in the tall frame). Capture with -Dftf.captureBaseline=true.
      */
     @Test void singleRidgeRangesAreFrozen() throws Exception {
@@ -204,7 +204,7 @@ class HighlandRangeTest {
             }
         }
         String actual = java.util.HexFormat.of().formatHex(hash.digest()) + "\n";
-        var fixture = java.nio.file.Path.of("src/test/resources/rolling-highlands/ranges-model8.sha256");
+        var fixture = java.nio.file.Path.of("src/test/resources/rolling-highlands/ranges-model9.sha256");
         if (Boolean.getBoolean("ftf.captureBaseline")) java.nio.file.Files.writeString(fixture, actual);
         assertEquals(java.nio.file.Files.readString(fixture), actual);
     }

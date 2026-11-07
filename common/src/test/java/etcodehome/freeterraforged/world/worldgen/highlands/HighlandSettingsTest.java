@@ -46,6 +46,10 @@ class HighlandSettingsTest {
         json.addProperty("modelVersion", 5);
         var rh5 = RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).error();
         assertTrue(rh5.isPresent() && rh5.get().message().contains("create a new world"));
+        // RH9 (model 8) likewise: RH10 floods river-valley bays, so the same seed no longer has the same coastline (D-04).
+        json.addProperty("modelVersion", 8);
+        var rh9 = RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).error();
+        assertTrue(rh9.isPresent() && rh9.get().message().contains("create a new world"));
         // Meanders is optional (default 100) and bounded.
         json.addProperty("modelVersion", RollingHighlandsSettings.MODEL_VERSION); json.remove("meanders");
         assertEquals(100, RollingHighlandsSettings.CODEC.parse(JsonOps.INSTANCE, json).getOrThrow().meanders());

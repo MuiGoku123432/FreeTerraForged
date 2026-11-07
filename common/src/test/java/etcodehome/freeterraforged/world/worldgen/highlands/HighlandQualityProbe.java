@@ -162,7 +162,9 @@ final class HighlandQualityProbe {
                 if (h[x][z] <= 0) continue;
                 double ex = Math.abs(h[x + 1][z] - h[x][z]) - Math.abs(uncarved[x + 1][z] - uncarved[x][z]);
                 double ez = Math.abs(h[x][z + 1] - h[x][z]) - Math.abs(uncarved[x][z + 1] - uncarved[x][z]);
-                if ((ex > 12 && !wet[x + 1][z]) || (ez > 12 && !wet[x][z + 1])) {
+                // Land-to-land pairs only (RH9 sea cliffs and RH10 arm shores drop to the sea floor by design; shoreCliffs and the
+                // coast gates judge those), the same rule as the dry-jump transects below.
+                if ((ex > 12 && !wet[x + 1][z] && landMask[x + 1][z]) || (ez > 12 && !wet[x][z + 1] && landMask[x][z + 1])) {
                     seams++; if (image != null) image.setRGB(x, z, 0xff2020);
                 }
             }

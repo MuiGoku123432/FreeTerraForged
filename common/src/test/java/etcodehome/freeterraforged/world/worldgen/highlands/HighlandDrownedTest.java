@@ -61,6 +61,31 @@ class HighlandDrownedTest {
             String.format(java.util.Locale.ROOT, "drowned share outside 20-30%%: user=%.1f%% rockies=%.1f%%", 100 * user, 100 * rockies));
     }
 
+    /** Pitfall 4: plans build without exceptions where regions meet the coast, on the user seed and four other seeds. */
+    @Test void plansBuildOnFiveSeeds() throws Exception {
+        long[] seeds = {HighlandPlanformProbe.USER_SEED, 1L, 42L, -314159L, 20261107L};
+        for (long seed : seeds) {
+            try (var context = WorldgenFixture.context(HighlandPlanformProbe.userPreset(), seed)) {
+                var continent = (RollingHighlandsContinent) context.heightmap.continent();
+                var coast = continent.coast();
+                double coastEdge = context.preset.world().controlPoints.coast;
+                HighlandCoast.Sample found = null;
+                for (int ring = 4096; ring <= 65536 && found == null; ring += 4096) {
+                    for (int a = 0; a < 64 && found == null; a++) {
+                        double angle = 2 * Math.PI * a / 64;
+                        for (int d = -2048; d <= 2048 && found == null; d += 64) {
+                            var s = coast.sample(Math.cos(angle) * (ring + d), Math.sin(angle) * (ring + d));
+                            if (s.drowned() >= HighlandDrownedProbe.DROWNED_WEIGHT && s.edge() > 0 && s.edge() < coastEdge + .1) found = s;
+                        }
+                    }
+                }
+                assertTrue(found != null, "no drowned coast point near the origin for seed " + seed);
+                var plan = continent.planOf(found.ownerX(), found.ownerZ()).plan();
+                assertTrue(plan.landNodes() > 0, "seed " + seed + " owner " + found.ownerX() + "," + found.ownerZ() + " has no land nodes");
+            }
+        }
+    }
+
     /** Arm water reads the ocean biome band: at least 95% of the sea columns inside drowned regions (weight at least .5, depth at least 1). */
     @Test void oceanBandInArms() throws Exception {
         var context = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
