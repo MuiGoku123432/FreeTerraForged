@@ -2,6 +2,7 @@ package etcodehome.freeterraforged.world.worldgen.highlands;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Locale;
 import java.util.stream.IntStream;
 import etcodehome.freeterraforged.world.worldgen.GeneratorContext;
@@ -164,6 +165,53 @@ final class HighlandDrownedProbe {
             ratio(shelteredCount, deepEnough), ratio(navOpen, navTotal), samples > 0 ? harbors * 25e6 / seaArea : Double.NaN,
             ratio(band, wet), HighlandCoastProbe.quantile(sorted, .1), HighlandCoastProbe.quantile(sorted, .5),
             HighlandCoastProbe.quantile(sorted, .9), samples > 0 ? (double) nanos / samples : Double.NaN, plan.gridStep(), plan.buildNanos());
+    }
+
+    /** A candidate test box: its centre and what its coast crossings offer (fjord: PNW share and range core; ria: river mouths). */
+    record Site(int x, int z, int crossings, double pnwShare, double rangeCore, int mouths) {}
+
+    static final int SCAN_ROW = 64, SCAN_STEP = 16, SCAN_INLAND = 2048, SCAN_INLAND_STEP = 128, MOUTH_REACH = 64, MIN_CROSSINGS = 8;
+
+    /**
+     * Tiles the area into box-sized squares and describes each one's coast: land/sea crossings on rows every
+     * {@link #SCAN_ROW} blocks (found to {@link #SCAN_STEP} blocks), the share whose shore reads as PNW, the largest
+     * range core at the crossings and up to {@link #SCAN_INLAND} blocks inland along the edge gradient, and the
+     * crossings with river water within {@link #MOUTH_REACH} blocks inland. Squares with fewer than
+     * {@link #MIN_CROSSINGS} crossings are left out.
+     */
+    static List<Site> scanSites(GeneratorContext context, int originX, int originZ, int radius, int box) {
+        var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+        double coastEdge = context.preset.world().controlPoints.coast;
+        var highlandLand = HighlandLand.create(context);
+        var sites = new ArrayList<Site>();
+        var cell = new Cell();
+        for (int z0 = originZ - radius; z0 < originZ + radius; z0 += box) for (int x0 = originX - radius; x0 < originX + radius; x0 += box) {
+            int crossings = 0, pnw = 0, mouths = 0;
+            double core = 0;
+            for (int z = z0; z < z0 + box; z += SCAN_ROW) {
+                boolean previous = coast.sample(x0, z).edge() > coastEdge;
+                for (int x = x0 + SCAN_STEP; x < x0 + box; x += SCAN_STEP) {
+                    double e = coast.sample(x, z).edge();
+                    boolean land = e > coastEdge;
+                    if (land == previous) continue;
+                    previous = land;
+                    double gx = coast.sample(x + 2, z).edge() - e, gz = coast.sample(x, z + 2).edge() - e, norm = Math.hypot(gx, gz);
+                    if (norm == 0) continue;
+                    gx /= norm; gz /= norm;
+                    crossings++;
+                    if (HighlandCoastProfile.climateClass(coast.profile().shore(x, z)) == HighlandCoastProfile.PNW) pnw++;
+                    for (int d = 0; d <= SCAN_INLAND; d += SCAN_INLAND_STEP) core = Math.max(core, highlandLand.rangeCore(x + gx * d, z + gz * d));
+                    for (int d = 0; d <= MOUTH_REACH; d += 8) {
+                        context.lookup.applyCell(cell.reset(), (int) Math.round(x + gx * d), (int) Math.round(z + gz * d), false, true);
+                        if (!cell.hasRiverWater) continue;
+                        mouths++;
+                        break;
+                    }
+                }
+            }
+            if (crossings >= MIN_CROSSINGS) sites.add(new Site(x0 + box / 2, z0 + box / 2, crossings, (double) pnw / crossings, core, mouths));
+        }
+        return sites;
     }
 
     private static double ratio(double part, double whole) { return whole > 0 ? part / whole : Double.NaN; }
