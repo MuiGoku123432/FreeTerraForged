@@ -29,7 +29,7 @@ import etcodehome.freeterraforged.world.worldgen.GeneratorContext;
  */
 final class HighlandDrowned {
     /** Region cell size and chance, disc radius (fraction of the cell size, plus its jitter) and the share of it that is full weight. */
-    static final double REGION_SIZE = 5500, REGION_CHANCE = .3, REGION_RADIUS = .4, REGION_RADIUS_JITTER = .2, REGION_CORE = .8;
+    static final double REGION_SIZE = 5500, REGION_CHANCE = .33, REGION_RADIUS = .4, REGION_RADIUS_JITTER = .2, REGION_CORE = .8;
     /** Valley network: stretch along the inland direction, trunk and branch wavelengths (blocks), branch weight, valley thresholds. */
     static final double ANISO = 2.5, TRUNK_SCALE = 2000, BRANCH_SCALE = 700, BRANCH_WEIGHT = .8, VALLEY_LOW = .45, VALLEY_HIGH = .85;
     /** Blocks inland of the coast point over which arms shoal, and how far below the beach point arm water sits (fraction of beach to shallow ocean). */
@@ -104,7 +104,9 @@ final class HighlandDrowned {
      * Region seed salt. REGION_SIZE, REGION_CHANCE, REGION_CORE and this salt were tuned together (11-02 Task 2, a sweep over
      * sizes 3000-6000, cores .35/.6/.8 and salts 0-900) so that the drowned share is 20-30% of the RH9 coastline in both
      * calibration boxes (user world, ROCKIES) and the RH9 coast gates, which measure outside the regions, keep a
-     * representative non-drowned coast (including the PNW bay shore of the user box).
+     * representative non-drowned coast (including the PNW bay shore of the user box). 11-07 raised REGION_CHANCE from .3 to .33 (more
+     * regions only: every earlier region keeps its place) because the mean over two seeds and two presets, measured on 64 km windows,
+     * was 19.4% (D-02 asks 20-30%); it is 21.3% now.
      */
     private static final long SEED_SALT = 257;
     private static final int MEMO = 4;

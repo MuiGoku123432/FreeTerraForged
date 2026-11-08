@@ -90,6 +90,136 @@ class HighlandDrownedTest {
             String.format(java.util.Locale.ROOT, "drowned share outside 20-30%%: user=%.1f%% rockies=%.1f%%", 100 * user, 100 * rockies));
     }
 
+    /** Second fixed seed of the D-02 share gate (also one of the five plan seeds of plansBuildOnFiveSeeds). */
+    static final long OTHER_SEED = 1;
+    /** D-02 bounds per seed and preset (inclusive), and for the mean of the four. */
+    static final double SEED_MIN_SHARE = .15, SEED_MAX_SHARE = .35;
+    /** Half side of the share window (a 64 km box around the calibration site): an 8 km box holds two or three regions, so its share is mostly luck on a second seed. */
+    static final int SHARE_RADIUS = 32768;
+
+    /**
+     * D-02: the drowned share of the RH9 coastline stays in range on two seeds and two presets (user preset, ROCKIES; USER_SEED
+     * and OTHER_SEED): each within 15-35%, the mean of the four within 20-30%.
+     */
+    @Test void drownedShareAcrossSeeds() throws Exception {
+        double[] shares = new double[4];
+        var user = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
+        shares[0] = HighlandDrownedProbe.drownedShare(user, SITE_X, SITE_Z, SHARE_RADIUS);
+        try (var rockies = WorldgenFixture.context(BiomeCensusProbe.rockies(), HighlandPlanformProbe.USER_SEED)) {
+            shares[1] = HighlandDrownedProbe.drownedShare(rockies, SITE_X, SITE_Z, SHARE_RADIUS);
+        }
+        try (var other = WorldgenFixture.context(HighlandPlanformProbe.userPreset(), OTHER_SEED)) {
+            shares[2] = HighlandDrownedProbe.drownedShare(other, SITE_X, SITE_Z, SHARE_RADIUS);
+        }
+        try (var other = WorldgenFixture.context(BiomeCensusProbe.rockies(), OTHER_SEED)) {
+            shares[3] = HighlandDrownedProbe.drownedShare(other, SITE_X, SITE_Z, SHARE_RADIUS);
+        }
+        double mean = (shares[0] + shares[1] + shares[2] + shares[3]) / 4;
+        String line = String.format(java.util.Locale.ROOT, "RH10 drowned share user/USER_SEED=%.1f%% rockies/USER_SEED=%.1f%% user/seed %d=%.1f%% rockies/seed %d=%.1f%% mean=%.1f%%",
+            100 * shares[0], 100 * shares[1], OTHER_SEED, 100 * shares[2], OTHER_SEED, 100 * shares[3], 100 * mean);
+        System.out.println(line);
+        for (double share : shares) assertTrue(share >= SEED_MIN_SHARE && share <= SEED_MAX_SHARE, "drowned share outside 15-35%: " + line);
+        assertTrue(mean >= MIN_SHARE && mean <= MAX_SHARE, "mean drowned share outside 20-30%: " + line);
+    }
+
+    /**
+     * Lookup-path independence (T-11-11): at 2000 columns of the drowned regions near the coast (sea and land) the cell lookup
+     * and the precise heightmap path agree on terrain, height and continent edge.
+     */
+    @Test void drownedIsPathIndependent() throws Exception {
+        var context = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
+        var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+        double band = 1500 * HighlandCoast.EDGE_PER_BLOCK, coastEdge = context.preset.world().controlPoints.coast;
+        var random = new Random(29);
+        var a = new Cell();
+        var b = new Cell();
+        int checked = 0, sea = 0, land = 0, differ = 0;
+        String first = null;
+        for (int tries = 0; checked < 2000 && tries < 400_000; tries++) {
+            int x = RIA_SITE_X + random.nextInt(2 * SITE_RADIUS + 1) - SITE_RADIUS, z = RIA_SITE_Z + random.nextInt(2 * SITE_RADIUS + 1) - SITE_RADIUS;
+            var sample = coast.sample(x, z);
+            if (sample.drowned() <= 0 || !(sample.edge() > 0) || Math.abs(sample.edge() - coastEdge) > band) continue;
+            context.lookup.applyCell(a.reset(), x, z, false, true);
+            context.heightmap.applyPrecise(b.reset(), x, z, true);
+            checked++;
+            if (sample.edge() > coastEdge) land++; else sea++;
+            if (a.terrain != b.terrain || a.height != b.height || a.continentEdge != b.continentEdge) {
+                differ++;
+                if (first == null) first = x + "," + z + " terrain " + a.terrain + "/" + b.terrain + " height " + a.height + "/" + b.height + " edge " + a.continentEdge + "/" + b.continentEdge;
+            }
+        }
+        System.out.println("RH10 drowned path independence checked=" + checked + " sea=" + sea + " land=" + land + " differ=" + differ);
+        assertTrue(checked == 2000 && sea >= 300 && land >= 300, "too few drowned-region columns: " + checked + " (sea " + sea + ", land " + land + ")");
+        assertEquals(0, differ, differ + " of " + checked + " drowned-region columns differ with the lookup path, first at " + first);
+    }
+
+    /**
+     * Largest change of the transformed edge between neighbouring blocks anywhere on a scan, and on a region rim. The plan started at
+     * 20 blocks of the standalone slope scale (EDGE_PER_BLOCK) everywhere; the measured steepest step inside a drowned region is 50.7
+     * (7722,20283, ROCKIES, drowned weight 1, standalone step 0.7): the valley factor goes from 0 to 1 across a ridged-noise wall
+     * about 70 blocks wide, so a valley wall is steep by design (a continuous 1-block step of the factor times the 0.4 to 0.7 of edge
+     * between land and the arm target). The limit inside is therefore twice the measurement, which still fails a seam or hash
+     * discontinuity (a full valley step is 0.05 and more, 170 blocks of slope and up). Region seams are what the gate is about: on the
+     * rims (weight under RIM_WEIGHT on either side of the step) the measured steepest step is 3.4, and the limit there is 10.
+     */
+    static final double EDGE_JUMP = 100 * HighlandCoast.EDGE_PER_BLOCK, RIM_JUMP = 10 * HighlandCoast.EDGE_PER_BLOCK;
+    private static final int SCAN_LINES = 50, SCAN_LENGTH = 8192;
+    /** Drowned weight under which a scan step counts as lying on a region rim (seam). */
+    private static final double RIM_WEIGHT = .05;
+
+    /**
+     * Continuity (T-11-11): on 50 dense line scans (1-block steps, 8 km) through the drowned regions of the ria site (user world),
+     * the fjord site and the fjord arm site (ROCKIES), the transformed edge never changes by more than EDGE_JUMP between
+     * neighbouring blocks, and by at most RIM_JUMP on a region rim, where region seams and fjord/ria boundaries lie. At least 30
+     * lines cross a rim (the drowned weight leaves or reaches 0).
+     */
+    @Test void edgeIsContinuous() throws Exception {
+        var user = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
+        var random = new Random(31);
+        var results = new double[4];
+        var worst = new String[1];
+        scanEdges(user, new HighlandCoast(user), RIA_SITE_X, RIA_SITE_Z, 20, random, results, worst);
+        try (var rockies = WorldgenFixture.context(BiomeCensusProbe.rockies(), HighlandPlanformProbe.USER_SEED)) {
+            var standalone = new HighlandCoast(rockies);
+            scanEdges(rockies, standalone, FJORD_SITE_X, FJORD_SITE_Z, 15, random, results, worst);
+            scanEdges(rockies, standalone, FJORD_ARM_SITE_X, FJORD_ARM_SITE_Z, 15, random, results, worst);
+        }
+        System.out.printf(java.util.Locale.ROOT, "RH10 edge continuity lines=%d crossRim=%d steps=%d maxStep=%.5f (limit %.5f, %.1f blocks of slope) maxRimStep=%.5f (%.1f blocks of slope)%n",
+            SCAN_LINES, (int) results[0], (long) results[1], results[2], EDGE_JUMP, results[2] / HighlandCoast.EDGE_PER_BLOCK, results[3], results[3] / HighlandCoast.EDGE_PER_BLOCK);
+        System.out.println("RH10 edge continuity worst step " + worst[0]);
+        assertTrue(results[0] >= 30, "too few scan lines cross a drowned-region rim: " + (int) results[0]);
+        assertTrue(results[2] <= EDGE_JUMP, "transformed edge jumps between neighbouring blocks: " + worst[0] + ", limit " + EDGE_JUMP);
+        assertTrue(results[3] <= RIM_JUMP, "transformed edge jumps across a region rim: " + results[3] + ", limit " + RIM_JUMP);
+    }
+
+    /** One batch of scan lines around a site (alternating east and south), asserting the step bound; results: lines crossing a rim, steps, max step. */
+    private static void scanEdges(GeneratorContext context, HighlandCoast standalone, int cx, int cz, int lines, Random random, double[] results, String[] worst) {
+        var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+        for (int line = 0; line < lines; line++) {
+            boolean east = line % 2 == 0;
+            int fixed = (east ? cz : cx) + random.nextInt(2 * SITE_RADIUS + 1) - SITE_RADIUS, start = (east ? cx : cz) - SCAN_LENGTH / 2;
+            double previous = Double.NaN, previousStandalone = Double.NaN, previousWeight = 0;
+            boolean rim = false;
+            for (int step = 0; step <= SCAN_LENGTH; step++) {
+                int x = east ? start + step : fixed, z = east ? fixed : start + step;
+                var sample = coast.sample(x, z);
+                double edge = sample.edge(), reference = standalone.sample(x, z).edge();
+                if (!Double.isNaN(previous)) {
+                    double jump = Math.abs(edge - previous), referenceJump = Math.abs(reference - previousStandalone);
+                    results[1]++;
+                    if (previousWeight < RIM_WEIGHT || sample.drowned() < RIM_WEIGHT) results[3] = Math.max(results[3], jump);
+                    if (jump > results[2]) {
+                        results[2] = jump;
+                        worst[0] = String.format(java.util.Locale.ROOT, "%.5f at %d,%d (standalone step %.5f, drowned weight %.3f -> %.3f)", jump, x, z, referenceJump, previousWeight, sample.drowned());
+                    }
+                    if (previousWeight == 0 && sample.drowned() > 0 || previousWeight > 0 && sample.drowned() == 0) rim = true;
+                }
+                previous = edge; previousStandalone = reference; previousWeight = sample.drowned();
+            }
+            if (rim) results[0]++;
+        }
+    }
+
     /**
      * D-01: fjord weight exists only under FJORD regions, whose anchors are PNW coast with a range core nearby. In the ROCKIES
      * fjord site box at least one region is a fjord, and every point with fjord weight has such an anchor.
