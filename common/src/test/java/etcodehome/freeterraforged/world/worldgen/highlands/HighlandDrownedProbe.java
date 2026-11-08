@@ -474,20 +474,23 @@ final class HighlandDrownedProbe {
     /**
      * Ria bay census of a box (16-block lattice), on the same path network as the fjord census but over flooded land outside
      * the fjord scope. A bay is a 4-connected component whose longest path from the standalone coastline is at least
-     * {@link #MIN_FJORD_ARM} blocks. Per bay: {@code mouth} is the water width along the standalone coastline (columns with a
-     * 4-neighbour in the standalone sea, times GRID), {@code inner} the inscribed width (twice the largest distance to land),
+     * {@link #MIN_FJORD_ARM} blocks. Per bay: {@code mouth} is the water width of the widest entrance along the standalone coastline (the largest 8-connected run of
+     * columns with a 4-neighbour in the standalone sea, times GRID), {@code inner} the inscribed width (twice the largest distance to land),
      * {@code heads} the accepted heads (2 or more: branching), whether every column shares one owner, and whether the
      * bay reaches the open sea (a column of it lies in water that survives a one-cell erosion and touches the box border).
      */
-    record Bays(int count, double[] mouths, double[] inners, double[] ratios, int branching, int narrowMouth, int singleOwner, int connected, int[] heads) {
+    record Bays(int count, double[] mouths, double[] inners, double[] ratios, int branching, int narrowMouth, int singleOwner, int connected, int[] heads, int closed, int closedCells, int armCells) {
         String summary() {
-            return String.format(Locale.ROOT, "bays=%d mouth median=%.0f inner median=%.0f max=%.0f ratio(mouth/inner) median=%.2f narrowMouth(<=.5)=%d branching=%d singleOwner=%d connected=%d",
-                count, median(mouths), median(inners), inners.length > 0 ? inners[inners.length - 1] : 0, median(ratios), narrowMouth, branching, singleOwner, connected);
+            return String.format(Locale.ROOT, "bays=%d mouth median=%.0f inner median=%.0f max=%.0f ratio(mouth/inner) median=%.2f narrowMouth(<=.5)=%d branching=%d singleOwner=%d connected=%d closed=%d (%.1f%% of the flooded area)",
+                count, median(mouths), median(inners), inners.length > 0 ? inners[inners.length - 1] : 0, median(ratios), narrowMouth, branching, singleOwner, connected, closed, 100.0 * closedCells / Math.max(1, armCells));
         }
+        double closedShare() { return (double) closedCells / Math.max(1, armCells); }
         private static double median(double[] sorted) { return sorted.length > 0 ? HighlandCoastProbe.quantile(sorted, .5) : Double.NaN; }
     }
     /** A bay's mouth counts as narrow when it is at most this fraction of its inner width. */
     static final double NARROW_MOUTH = .5;
+    /** A flooded water body with no column touching the standalone sea is closed (a lagoon behind a bar); only bodies of at least this many columns that do not reach the box border (where the sea may lie outside) count. */
+    static final int CLOSED_MIN = 16;
 
     static Bays bays(GeneratorContext context, int originX, int originZ, int radius) {
         var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
@@ -504,6 +507,7 @@ final class HighlandDrownedProbe {
         var open = label(eroded, gw);
         boolean[] border = borderTouching(open.id, gw, open.area.length - 1);
         var mouth = new java.util.HashMap<Integer, Integer>();
+        boolean[] mouthCell = new boolean[gw * gw];
         var inner = new java.util.HashMap<Integer, Float>();
         var owner = new java.util.HashMap<Integer, Long>();
         var mixed = new java.util.HashSet<Integer>();
@@ -511,20 +515,28 @@ final class HighlandDrownedProbe {
         for (int at = 0; at < n.arm.length; at++) {
             if (!n.arm[at]) continue;
             int id = n.parts.id[at], i = at % gw, j = at / gw;
-            if ((i > 0 && n.rh9Sea[at - 1]) || (i < gw - 1 && n.rh9Sea[at + 1]) || (j > 0 && n.rh9Sea[at - gw]) || (j < gw - 1 && n.rh9Sea[at + gw])) mouth.merge(id, 1, Integer::sum);
+            if ((i > 0 && n.rh9Sea[at - 1]) || (i < gw - 1 && n.rh9Sea[at + 1]) || (j > 0 && n.rh9Sea[at - gw]) || (j < gw - 1 && n.rh9Sea[at + gw])) { mouthCell[at] = true; mouth.merge(id, 1, Integer::sum); }
             inner.merge(id, n.dLand[at], Math::max);
             var site = coast.sample(n.x0 + i * GRID, n.z0 + j * GRID);
             long key = ((long) site.ownerX() << 32) ^ (site.ownerZ() & 0xffffffffL);
             if (owner.putIfAbsent(id, key) != null && owner.get(id) != key) mixed.add(id);
             if (eroded[at] && border[open.id[at]]) reaches.add(id);
         }
+        // Widest entrance: the largest 8-connected run of mouth columns of each bay (a bay with several entrances is judged by its widest one).
+        var runs = label(mouthCell, gw, true);
+        var entrance = new java.util.HashMap<Integer, Integer>();
+        for (int at = 0; at < mouthCell.length; at++) if (mouthCell[at]) entrance.merge(n.parts.id[at], runs.area[runs.id[at]], Math::max);
+        int closed = 0, closedCells = 0, armCells = 0;
+        for (int at = 0; at < n.arm.length; at++) if (n.arm[at]) armCells++;
+        boolean[] cut = borderTouching(n.parts.id, gw, n.parts.area.length - 1);
+        for (int id = 1; id < n.parts.area.length; id++) if (n.parts.area[id] >= CLOSED_MIN && !mouth.containsKey(id) && !cut[id]) { closed++; closedCells += n.parts.area[id]; }
         var mouths = new ArrayList<Double>();
         var inners = new ArrayList<Double>();
         var ratios = new ArrayList<Double>();
         var headCounts = new int[count];
         int branching = 0, narrow = 0, single = 0, connected = 0, k = 0;
         for (var arm : arms) {
-            double m = (double) mouth.getOrDefault(arm.id, 0) * GRID, w = 2.0 * GRID * inner.get(arm.id);
+            double m = (double) entrance.getOrDefault(arm.id, 0) * GRID, w = 2.0 * GRID * inner.get(arm.id);
             mouths.add(m); inners.add(w); ratios.add(m / w);
             headCounts[k++] = arm.heads;
             if (arm.heads >= 2) branching++;
@@ -533,7 +545,7 @@ final class HighlandDrownedProbe {
             if (reaches.contains(arm.id)) connected++;
         }
         return new Bays(count, mouths.stream().mapToDouble(Double::doubleValue).sorted().toArray(), inners.stream().mapToDouble(Double::doubleValue).sorted().toArray(),
-            ratios.stream().mapToDouble(Double::doubleValue).sorted().toArray(), branching, narrow, single, connected, headCounts);
+            ratios.stream().mapToDouble(Double::doubleValue).sorted().toArray(), branching, narrow, single, connected, headCounts, closed, closedCells, armCells);
     }
 
     /** One bay census over several boxes: lists concatenated (sorted), counts summed. */
@@ -542,7 +554,8 @@ final class HighlandDrownedProbe {
         double[] inners = parts.stream().flatMapToDouble(b -> Arrays.stream(b.inners())).sorted().toArray();
         double[] ratios = parts.stream().flatMapToDouble(b -> Arrays.stream(b.ratios())).sorted().toArray();
         return new Bays(mouths.length, mouths, inners, ratios, parts.stream().mapToInt(Bays::branching).sum(), parts.stream().mapToInt(Bays::narrowMouth).sum(),
-            parts.stream().mapToInt(Bays::singleOwner).sum(), parts.stream().mapToInt(Bays::connected).sum(), parts.stream().flatMapToInt(b -> Arrays.stream(b.heads())).toArray());
+            parts.stream().mapToInt(Bays::singleOwner).sum(), parts.stream().mapToInt(Bays::connected).sum(), parts.stream().flatMapToInt(b -> Arrays.stream(b.heads())).toArray(), parts.stream().mapToInt(Bays::closed).sum(),
+            parts.stream().mapToInt(Bays::closedCells).sum(), parts.stream().mapToInt(Bays::armCells).sum());
     }
 
     /** One census over several boxes: arm lists concatenated (sorted), counts summed, the widest water kept. */
@@ -658,7 +671,7 @@ final class HighlandDrownedProbe {
      * Bay shores (D-16), ria boxes pooled: {@code samples} bay shore columns (water columns of ria bays with a land neighbour),
      * the {@code beach}-dominant ones and their dry beach widths ({@code widths}, sorted); the same for the RH9 coast outside
      * every drowned region ({@code outsideSamples}, {@code outsideBeach}, {@code outsideWidths}, traced on the standalone coast);
-     * {@code bays} bays (traced arms) and the {@code marshBays} among them with at least {@link #MARSH_MIN} WETLAND columns on
+     * {@code bays} bays (traced arms, in the first {@code marshBoxes} boxes: every lookup builds the owner's plan) and the {@code marshBays} among them with at least {@link #MARSH_MIN} WETLAND columns on
      * the land within {@link #MARSH_LOOK} blocks inland of their shore columns (looked up through the heightmap).
      */
     record BayShores(int samples, int beach, double[] widths, int outsideSamples, int outsideBeach, double[] outsideWidths, int bays, int marshBays, int marshColumns) {
@@ -671,7 +684,7 @@ final class HighlandDrownedProbe {
     }
     static final int MARSH_MIN = 3, MARSH_LOOK = 24, MARSH_PER_BAY = 40, MARSH_STEP = 4;
 
-    static BayShores bayShores(GeneratorContext context, int[][] boxes, int radius) {
+    static BayShores bayShores(GeneratorContext context, int[][] boxes, int marshBoxes, int radius) {
         var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
         var standalone = new HighlandCoast(context);
         double coastEdge = context.preset.world().controlPoints.coast;
@@ -693,7 +706,7 @@ final class HighlandDrownedProbe {
                 if (shore.dominant() == HighlandCoastProfile.Type.BEACH) { beach++; widths.add(shore.width()); }
                 byBay.computeIfAbsent(n.parts.id[at], k -> new ArrayList<>()).add(new int[]{x, z});
             }
-            for (var arm : arms) {
+            for (var arm : marshBoxes-- > 0 ? arms : List.<Arm>of()) {
                 bays++;
                 var shore = byBay.getOrDefault(arm.id, List.of());
                 int stride = Math.max(1, shore.size() / MARSH_PER_BAY), found = 0;

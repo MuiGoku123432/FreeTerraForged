@@ -438,6 +438,11 @@ class HighlandDrownedTest {
         var context = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
         var bays = bayCensus(context);
         System.out.println("RH10 bays " + bays.summary());
+        HighlandDrownedProbe.Bays inland;
+        try (var rockies = WorldgenFixture.context(BiomeCensusProbe.rockies(), HighlandPlanformProbe.USER_SEED)) {
+            inland = HighlandDrownedProbe.bays(rockies, FJORD_SITE_X, FJORD_SITE_Z, SITE_RADIUS);
+        }
+        System.out.println("RH10 bays rockies " + inland.summary());
         assertTrue(bays.count() >= 5, "too few bays: " + bays.summary());
         double widest = bays.inners()[bays.inners().length - 1];
         assertTrue(widest >= 1000 && widest <= 5000, "widest bay " + widest + " outside 1-5 km: " + bays.summary());
@@ -446,7 +451,15 @@ class HighlandDrownedTest {
         assertTrue(bays.branching() >= .5 * bays.count(), "branching bays: " + bays.branching() + " of " + bays.count() + ": " + bays.summary());
         assertEquals(bays.count(), bays.singleOwner(), "bays across owners: " + bays.summary());
         assertEquals(bays.count(), bays.connected(), "bays closed to the sea: " + bays.summary());
+        assertTrue(bays.closedShare() <= MAX_CLOSED, "flooded water closed off from the sea (lagoons behind a bar): " + bays.summary());
+        assertTrue(inland.count() >= 1 && inland.connected() == inland.count() && inland.closedShare() <= MAX_CLOSED, "ROCKIES ria box has closed or unreachable bays: " + inland.summary());
     }
+
+    /** Boxes (leading RIA_BOXES) whose bays are probed through full column lookups (marsh, path independence): each lookup builds the owner's plan, the cost of those gates. */
+    static final int MARSH_BOXES = 4;
+
+    /** Most of the flooded area (share) that may lie in water bodies with no column touching the standalone sea (the RH9-era tracer already has small ponds, 2.7% in the ria boxes). */
+    static final double MAX_CLOSED = .05;
 
     /**
      * D-16 (ria boxes pooled): bay shores are calmer than the open RH9 coast. The beach-dominant share of bay shore columns is at
@@ -456,7 +469,7 @@ class HighlandDrownedTest {
      */
     @Test void innerShores() throws Exception {
         var context = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
-        var shores = HighlandDrownedProbe.bayShores(context, RIA_BOXES, SITE_RADIUS);
+        var shores = HighlandDrownedProbe.bayShores(context, RIA_BOXES, MARSH_BOXES, SITE_RADIUS);
         System.out.println("RH10 bay " + shores.summary());
         assertTrue(shores.samples() >= 500 && shores.outsideSamples() >= 500, "too few shore columns: " + shores.summary());
         double bay = (double) shores.beach() / shores.samples(), open = (double) shores.outsideBeach() / shores.outsideSamples();
@@ -476,7 +489,7 @@ class HighlandDrownedTest {
         var a = new Cell();
         var b = new Cell();
         int shoreColumns = 0, checked = 0, differ = 0, beaches = 0, marsh = 0;
-        for (int[] box : RIA_BOXES) {
+        for (int[] box : java.util.Arrays.copyOf(RIA_BOXES, MARSH_BOXES)) {
             var shore = HighlandDrownedProbe.armShore(context, box, SITE_RADIUS, false);
             int stride = Math.max(1, shore.size() / 60);
             for (int k = 0; k < shore.size(); k += stride) {
