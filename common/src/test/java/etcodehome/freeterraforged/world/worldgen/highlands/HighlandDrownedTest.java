@@ -42,6 +42,13 @@ class HighlandDrownedTest {
      * the most fjord-scope flooded land (scan around the 11-01 box centre, see 11-04-SUMMARY.md). Shape gates pool their arms.
      */
     static final int[][] FJORD_BOXES = {{FJORD_ARM_SITE_X, FJORD_ARM_SITE_Z}, {14205, 48956}, {20349, 30524}};
+    /**
+     * Ria bay boxes (user world, USER_SEED, 8 km boxes): the 11-03 ria site and its second candidate, widened (the two hold
+     * fewer than 5 bays) with the six 8 km tiles of a scan of the user world (-32 to 64 km east, -48 to 64 km south) that have
+     * the most coastline inside a drowned region (19.9, 17.1, 15.4, 13.3, 13.3 and 13.0 km); the ranking reads region weights
+     * on the standalone coast, so it does not depend on the bay shape being tuned.
+     */
+    static final int[][] RIA_BOXES = {{RIA_SITE_X, RIA_SITE_Z}, {8061, 24380}, {12288, -36864}, {45056, 20480}, {-28672, 20480}, {45056, 28672}, {61440, 61440}, {-4096, 53248}};
     /** Centre of a sound basin (ROCKIES, USER_SEED): the coast point of region (-9, 2), one of the fjord regions that drew SOUND_CHANCE. */
     static final int SOUND_SITE_X = -46448, SOUND_SITE_Z = 13654;
     /** D-02: drowned share of the RH9 coastline, inclusive bounds. */
@@ -419,6 +426,54 @@ class HighlandDrownedTest {
             assertTrue(shores.cliff() >= .7 * shores.samples(), shores.summary());
             assertEquals(0, shores.steps(), "river mouth water steps at fjord heads: " + shores.summary());
         }
+    }
+
+    /**
+     * D-13, D-14 (user world, ria boxes pooled; at least 5 bays): the largest bay is at least 1 km across and none exceeds 5 km
+     * (inscribed width); the mouth (water width along the standalone coastline) is at most half the inner width for at least
+     * 70% of the bays; at least half of the bays have two or more heads; every bay lies in one owner and reaches the open sea.
+     */
+    @Test void baysBranchAndNarrowAtTheMouth() throws Exception {
+        var context = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
+        var bays = bayCensus(context);
+        System.out.println("RH10 bays " + bays.summary());
+        assertTrue(bays.count() >= 5, "too few bays: " + bays.summary());
+        double widest = bays.inners()[bays.inners().length - 1];
+        assertTrue(widest >= 1000 && widest <= 5000, "widest bay " + widest + " outside 1-5 km: " + bays.summary());
+        assertTrue(java.util.Arrays.stream(bays.inners()).filter(w -> w >= 1000).count() >= 3, "fewer than 3 bays 1 km across: " + bays.summary());
+        assertTrue(bays.narrowMouth() >= .7 * bays.count(), "narrow mouths: " + bays.narrowMouth() + " of " + bays.count() + ": " + bays.summary());
+        assertTrue(bays.branching() >= .5 * bays.count(), "branching bays: " + bays.branching() + " of " + bays.count() + ": " + bays.summary());
+        assertEquals(bays.count(), bays.singleOwner(), "bays across owners: " + bays.summary());
+        assertEquals(bays.count(), bays.connected(), "bays closed to the sea: " + bays.summary());
+    }
+
+    private static HighlandDrownedProbe.Bays bayCensus(GeneratorContext context) {
+        var parts = new ArrayList<HighlandDrownedProbe.Bays>();
+        for (int[] box : RIA_BOXES) parts.add(HighlandDrownedProbe.bays(context, box[0], box[1], SITE_RADIUS));
+        return HighlandDrownedProbe.poolBays(parts);
+    }
+
+    /** 11-05: ria bay census per box and pooled, plus renders of the ria site (probe tag): build/rh10-bays.txt and bay-*.png. */
+    @Tag("probe")
+    @Test void reportsBays() throws Exception {
+        var dir = Path.of("build/rh10-arms");
+        Files.createDirectories(dir);
+        var context = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
+        String out = "";
+        var parts = new ArrayList<HighlandDrownedProbe.Bays>();
+        for (int[] box : RIA_BOXES) {
+            var census = HighlandDrownedProbe.bays(context, box[0], box[1], SITE_RADIUS);
+            parts.add(census);
+            out += "box " + box[0] + "," + box[1] + " " + census.summary() + " heads=" + java.util.Arrays.toString(census.heads()) + "\n";
+        }
+        out += "pooled " + HighlandDrownedProbe.poolBays(parts).summary() + "\n";
+        String tag = System.getenv().getOrDefault("FTF_BAYS_TAG", "now");
+        for (int[] box : RIA_BOXES) {
+            HighlandPlanformProbe.render(context, box[0], box[1], 2 * SITE_RADIUS, 8, dir.resolve("bay-" + tag + "-" + box[0] + "," + box[1] + ".png"));
+            HighlandDrownedProbe.maskImage(context, box[0], box[1], 2 * SITE_RADIUS, 8, dir.resolve("bay-mask-" + tag + "-" + box[0] + "," + box[1] + ".png"));
+        }
+        System.out.print(out);
+        Files.writeString(Path.of("build/rh10-bays.txt"), out);
     }
 
     private static HighlandDrownedProbe.Fjords fjordCensus(GeneratorContext rockies) {

@@ -341,7 +341,20 @@ final class HighlandDrownedProbe {
     /** Paths prefer the middle of the water: a step costs {@code 1 + CENTRE_BIAS / halfWidthInCells}; lengths are the true path lengths. */
     static final int MIN_FJORD_ARM = 300, HEAD_GAP = 300, SIDE_MIN = 150, SIDE_JUNCTION = 150, SOUND_WIDTH = 1000, CENTRE_BIAS = 3;
 
-    static Fjords fjords(GeneratorContext context, int originX, int originZ, int radius) {
+    /**
+     * The geodesic structure of the arm water of a box (16-block lattice): the arm mask (flooded land in the fjord scope or,
+     * for bays, outside it), the standalone sea, distance to land in cells, the path tree from the standalone coastline
+     * ({@code parent}, true path length {@code trail}) and the candidate heads (local maxima of the path cost) per component.
+     */
+    private record Network(int gw, int x0, int z0, boolean[] arm, boolean[] rh9Sea, boolean[] boundLand, float[] dLand, float[] trail, int[] parent,
+                           Components parts, java.util.Map<Integer, ArrayList<Integer>> heads) {}
+
+    /** One traced arm: its true length, widest trunk reach, side-arm widths, and the number of accepted heads (1 is a single channel). */
+    private record Arm(int id, double length, double trunkWidth, List<Double> sideWidths, int heads) {
+        boolean side() { return !sideWidths.isEmpty(); }
+    }
+
+    private static Network network(GeneratorContext context, int originX, int originZ, int radius, boolean fjordScope) {
         var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
         var drowned = coast.drowned();
         var standalone = new HighlandCoast(context);
@@ -354,7 +367,7 @@ final class HighlandDrownedProbe {
                 boolean land = coast.sample(x, z).edge() > coastEdge, base = standalone.sample(x, z).edge() > coastEdge;
                 boundLand[j * gw + i] = land;
                 rh9Sea[j * gw + i] = !base;
-                arm[j * gw + i] = base && !land && drowned.fjord(x, z) >= DROWNED_WEIGHT;
+                arm[j * gw + i] = base && !land && (drowned.fjord(x, z) >= DROWNED_WEIGHT) == fjordScope;
             }
         });
         float[] dLand = distanceToLand(boundLand, gw);
@@ -383,13 +396,53 @@ final class HighlandDrownedProbe {
                 }
             }
         }
-        var parts = label(arm, gw);
+        var parts = label(arm, gw, !fjordScope);
         // Heads per component: local maxima of g, greedily accepted from the farthest, at least HEAD_GAP apart.
-        var byComponent = new java.util.HashMap<Integer, ArrayList<Integer>>();
+        var heads = new java.util.HashMap<Integer, ArrayList<Integer>>();
         for (int at = 0; at < arm.length; at++) {
             if (!arm[at] || Float.isInfinite(g[at]) || trail[at] * GRID < SIDE_MIN || !localMax(g, arm, gw, at)) continue;
-            byComponent.computeIfAbsent(parts.id[at], k -> new ArrayList<>()).add(at);
+            heads.computeIfAbsent(parts.id[at], k -> new ArrayList<>()).add(at);
         }
+        return new Network(gw, x0, z0, arm, rh9Sea, boundLand, dLand, trail, parent, parts, heads);
+    }
+
+    /** The traced arms of a network: components whose longest path is at least MIN_FJORD_ARM blocks, with trunk and side-arm widths. */
+    private static List<Arm> trace(Network n) {
+        var arms = new ArrayList<Arm>();
+        boolean[] used = new boolean[n.gw * n.gw];
+        int gap = HEAD_GAP / GRID, gw = n.gw;
+        for (var entry : n.heads.entrySet()) {
+            var heads = entry.getValue();
+            heads.sort((a, b) -> Float.compare(n.trail[b], n.trail[a]));
+            if (n.trail[heads.get(0)] * GRID < MIN_FJORD_ARM) continue;
+            var accepted = new ArrayList<Integer>();
+            for (int head : heads) {
+                boolean apart = true;
+                for (int other : accepted) apart &= Math.hypot(head % gw - other % gw, head / gw - other / gw) >= gap;
+                if (apart) accepted.add(head);
+            }
+            double trunk = 0;
+            var sides = new ArrayList<Double>();
+            for (int h = 0; h < accepted.size(); h++) {
+                var path = new ArrayList<Double>();
+                int cells = 0;
+                for (int at = accepted.get(h); at >= 0 && !used[at]; at = n.parent[at]) {
+                    used[at] = true;
+                    cells++;
+                    path.add(2.0 * GRID * windowMax(n.dLand, n.arm, gw, at));
+                }
+                if (h == 0) trunk = path.stream().mapToDouble(Double::doubleValue).max().orElse(0);
+                else if (cells * GRID >= SIDE_MIN) sides.add(medianOf(path.subList(0, Math.max(1, path.size() - SIDE_JUNCTION / GRID))));
+            }
+            arms.add(new Arm(entry.getKey(), (double) n.trail[accepted.get(0)] * GRID, trunk, sides, accepted.size()));
+        }
+        return arms;
+    }
+
+    static Fjords fjords(GeneratorContext context, int originX, int originZ, int radius) {
+        var drowned = ((RollingHighlandsContinent) context.heightmap.continent()).coast().drowned();
+        var n = network(context, originX, originZ, radius, true);
+        var arms = trace(n);
         var lengths = new ArrayList<Double>();
         var trunkWidths = new ArrayList<Double>();
         var sideWidths = new ArrayList<Double>();
@@ -397,37 +450,17 @@ final class HighlandDrownedProbe {
         var soundRegions = new java.util.HashSet<Long>();
         int withSide = 0, soundCells = 0;
         double maxWidth = 0;
-        boolean[] used = new boolean[gw * gw];
-        int gap = HEAD_GAP / GRID;
-        for (var heads : byComponent.values()) {
-            heads.sort((a, b) -> Float.compare(trail[b], trail[a]));
-            if (trail[heads.get(0)] * GRID < MIN_FJORD_ARM) continue;
-            var accepted = new ArrayList<Integer>();
-            for (int head : heads) {
-                boolean apart = true;
-                for (int other : accepted) apart &= Math.hypot(head % gw - other % gw, head / gw - other / gw) >= gap;
-                if (apart) accepted.add(head);
-            }
-            lengths.add((double) trail[accepted.get(0)] * GRID);
-            boolean side = false;
-            for (int h = 0; h < accepted.size(); h++) {
-                var path = new ArrayList<Double>();
-                int cells = 0;
-                for (int at = accepted.get(h); at >= 0 && !used[at]; at = parent[at]) {
-                    used[at] = true;
-                    cells++;
-                    path.add(2.0 * GRID * windowMax(dLand, arm, gw, at));
-                }
-                if (h == 0) trunkWidths.add(path.stream().mapToDouble(Double::doubleValue).max().orElse(0));
-                else if (cells * GRID >= SIDE_MIN) { side = true; sideWidths.add(medianOf(path.subList(0, Math.max(1, path.size() - SIDE_JUNCTION / GRID)))); }
-            }
-            if (side) withSide++;
+        for (var arm : arms) {
+            lengths.add(arm.length);
+            trunkWidths.add(arm.trunkWidth);
+            sideWidths.addAll(arm.sideWidths);
+            if (arm.side()) withSide++;
         }
-        for (int at = 0; at < arm.length; at++) {
-            if (!arm[at]) continue;
-            double width = 2.0 * GRID * dLand[at];
+        for (int at = 0; at < n.arm.length; at++) {
+            if (!n.arm[at]) continue;
+            double width = 2.0 * GRID * n.dLand[at];
             maxWidth = Math.max(maxWidth, width);
-            var region = drowned.dominant(x0 + at % gw * GRID, z0 + at / gw * GRID, true);
+            var region = drowned.dominant(n.x0 + at % n.gw * GRID, n.z0 + at / n.gw * GRID, true);
             if (region == null) continue;
             long key = ((long) region.i() << 32) ^ (region.j() & 0xffffffffL);
             regions.add(key);
@@ -436,6 +469,80 @@ final class HighlandDrownedProbe {
         double[] l = lengths.stream().mapToDouble(Double::doubleValue).sorted().toArray();
         return new Fjords(l.length, withSide, l, trunkWidths.stream().mapToDouble(Double::doubleValue).sorted().toArray(),
             sideWidths.stream().mapToDouble(Double::doubleValue).sorted().toArray(), maxWidth, regions.size(), soundRegions.size(), soundCells);
+    }
+
+    /**
+     * Ria bay census of a box (16-block lattice), on the same path network as the fjord census but over flooded land outside
+     * the fjord scope. A bay is a 4-connected component whose longest path from the standalone coastline is at least
+     * {@link #MIN_FJORD_ARM} blocks. Per bay: {@code mouth} is the water width along the standalone coastline (columns with a
+     * 4-neighbour in the standalone sea, times GRID), {@code inner} the inscribed width (twice the largest distance to land),
+     * {@code heads} the accepted heads (2 or more: branching), whether every column shares one owner, and whether the
+     * bay reaches the open sea (a column of it lies in water that survives a one-cell erosion and touches the box border).
+     */
+    record Bays(int count, double[] mouths, double[] inners, double[] ratios, int branching, int narrowMouth, int singleOwner, int connected, int[] heads) {
+        String summary() {
+            return String.format(Locale.ROOT, "bays=%d mouth median=%.0f inner median=%.0f max=%.0f ratio(mouth/inner) median=%.2f narrowMouth(<=.5)=%d branching=%d singleOwner=%d connected=%d",
+                count, median(mouths), median(inners), inners.length > 0 ? inners[inners.length - 1] : 0, median(ratios), narrowMouth, branching, singleOwner, connected);
+        }
+        private static double median(double[] sorted) { return sorted.length > 0 ? HighlandCoastProbe.quantile(sorted, .5) : Double.NaN; }
+    }
+    /** A bay's mouth counts as narrow when it is at most this fraction of its inner width. */
+    static final double NARROW_MOUTH = .5;
+
+    static Bays bays(GeneratorContext context, int originX, int originZ, int radius) {
+        var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+        var n = network(context, originX, originZ, radius, false);
+        var arms = trace(n);
+        int gw = n.gw, count = arms.size();
+        // Open water by one-cell erosion of all water (standalone sea and arms), components touching the box border.
+        boolean[] water = new boolean[gw * gw], eroded = new boolean[gw * gw];
+        for (int at = 0; at < water.length; at++) water[at] = n.rh9Sea[at] || n.arm[at];
+        for (int j = 0; j < gw; j++) for (int i = 0; i < gw; i++) {
+            int at = j * gw + i;
+            eroded[at] = water[at] && (i == 0 || water[at - 1]) && (i == gw - 1 || water[at + 1]) && (j == 0 || water[at - gw]) && (j == gw - 1 || water[at + gw]);
+        }
+        var open = label(eroded, gw);
+        boolean[] border = borderTouching(open.id, gw, open.area.length - 1);
+        var mouth = new java.util.HashMap<Integer, Integer>();
+        var inner = new java.util.HashMap<Integer, Float>();
+        var owner = new java.util.HashMap<Integer, Long>();
+        var mixed = new java.util.HashSet<Integer>();
+        var reaches = new java.util.HashSet<Integer>();
+        for (int at = 0; at < n.arm.length; at++) {
+            if (!n.arm[at]) continue;
+            int id = n.parts.id[at], i = at % gw, j = at / gw;
+            if ((i > 0 && n.rh9Sea[at - 1]) || (i < gw - 1 && n.rh9Sea[at + 1]) || (j > 0 && n.rh9Sea[at - gw]) || (j < gw - 1 && n.rh9Sea[at + gw])) mouth.merge(id, 1, Integer::sum);
+            inner.merge(id, n.dLand[at], Math::max);
+            var site = coast.sample(n.x0 + i * GRID, n.z0 + j * GRID);
+            long key = ((long) site.ownerX() << 32) ^ (site.ownerZ() & 0xffffffffL);
+            if (owner.putIfAbsent(id, key) != null && owner.get(id) != key) mixed.add(id);
+            if (eroded[at] && border[open.id[at]]) reaches.add(id);
+        }
+        var mouths = new ArrayList<Double>();
+        var inners = new ArrayList<Double>();
+        var ratios = new ArrayList<Double>();
+        var headCounts = new int[count];
+        int branching = 0, narrow = 0, single = 0, connected = 0, k = 0;
+        for (var arm : arms) {
+            double m = (double) mouth.getOrDefault(arm.id, 0) * GRID, w = 2.0 * GRID * inner.get(arm.id);
+            mouths.add(m); inners.add(w); ratios.add(m / w);
+            headCounts[k++] = arm.heads;
+            if (arm.heads >= 2) branching++;
+            if (m <= NARROW_MOUTH * w) narrow++;
+            if (!mixed.contains(arm.id)) single++;
+            if (reaches.contains(arm.id)) connected++;
+        }
+        return new Bays(count, mouths.stream().mapToDouble(Double::doubleValue).sorted().toArray(), inners.stream().mapToDouble(Double::doubleValue).sorted().toArray(),
+            ratios.stream().mapToDouble(Double::doubleValue).sorted().toArray(), branching, narrow, single, connected, headCounts);
+    }
+
+    /** One bay census over several boxes: lists concatenated (sorted), counts summed. */
+    static Bays poolBays(List<Bays> parts) {
+        double[] mouths = parts.stream().flatMapToDouble(b -> Arrays.stream(b.mouths())).sorted().toArray();
+        double[] inners = parts.stream().flatMapToDouble(b -> Arrays.stream(b.inners())).sorted().toArray();
+        double[] ratios = parts.stream().flatMapToDouble(b -> Arrays.stream(b.ratios())).sorted().toArray();
+        return new Bays(mouths.length, mouths, inners, ratios, parts.stream().mapToInt(Bays::branching).sum(), parts.stream().mapToInt(Bays::narrowMouth).sum(),
+            parts.stream().mapToInt(Bays::singleOwner).sum(), parts.stream().mapToInt(Bays::connected).sum(), parts.stream().flatMapToInt(b -> Arrays.stream(b.heads())).toArray());
     }
 
     /** One census over several boxes: arm lists concatenated (sorted), counts summed, the widest water kept. */
@@ -711,7 +818,10 @@ final class HighlandDrownedProbe {
     private record Components(int[] id, int[] area) {}
 
     /** 4-connected components of a square mask, by iterative breadth-first fill. */
-    private static Components label(boolean[] mask, int w) {
+    private static Components label(boolean[] mask, int w) { return label(mask, w, false); }
+
+    /** Components of a square mask, 8-connected when {@code diagonal} (the connectivity of the geodesic paths), else 4-connected. */
+    private static Components label(boolean[] mask, int w, boolean diagonal) {
         int[] id = new int[mask.length], queue = new int[mask.length], area = new int[16];
         int count = 0;
         for (int start = 0; start < mask.length; start++) {
@@ -721,12 +831,14 @@ final class HighlandDrownedProbe {
             id[start] = count;
             queue[tail++] = start;
             while (head < tail) {
-                int at = queue[head++], i = at % w;
+                int at = queue[head++], i = at % w, j = at / w;
                 area[count]++;
-                if (i > 0 && mask[at - 1] && id[at - 1] == 0) { id[at - 1] = count; queue[tail++] = at - 1; }
-                if (i < w - 1 && mask[at + 1] && id[at + 1] == 0) { id[at + 1] = count; queue[tail++] = at + 1; }
-                if (at >= w && mask[at - w] && id[at - w] == 0) { id[at - w] = count; queue[tail++] = at - w; }
-                if (at + w < mask.length && mask[at + w] && id[at + w] == 0) { id[at + w] = count; queue[tail++] = at + w; }
+                for (int dj = -1; dj <= 1; dj++) for (int di = -1; di <= 1; di++) {
+                    int ni = i + di, nj = j + dj;
+                    if ((di == 0 && dj == 0) || (!diagonal && di != 0 && dj != 0) || ni < 0 || nj < 0 || ni >= w || nj >= w) continue;
+                    int next = nj * w + ni;
+                    if (mask[next] && id[next] == 0) { id[next] = count; queue[tail++] = next; }
+                }
             }
         }
         return new Components(id, Arrays.copyOf(area, count + 1));
