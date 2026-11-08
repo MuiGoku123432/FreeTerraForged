@@ -166,6 +166,22 @@ final class HighlandDrowned {
     }
 
     /**
+     * Position-only ria weight (0..1): the largest weight over the RIA (non-fjord) regions near the position; 0 when unbound.
+     * Used by the shore profile and the marsh tagging (D-16), which want the bay character, not the fjord one.
+     */
+    double ria(double x, double z) {
+        var land = this.land;
+        if (land == null) return 0;
+        var m = discs((int) Math.floor(x / REGION_SIZE), (int) Math.floor(z / REGION_SIZE));
+        double best = 0;
+        for (int n = 0; n < m.count; n++) {
+            double w = discWeight(m.cx[n], m.cz[n], m.radius[n], x, z);
+            if (w > best && !region(m.h[n], m.ci[n], m.cj[n], m.cx[n], m.cz[n]).fjord) best = w;
+        }
+        return best;
+    }
+
+    /**
      * The region with the largest weight at the position (among FJORD regions only when {@code fjordOnly}); null when
      * there is none.
      */

@@ -566,7 +566,10 @@ final class HighlandDrownedProbe {
     static final int WALL_NEAR = 64, WALL_FAR = 512, WALL_TRANSECTS = 300;
 
     /** Arm water columns (flooded land in the fjord scope) with a land neighbour, on the GRID lattice of a box, as {x, z}. */
-    static List<int[]> armShore(GeneratorContext context, int[] box, int radius) {
+    static List<int[]> armShore(GeneratorContext context, int[] box, int radius) { return armShore(context, box, radius, true); }
+
+    /** Arm shore columns of a box: fjord-scope arms, or (not {@code fjordScope}) ria bays. */
+    static List<int[]> armShore(GeneratorContext context, int[] box, int radius, boolean fjordScope) {
         var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
         var standalone = new HighlandCoast(context);
         double coastEdge = context.preset.world().controlPoints.coast;
@@ -577,7 +580,7 @@ final class HighlandDrownedProbe {
                 double x = x0 + i * GRID, z = z0 + j * GRID;
                 boolean l = coast.sample(x, z).edge() > coastEdge;
                 land[j * gw + i] = l;
-                arm[j * gw + i] = !l && standalone.sample(x, z).edge() > coastEdge && coast.drowned().fjord(x, z) >= DROWNED_WEIGHT;
+                arm[j * gw + i] = !l && standalone.sample(x, z).edge() > coastEdge && (coast.drowned().fjord(x, z) >= DROWNED_WEIGHT) == fjordScope;
             }
         });
         var shore = new ArrayList<int[]>();
@@ -649,6 +652,74 @@ final class HighlandDrownedProbe {
             }
         }
         return new Shores(samples, cliff, mouths, steps);
+    }
+
+    /**
+     * Bay shores (D-16), ria boxes pooled: {@code samples} bay shore columns (water columns of ria bays with a land neighbour),
+     * the {@code beach}-dominant ones and their dry beach widths ({@code widths}, sorted); the same for the RH9 coast outside
+     * every drowned region ({@code outsideSamples}, {@code outsideBeach}, {@code outsideWidths}, traced on the standalone coast);
+     * {@code bays} bays (traced arms) and the {@code marshBays} among them with at least {@link #MARSH_MIN} WETLAND columns on
+     * the land within {@link #MARSH_LOOK} blocks inland of their shore columns (looked up through the heightmap).
+     */
+    record BayShores(int samples, int beach, double[] widths, int outsideSamples, int outsideBeach, double[] outsideWidths, int bays, int marshBays, int marshColumns) {
+        String summary() {
+            return String.format(Locale.ROOT, "bayShores n=%d beach=%.1f%% width median=%.1f | outside n=%d beach=%.1f%% width median=%.1f | marshBays=%d of %d (%d marsh columns)",
+                samples, 100.0 * beach / Math.max(1, samples), widths.length > 0 ? HighlandCoastProbe.quantile(widths, .5) : Double.NaN,
+                outsideSamples, 100.0 * outsideBeach / Math.max(1, outsideSamples), outsideWidths.length > 0 ? HighlandCoastProbe.quantile(outsideWidths, .5) : Double.NaN,
+                marshBays, bays, marshColumns);
+        }
+    }
+    static final int MARSH_MIN = 3, MARSH_LOOK = 24, MARSH_PER_BAY = 40, MARSH_STEP = 4;
+
+    static BayShores bayShores(GeneratorContext context, int[][] boxes, int radius) {
+        var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+        var standalone = new HighlandCoast(context);
+        double coastEdge = context.preset.world().controlPoints.coast;
+        var cell = new Cell();
+        int samples = 0, beach = 0, outside = 0, outsideBeach = 0, bays = 0, marshBays = 0, marshColumns = 0;
+        var widths = new ArrayList<Double>();
+        var outsideWidths = new ArrayList<Double>();
+        for (int[] box : boxes) {
+            var n = network(context, box[0], box[1], radius, false);
+            var arms = trace(n);
+            int gw = n.gw;
+            var byBay = new java.util.HashMap<Integer, List<int[]>>();
+            for (int j = 1; j < gw - 1; j++) for (int i = 1; i < gw - 1; i++) {
+                int at = j * gw + i;
+                if (!n.arm[at] || !(n.boundLand[at - 1] || n.boundLand[at + 1] || n.boundLand[at - gw] || n.boundLand[at + gw])) continue;
+                int x = n.x0 + i * GRID, z = n.z0 + j * GRID;
+                var shore = coast.profile().shore(x, z);
+                samples++;
+                if (shore.dominant() == HighlandCoastProfile.Type.BEACH) { beach++; widths.add(shore.width()); }
+                byBay.computeIfAbsent(n.parts.id[at], k -> new ArrayList<>()).add(new int[]{x, z});
+            }
+            for (var arm : arms) {
+                bays++;
+                var shore = byBay.getOrDefault(arm.id, List.of());
+                int stride = Math.max(1, shore.size() / MARSH_PER_BAY), found = 0;
+                for (int k = 0; k < shore.size(); k += stride) {
+                    int[] at = shore.get(k);
+                    double e = coast.sample(at[0], at[1]).edge();
+                    double gx = coast.sample(at[0] + 8, at[1]).edge() - coast.sample(at[0] - 8, at[1]).edge(), gz = coast.sample(at[0], at[1] + 8).edge() - coast.sample(at[0], at[1] - 8).edge(), norm = Math.hypot(gx, gz);
+                    if (norm == 0 || !(e > 0)) continue;
+                    gx /= norm; gz /= norm;
+                    for (int d = MARSH_STEP; d <= MARSH_LOOK; d += MARSH_STEP) {
+                        context.heightmap.apply(cell.reset(), (int) Math.round(at[0] + gx * d), (int) Math.round(at[1] + gz * d), false);
+                        if (cell.terrain == etcodehome.freeterraforged.world.worldgen.cell.terrain.TerrainType.WETLAND) found++;
+                    }
+                }
+                marshColumns += found;
+                if (found >= MARSH_MIN) marshBays++;
+            }
+            for (var line : HighlandCoastProbe.coastlines(standalone, coastEdge, box[0], box[1], radius)) for (var point : line) {
+                if (coast.sample(point[0], point[1]).drowned() > 0) continue;
+                var shore = coast.profile().shore(point[0], point[1]);
+                outside++;
+                if (shore.dominant() == HighlandCoastProfile.Type.BEACH) { outsideBeach++; outsideWidths.add(shore.width()); }
+            }
+        }
+        return new BayShores(samples, beach, widths.stream().mapToDouble(Double::doubleValue).sorted().toArray(), outside, outsideBeach,
+            outsideWidths.stream().mapToDouble(Double::doubleValue).sorted().toArray(), bays, marshBays, marshColumns);
     }
 
     private static double height(GeneratorContext context, Cell cell, double x, double z) {

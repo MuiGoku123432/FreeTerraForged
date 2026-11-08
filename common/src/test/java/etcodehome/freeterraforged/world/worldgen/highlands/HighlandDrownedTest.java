@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import etcodehome.freeterraforged.world.worldgen.GeneratorContext;
 import etcodehome.freeterraforged.world.worldgen.biome.Continentalness;
 import etcodehome.freeterraforged.world.worldgen.cell.Cell;
+import etcodehome.freeterraforged.world.worldgen.cell.terrain.TerrainType;
 import etcodehome.freeterraforged.world.worldgen.densityfunction.CellSampler;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -445,6 +446,107 @@ class HighlandDrownedTest {
         assertTrue(bays.branching() >= .5 * bays.count(), "branching bays: " + bays.branching() + " of " + bays.count() + ": " + bays.summary());
         assertEquals(bays.count(), bays.singleOwner(), "bays across owners: " + bays.summary());
         assertEquals(bays.count(), bays.connected(), "bays closed to the sea: " + bays.summary());
+    }
+
+    /**
+     * D-16 (ria boxes pooled): bay shores are calmer than the open RH9 coast. The beach-dominant share of bay shore columns is at
+     * least 10 points above the share on the coast outside every drowned region, the median dry beach width of bay beaches is
+     * at most 0.7 times the open one, and at least half of the bays have marsh (WETLAND) columns on the low land inside 24 blocks
+     * of their shore (at least 3 each).
+     */
+    @Test void innerShores() throws Exception {
+        var context = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
+        var shores = HighlandDrownedProbe.bayShores(context, RIA_BOXES, SITE_RADIUS);
+        System.out.println("RH10 bay " + shores.summary());
+        assertTrue(shores.samples() >= 500 && shores.outsideSamples() >= 500, "too few shore columns: " + shores.summary());
+        double bay = (double) shores.beach() / shores.samples(), open = (double) shores.outsideBeach() / shores.outsideSamples();
+        assertTrue(bay >= open + .10, "bay shores not more beach-dominant than open coast: " + shores.summary());
+        double bayWidth = HighlandCoastProbe.quantile(shores.widths(), .5), openWidth = HighlandCoastProbe.quantile(shores.outsideWidths(), .5);
+        assertTrue(bayWidth <= .7 * openWidth, "bay beaches not smaller: " + shores.summary());
+        assertTrue(shores.marshBays() >= .5 * shores.bays(), "marsh on too few bays: " + shores.summary());
+    }
+
+    /**
+     * Shore tags in drowned regions do not change with the lookup path: at 200 or more bay shore columns (and up to 28 blocks
+     * inland of each), context.lookup.applyCell and context.heightmap.applyPrecise agree on the BEACH and WETLAND tags.
+     */
+    @Test void innerShoresArePathIndependent() throws Exception {
+        var context = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
+        var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+        var a = new Cell();
+        var b = new Cell();
+        int shoreColumns = 0, checked = 0, differ = 0, beaches = 0, marsh = 0;
+        for (int[] box : RIA_BOXES) {
+            var shore = HighlandDrownedProbe.armShore(context, box, SITE_RADIUS, false);
+            int stride = Math.max(1, shore.size() / 60);
+            for (int k = 0; k < shore.size(); k += stride) {
+                int[] at = shore.get(k);
+                double e = coast.sample(at[0], at[1]).edge();
+                double gx = coast.sample(at[0] + 8, at[1]).edge() - coast.sample(at[0] - 8, at[1]).edge(), gz = coast.sample(at[0], at[1] + 8).edge() - coast.sample(at[0], at[1] - 8).edge(), norm = Math.hypot(gx, gz);
+                if (norm == 0 || !(e > 0)) continue;
+                gx /= norm; gz /= norm;
+                shoreColumns++;
+                for (int d = 0; d <= 28; d += 4) {
+                    int x = (int) Math.round(at[0] + gx * d), z = (int) Math.round(at[1] + gz * d);
+                    context.lookup.applyCell(a.reset(), x, z, false, true);
+                    context.heightmap.applyPrecise(b.reset(), x, z, true);
+                    checked++;
+                    boolean beachA = a.terrain == TerrainType.BEACH, beachB = b.terrain == TerrainType.BEACH;
+                    boolean marshA = a.terrain == TerrainType.WETLAND, marshB = b.terrain == TerrainType.WETLAND;
+                    if (beachA) beaches++;
+                    if (marshA) marsh++;
+                    if (beachA != beachB || marshA != marshB) differ++;
+                }
+            }
+        }
+        System.out.println("RH10 bay path independence shoreColumns=" + shoreColumns + " checked=" + checked + " beach=" + beaches + " marsh=" + marsh + " differ=" + differ);
+        assertTrue(shoreColumns >= 200 && beaches > 0 && marsh > 0, "too few drowned-region shore columns: " + shoreColumns + " (beach " + beaches + ", marsh " + marsh + ")");
+        assertEquals(0, differ, differ + " of " + checked + " bay shore columns change the BEACH or WETLAND tag with the lookup path");
+    }
+
+    /**
+     * 11-05 spike (Open Question 5, A12), probe tag: the biome of marsh (WETLAND) columns on bay shores, read the way the biome
+     * censuses read it (the Field values of the column through the vanilla overworld parameter table), next to beach columns of
+     * the same shores. Writes build/rh10-marsh-biomes.txt.
+     */
+    @Tag("probe")
+    @Test void reportsMarshBiomes() throws Exception {
+        var context = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
+        var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+        var table = BiomeCensusProbe.overworld();
+        var cell = new Cell();
+        var counts = new java.util.TreeMap<String, Integer>();
+        var lines = new StringBuilder();
+        int marsh = 0, shown = 0;
+        for (int[] box : RIA_BOXES) {
+            var shore = HighlandDrownedProbe.armShore(context, box, SITE_RADIUS, false);
+            int stride = Math.max(1, shore.size() / 120);
+            for (int k = 0; k < shore.size(); k += stride) {
+                int[] at = shore.get(k);
+                double e = coast.sample(at[0], at[1]).edge();
+                double gx = coast.sample(at[0] + 8, at[1]).edge() - coast.sample(at[0] - 8, at[1]).edge(), gz = coast.sample(at[0], at[1] + 8).edge() - coast.sample(at[0], at[1] - 8).edge(), norm = Math.hypot(gx, gz);
+                if (norm == 0 || !(e > 0)) continue;
+                gx /= norm; gz /= norm;
+                for (int d = 4; d <= 24; d += 4) {
+                    int x = (int) Math.round(at[0] + gx * d), z = (int) Math.round(at[1] + gz * d);
+                    context.heightmap.apply(cell.reset(), x, z, true);
+                    boolean wet = cell.terrain == TerrainType.WETLAND;
+                    if (!wet && cell.terrain != TerrainType.BEACH) continue;
+                    float t = CellSampler.Field.TEMPERATURE.read(cell, context.heightmap), h = CellSampler.Field.MOISTURE.read(cell, context.heightmap),
+                        c = CellSampler.Field.CONTINENT.read(cell, context.heightmap), er = CellSampler.Field.EROSION.read(cell, context.heightmap), w = CellSampler.Field.WEIRDNESS.read(cell, context.heightmap);
+                    String biome = table.findValue(net.minecraft.world.level.biome.Climate.target(t, h, c, er, 0, w)).location().getPath();
+                    counts.merge((wet ? "WETLAND " : "BEACH ") + biome, 1, Integer::sum);
+                    if (wet) marsh++;
+                    if (wet && shown < 16) {
+                        shown++;
+                        lines.append(String.format(java.util.Locale.ROOT, "marsh %d,%d d=%d biome=%s t=%.2f h=%.2f c=%.2f e=%.2f w=%.2f height=%.1f%n", x, z, d, biome, t, h, c, er, w, (cell.height - context.levels.water) * context.levels.terrainScaleFactor));
+                    }
+                }
+            }
+        }
+        String out = lines + "census " + counts + "\nmarsh columns " + marsh + "\n";
+        System.out.print(out);
+        Files.writeString(Path.of("build/rh10-marsh-biomes.txt"), out);
     }
 
     private static HighlandDrownedProbe.Bays bayCensus(GeneratorContext context) {

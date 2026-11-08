@@ -41,7 +41,7 @@ public final class RollingHighlandsContinent implements Continent {
     private final RollingHighlandsSettings settings;
     private final Levels levels;
     private final double coastEdge;
-    private final long classSeed, stackSeed;
+    private final long classSeed, stackSeed, marshSeed;
     private final double coastMarker;
     /** FTF wetland chance (default 0.5) mapped onto the wetland noise threshold. */
     private final double wetlandLow;
@@ -69,6 +69,7 @@ public final class RollingHighlandsContinent implements Continent {
         this.coastEdge = context.preset.world().controlPoints.coast;
         this.classSeed = context.seed.root() * 0x9E3779B97F4A7C15L + 0x52484632L;
         this.stackSeed = mix(context.seed.root() ^ 0x5348394358L);
+        this.marshSeed = mix(context.seed.root() ^ 0x524831304DL);
         this.coastMarker = context.preset.world().controlPoints.coastMarker();
         this.river = context.preset.rivers().mainRivers;
         this.wetlandLow = .95 - clamp(context.preset.rivers().wetlands.chance, 0, 1);
@@ -423,6 +424,7 @@ public final class RollingHighlandsContinent implements Continent {
         if (cell.hasRiverWater || cell.terrain.isWetland()) return;
         double height = (cell.height - levels.water) * levels.terrainScaleFactor;
         if (height <= 0) return;
+        if (marsh(cell, height, x, z)) return;
         var profile = coast.profile().shore(x, z);
         if (profile.cliff() >= .5) return;
         if (height > HighlandCoastProfile.BERM + HighlandCoastProfile.DUNE * profile.dunes() + 1) return;
@@ -436,6 +438,25 @@ public final class RollingHighlandsContinent implements Continent {
         cell.weirdness = (float) clamp(cell.weirdness, BEACH_WEIRDNESS_MIN, BEACH_WEIRDNESS_MAX);
         if (cell.erosion >= BEACH_EROSION_MIN) cell.erosion = (float) Math.min(cell.erosion, BEACH_EROSION_MAX);
     }
+    /**
+     * RH10 calm bays (D-16): low ground at the edge of bay water is marsh, WETLAND terrain with the legacy wetland erosion,
+     * which selects a swamp-type biome. It needs a ria weight of at least MARSH_WEIGHT, ground at most MARSH_HEIGHT blocks
+     * above the water within MARSH_REACH blocks of it, no river valley (the river-mouth beach stays), and falls on the
+     * patches where a slow noise is at least MARSH_PATCH, so marsh and small beaches alternate along a bay shore. Inputs are
+     * position-only (and the ground, which every lookup path computes alike), so the tag does not depend on the path.
+     */
+    private boolean marsh(Cell cell, double height, double x, double z) {
+        if (height > MARSH_HEIGHT || cell.riverMask < MARSH_RIVER) return false;
+        if (coast.drowned().ria(x, z) < MARSH_WEIGHT || noise(marshSeed, x, z, MARSH_SCALE) < MARSH_PATCH) return false;
+        if (shoreDistance(x, z, cell.continentEdge) > MARSH_REACH) return false;
+        cell.terrain = TerrainType.WETLAND;
+        cell.erosionMask = true;
+        cell.erosion = WETLAND_EROSION;
+        cell.terrainErosion = cell.erosion;
+        return true;
+    }
+    /** Marsh: minimum ria weight, height (blocks above water) and reach from the water (blocks), river valley mask floor, patch threshold and wavelength (blocks). */
+    static final double MARSH_WEIGHT = .5, MARSH_HEIGHT = 1.5, MARSH_REACH = 24, MARSH_RIVER = .15, MARSH_PATCH = .45, MARSH_SCALE = 160;
     /**
      * RH9 M: coastal scarp weight (bluff faces from W_b, sea-cliff faces from the waterline, fading over COAST_FACE
      * blocks behind the face) and the shore's climate class, within the coastal band only.

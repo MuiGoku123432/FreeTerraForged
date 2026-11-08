@@ -45,6 +45,13 @@ public final class HighlandCoastProfile {
     /** RH10 fjord walls: how far the cliff weight moves toward 1 under a full fjord weight, and the cliff height lift toward MAX_CLIFF. */
     static final double FJORD_CLIFF = .9, FJORD_CLIFF_LIFT = 1;
 
+    /**
+     * RH10 calm bays (D-16): under a full ria weight the beach weight moves {@code RIA_BEACH} of the way to 1 (bluff and cliff
+     * shrink with it), the dry beach width shrinks to {@code RIA_WIDTH} of its value (more and smaller beaches), and scarp
+     * heights are capped at the top of the bluff range ({@link #MAX_BLUFF}), so bays have no tall sea cliffs.
+     */
+    static final double RIA_BEACH = .6, RIA_WIDTH = .6;
+
     private final long seed;
     private volatile Climate climate;
     private volatile HighlandDrowned drowned;
@@ -79,10 +86,17 @@ public final class HighlandCoastProfile {
             cliff += toward * (1 - cliff);
             bluff *= 1 - toward; beach *= 1 - toward;
         }
-        double width = (MIN_WIDTH + (MAX_WIDTH - MIN_WIDTH) * noise(seed + 3, x, z, WIDTH_SCALE)) * (1 + .4 * baja) * (1 - .2 * pnw);
+        // RH10: calm bays. Same weights-sum-to-1 move as the fjord walls, toward beach; the climate class and palette are unchanged.
+        double ria = layer == null ? 0 : layer.ria(x, z) * (1 - fjord), calm = RIA_BEACH * ria;
+        if (calm > 0) {
+            beach += calm * (1 - beach);
+            bluff *= 1 - calm; cliff *= 1 - calm;
+        }
+        double width = (MIN_WIDTH + (MAX_WIDTH - MIN_WIDTH) * noise(seed + 3, x, z, WIDTH_SCALE)) * (1 + .4 * baja) * (1 - .2 * pnw) * (1 - (1 - RIA_WIDTH) * ria);
         double n = noise(seed + 4, x, z, HEIGHT_SCALE);
         double bluffHeight = MIN_BLUFF + (MAX_BLUFF - MIN_BLUFF) * n, cliffHeight = MIN_CLIFF + (MAX_CLIFF - MIN_CLIFF) * n;
         cliffHeight += FJORD_CLIFF_LIFT * fjord * (MAX_CLIFF - cliffHeight);
+        cliffHeight += ria * (Math.min(cliffHeight, MAX_BLUFF) - cliffHeight);
         double height = bluff + cliff > 0 ? (bluff * bluffHeight + cliff * cliffHeight) / (bluff + cliff) : bluffHeight;
         return new Shore(beach, bluff, cliff, width, height, baja, hardness, temperature, moisture);
     }
