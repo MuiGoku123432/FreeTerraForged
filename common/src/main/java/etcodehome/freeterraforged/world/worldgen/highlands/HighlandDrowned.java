@@ -14,10 +14,11 @@ import etcodehome.freeterraforged.world.worldgen.GeneratorContext;
  * {@link #REGION_CHANCE}); each has a weight 1 at its core falling to 0 at its rim. Inside a region the edge is
  * pulled down toward {@link #riaTarget} along a branching valley network (ridged noise, rigidly rotated per region so
  * channels run inland along the standalone edge gradient at the region centre, stretched by {@link #ANISO}), fading
- * out {@link #ARM_REACH} blocks inland of the coast point so arms shoal toward their heads. The transform only lowers
+ * out {@link #ARM_REACH} blocks inland of the coast point so arms shoal toward their heads. Apart from the island chains
+ * (11-06, on the shelf seaward of the coast point, away from owner borders) the transform only lowers
  * the edge (it is monotone in it in fjord regions and in ria regions away from the mouth and basin terms), so land never goes below sea
  * level, skipped owners (edge 0) are untouched and the coast is bit-for-bit the RH9 coast wherever the weight or the
- * valley factor is 0. The ria mouth band and basin shift (11-05) make a ria's result non-monotone in the edge near the
+ * valley factor is 0 and no island stands. The ria mouth band and basin shift (11-05) make a ria's result non-monotone in the edge near the
  * mouth: a sill, shallower at the entrance than inside, which is what the bay shape needs and changes nothing about
  * which columns are land. The land binding is inert until {@link #bind}: an unbound instance is the identity.
  *
@@ -70,6 +71,19 @@ final class HighlandDrowned {
      * rest (fjords shoal from the coast point as before); without the plateau the arm fade kills the valley by about 1 km inland.
      */
     static final double MOUTH_LEN = 400, MOUTH_NARROW = 1, BAND_LO = 0, BAND_HI = .03, BAY_WIDEN = .4, WIDEN_FROM = .15, WIDEN_TO = .9, BAY_PLATEAU = .6;
+    /**
+     * Island chains (D-08, D-09, D-11): on the shelf seaward of the coast point of a region, flooded ridge tops are the land the
+     * drowning left standing. Blocks seaward of the coast point where islands may stand ({@code ISLAND_GAP} to the shelf edge, with
+     * {@code ISLAND_SOFT} blocks of ramp at the near end, so a channel of at least {@code ISLAND_GAP} blocks stays between them and
+     * the mainland), and how high the top of an island stands above the coast point (blocks of the coast ramp; fjord regions stand
+     * {@code ISLAND_PEAK_FJORD}, then the fjord steepening applies on top). Islands are the union of broken chains and a few broad
+     * blobs: chains follow ridged noise elongated along the coast ({@code CHAIN_ANISO}, wavelength {@code CHAIN_SCALE}, kept above
+     * {@code CHAIN_AT}..{@code CHAIN_HIGH}) cut by a gap noise (wavelength {@code GAP_SCALE}, off below {@code GAP_AT}); blobs are
+     * low-frequency noise ({@code BLOB_SCALE}) above {@code BLOB_AT}. An island weight s raises the edge to
+     * {@code edge + s (coast + peak - edge)}: continuous, shoaling toward the island, land only where s is near 1.
+     */
+    static final double ISLAND_GAP = 100, ISLAND_SOFT = 150, ISLAND_PEAK = 300, ISLAND_PEAK_FJORD = 750,
+        CHAIN_ANISO = 3, CHAIN_SCALE = 1200, CHAIN_AT = .4, CHAIN_HIGH = .7, GAP_SCALE = 700, GAP_AT = .15, BLOB_SCALE = 2400, BLOB_AT = .4;
     /** Half distance (blocks) of the central differences that orient a region. */
     private static final double GRADIENT_STEP = 256;
     /**
@@ -101,7 +115,7 @@ final class HighlandDrowned {
 
     private final HighlandCoast coast;
     private final long seed;
-    private final double coastEdge, riaTarget, fjordTarget, reachEdge, wallEdge, longReachEdge, depthFloor;
+    private final double coastEdge, riaTarget, fjordTarget, reachEdge, wallEdge, longReachEdge, depthFloor, shelfEdge;
     /** Lowest edge value the transform can change: the ria target, or the depth floor (below the fjord target) when the land has ranges. */
     private volatile double lowEdge;
     private final ThreadLocal<Memo> memo = ThreadLocal.withInitial(Memo::new);
@@ -118,6 +132,7 @@ final class HighlandDrowned {
         this.wallEdge = FJORD_WALL * HighlandCoast.EDGE_PER_BLOCK;
         this.longReachEdge = FJORD_REACH * LONG_FACTOR * HighlandCoast.EDGE_PER_BLOCK;
         this.depthFloor = Math.max(points.deepOcean, .01);
+        this.shelfEdge = points.deepOcean;
         this.lowEdge = riaTarget;
     }
 
@@ -205,7 +220,7 @@ final class HighlandDrowned {
     /** True where the transform can change an edge value: above the (lowest) arm target and inside the longest inland reach. */
     boolean inBand(double edge) {
         var land = this.land;
-        return land != null && edge > lowEdge && edge < coastEdge + (land.rangeHeight() > 0 ? Math.max(reachEdge, longReachEdge) : reachEdge);
+        return land != null && edge > Math.min(lowEdge, shelfEdge) && edge < coastEdge + (land.rangeHeight() > 0 ? Math.max(reachEdge, longReachEdge) : reachEdge);
     }
 
     /**
@@ -238,19 +253,64 @@ final class HighlandDrowned {
             if (w > fjord && region(m.h[n], m.ci[n], m.cj[n], m.cx[n], m.cz[n]).fjord) fjord = w;
         }
         if (weight <= 0) return new At(edge, 0);
-        double steep = steepen(edge, fjord), lowering = 0;
+        double raised = raise(m, rawX, rawZ, edge);
+        double steep = steepen(raised, fjord), lowering = 0;
         for (int n = 0; n < m.count; n++) {
             double w = discWeight(m.cx[n], m.cz[n], m.radius[n], rawX, rawZ);
             if (w <= 0) continue;
             var region = region(m.h[n], m.ci[n], m.cj[n], m.cx[n], m.cz[n]);
-            double fade = edge <= coastEdge ? 1 : 1 - smooth(region.fjord ? 0 : BAY_PLATEAU * region.reach, region.reach, edge - coastEdge);
+            double fade = raised <= coastEdge ? 1 : 1 - smooth(region.fjord ? 0 : BAY_PLATEAU * region.reach, region.reach, raised - coastEdge);
             if (w * fade <= 0) continue;
-            double k = w * fade * valley(region, rawX, rawZ, bayWiden(region, edge - coastEdge), bayNarrow(region, edge - coastEdge));
+            double k = w * fade * valley(region, rawX, rawZ, bayWiden(region, raised - coastEdge), bayNarrow(region, raised - coastEdge));
             lowering = Math.min(lowering, k * (region.target - steep));
         }
         double result = steep + lowering;
         if (fjord > 0 && result < coastEdge) result = Math.max(Math.min(result, depthFloor), coastEdge - (1 + (FJORD_DEPTH - 1) * fjord) * (coastEdge - result));
         return new At(result, weight);
+    }
+
+    /**
+     * The standalone edge with the island chains of the regions around raised in (see {@link #ISLAND_PEAK}): the largest result
+     * over the regions; the edge itself outside the shelf window or where no island stands.
+     */
+    private double raise(Memo m, double x, double z, double edge) {
+        double window = smooth(shelfEdge, shelfEdge + ISLAND_SOFT * HighlandCoast.EDGE_PER_BLOCK, edge)
+            * (1 - smooth(coastEdge - (ISLAND_GAP + ISLAND_SOFT) * HighlandCoast.EDGE_PER_BLOCK, coastEdge - ISLAND_GAP * HighlandCoast.EDGE_PER_BLOCK, edge));
+        if (window <= 0) return edge;
+        double best = edge;
+        for (int n = 0; n < m.count; n++) {
+            double w = discWeight(m.cx[n], m.cz[n], m.radius[n], x, z);
+            if (w <= 0) continue;
+            var region = region(m.h[n], m.ci[n], m.cj[n], m.cx[n], m.cz[n]);
+            double s = w * window * island(region, x, z);
+            if (s <= 0) continue;
+            double peak = (region.fjord ? ISLAND_PEAK_FJORD : ISLAND_PEAK) * HighlandCoast.EDGE_PER_BLOCK;
+            best = Math.max(best, edge + s * (coastEdge + peak - edge));
+        }
+        return best;
+    }
+
+    /** Island weight 0..1 of one region at a position: broken chains along the coast (rotated rigidly about the region centre) and broad blobs. */
+    private static double island(Region region, double x, double z) {
+        double dx = x - region.cx, dz = z - region.cz;
+        double along = dx * region.gx + dz * region.gz, across = -dx * region.gz + dz * region.gx;
+        double chain = smooth(CHAIN_AT, CHAIN_HIGH, ridge(0x5248313048L, across / CHAIN_ANISO + region.ox, along + region.oz, CHAIN_SCALE, 1))
+            * smooth(GAP_AT, GAP_AT + .15, noise(0x5248313049L, x, z, GAP_SCALE));
+        double blob = smooth(BLOB_AT, BLOB_AT + .1, noise(0x524831304AL, x, z, BLOB_SCALE));
+        return Math.max(chain, blob);
+    }
+
+    /** Island weight (0..1) at a position: the footprint of the island chains, 0 where the edge is not raised (used by the identity gate). */
+    double island(double x, double z) {
+        var land = this.land;
+        if (land == null) return 0;
+        var m = discs((int) Math.floor(x / REGION_SIZE), (int) Math.floor(z / REGION_SIZE));
+        double best = 0;
+        for (int n = 0; n < m.count; n++) {
+            double w = discWeight(m.cx[n], m.cz[n], m.radius[n], x, z);
+            if (w > 0) best = Math.max(best, w * island(region(m.h[n], m.ci[n], m.cj[n], m.cx[n], m.cz[n]), x, z));
+        }
+        return best;
     }
 
     /**

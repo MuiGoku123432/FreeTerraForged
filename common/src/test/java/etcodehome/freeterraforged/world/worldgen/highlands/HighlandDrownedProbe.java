@@ -735,6 +735,142 @@ final class HighlandDrownedProbe {
             outsideWidths.stream().mapToDouble(Double::doubleValue).sorted().toArray(), bays, marshBays, marshColumns);
     }
 
+    /**
+     * Islands of a drowned scope in a box (11-06): land components (4-connected on the GRID lattice, not touching the box
+     * border, at least {@link #MIN_ISLAND} cells) with at least half of their cells in the scope (fjord weight, or ria weight
+     * where there is no fjord weight, at least {@link #DROWNED_WEIGHT}). Per island, sorted by nothing: equivalent diameter
+     * (blocks), top height and steepest lattice slope (real column lookups, blocks above water and per block), whether a
+     * channel plan node with the creek area or river water lies on it, and whether another island is within
+     * {@link #CHAIN_GAP}. {@code regionArea} is the scope's area (land and sea, blocks2).
+     */
+    record Islands(int count, double[] diameters, double[] tops, double[] steepest, boolean[] chained, boolean[] creek, double regionArea) {
+        int under(double lo, double hi) {
+            int n = 0;
+            for (double d : diameters) if (d >= lo && d < hi) n++;
+            return n;
+        }
+        int chainedCount() { int n = 0; for (boolean c : chained) if (c) n++; return n; }
+        int creekCount(double lo, double hi) {
+            int n = 0;
+            for (int k = 0; k < count; k++) if (creek[k] && diameters[k] >= lo && diameters[k] < hi) n++;
+            return n;
+        }
+        double per25km2(double lo, double hi) { return regionArea > 0 ? under(lo, hi) * 25e6 / regionArea : Double.NaN; }
+        double medianTop() { return Islands.median(tops); }
+        double medianSteepest() { return Islands.median(steepest); }
+        private static double median(double[] values) {
+            double[] sorted = values.clone();
+            Arrays.sort(sorted);
+            return sorted.length > 0 ? HighlandCoastProbe.quantile(sorted, .5) : Double.NaN;
+        }
+        String summary() {
+            return String.format(Locale.ROOT, "islands=%d region=%.1fkm2 sizes(<300,<1000,<3000,more)=%d/%d/%d/%d big(1-3km)/25km2=%.2f chained=%d creek(<1km)=%d creek(1km+)=%d of %d top median=%.1f steepest median=%.3f",
+                count, regionArea / 1e6, under(0, 300), under(300, 1000), under(1000, 3000), under(3000, Double.MAX_VALUE), per25km2(1000, 3000), chainedCount(),
+                creekCount(0, 1000), creekCount(1000, Double.MAX_VALUE), under(1000, Double.MAX_VALUE), medianTop(), medianSteepest());
+        }
+    }
+    /** Smallest island the census counts (lattice cells): smaller specks are noise of the lattice, not islands. */
+    static final int MIN_ISLAND = 4;
+
+    static Islands islands(GeneratorContext context, int originX, int originZ, int radius, boolean fjordScope) {
+        var continent = (RollingHighlandsContinent) context.heightmap.continent();
+        var coast = continent.coast();
+        var drowned = coast.drowned();
+        double coastEdge = context.preset.world().controlPoints.coast;
+        int gw = 2 * radius / GRID + 1, x0 = originX - radius, z0 = originZ - radius;
+        boolean[] land = new boolean[gw * gw], scoped = new boolean[gw * gw];
+        IntStream.range(0, gw).parallel().forEach(j -> {
+            for (int i = 0; i < gw; i++) {
+                double x = x0 + i * GRID, z = z0 + j * GRID;
+                land[j * gw + i] = coast.sample(x, z).edge() > coastEdge;
+                double fjord = drowned.fjord(x, z);
+                scoped[j * gw + i] = fjordScope ? fjord >= DROWNED_WEIGHT : fjord < DROWNED_WEIGHT && drowned.ria(x, z) >= DROWNED_WEIGHT;
+            }
+        });
+        double regionArea = 0;
+        for (boolean s : scoped) if (s) regionArea += (double) GRID * GRID;
+        var parts = label(land, gw);
+        boolean[] border = borderTouching(parts.id, gw, parts.area.length - 1);
+        int[] inScope = new int[parts.area.length];
+        for (int at = 0; at < land.length; at++) if (land[at] && scoped[at]) inScope[parts.id[at]]++;
+        var kept = new ArrayList<Integer>();
+        for (int id = 1; id < parts.area.length; id++) if (!border[id] && parts.area[id] >= MIN_ISLAND && inScope[id] * 2 >= parts.area[id]) kept.add(id);
+        int count = kept.size();
+        var slot = new java.util.HashMap<Integer, Integer>();
+        for (int k = 0; k < count; k++) slot.put(kept.get(k), k);
+        double[] diameters = new double[count], tops = new double[count], steepest = new double[count];
+        boolean[] chained = new boolean[count], creek = new boolean[count];
+        var cell = new Cell();
+        double[] heights = new double[gw * gw];
+        Arrays.fill(heights, Double.NaN);
+        // Column lookups grouped by owner: the continent keeps only a few owner plans, and alternating owners row by row would rebuild them.
+        var byOwner = new java.util.TreeMap<Long, List<Integer>>();
+        for (int at = 0; at < land.length; at++) {
+            if (!land[at] || !slot.containsKey(parts.id[at])) continue;
+            var s = coast.sample(x0 + at % gw * GRID, z0 + at / gw * GRID);
+            byOwner.computeIfAbsent(((long) s.ownerX() << 32) ^ (s.ownerZ() & 0xffffffffL), key -> new ArrayList<>()).add(at);
+        }
+        for (var cells : byOwner.values()) for (int at : cells) {
+            Integer k = slot.get(parts.id[at]);
+            int i = at % gw, j = at / gw;
+            context.lookup.applyCell(cell.reset(), x0 + i * GRID, z0 + j * GRID, false, true);
+            double h = (cell.height - context.levels.water) * context.levels.terrainScaleFactor;
+            heights[at] = h;
+            tops[k] = Math.max(tops[k], h);
+            if (cell.hasRiverWater) creek[k] = true;
+        }
+        int reach = CHAIN_GAP / GRID;
+        for (int at = 0; at < land.length; at++) {
+            int id = parts.id[at];
+            Integer k = slot.get(id);
+            if (!land[at] || k == null) continue;
+            int i = at % gw, j = at / gw;
+            if (i + 1 < gw && parts.id[at + 1] == id) steepest[k] = Math.max(steepest[k], Math.abs(heights[at + 1] - heights[at]) / GRID);
+            if (j + 1 < gw && parts.id[at + gw] == id) steepest[k] = Math.max(steepest[k], Math.abs(heights[at + gw] - heights[at]) / GRID);
+            if (chained[k]) continue;
+            search:
+            for (int dj = -reach; dj <= reach; dj++) for (int di = -reach; di <= reach; di++) {
+                int nj = j + dj, ni = i + di;
+                if (nj < 0 || ni < 0 || nj >= gw || ni >= gw || Math.hypot(di, dj) * GRID > CHAIN_GAP) continue;
+                int other = parts.id[nj * gw + ni];
+                if (other == 0 || other == id || border[other]) continue;
+                chained[k] = true;
+                Integer o = slot.get(other);
+                if (o != null) chained[o] = true;
+                break search;
+            }
+        }
+        for (int k = 0; k < count; k++) diameters[k] = 2 * Math.sqrt(parts.area[kept.get(k)] * (double) GRID * GRID / Math.PI);
+        // Channel plan nodes with at least the creek area: a drawn creek (or river) on the island.
+        double creekArea = continent.drainage().creekArea();
+        for (var cells : byOwner.values()) {
+            int first = cells.get(0);
+            var s = coast.sample(x0 + first % gw * GRID, z0 + first / gw * GRID);
+            for (var node : continent.planOf(s.ownerX(), s.ownerZ()).plan().nodes()) {
+                if (node.area() < creekArea) continue;
+                int i = (int) Math.round((node.x() - x0) / GRID), j = (int) Math.round((node.z() - z0) / GRID);
+                if (i < 0 || j < 0 || i >= gw || j >= gw) continue;
+                Integer k = slot.get(parts.id[j * gw + i]);
+                if (k != null && land[j * gw + i]) creek[k] = true;
+            }
+        }
+        return new Islands(count, diameters, tops, steepest, chained, creek, regionArea);
+    }
+
+    /** One island census over several boxes: lists concatenated, region areas summed. */
+    static Islands poolIslands(List<Islands> parts) {
+        int count = parts.stream().mapToInt(Islands::count).sum();
+        boolean[] chained = new boolean[count], creek = new boolean[count];
+        int at = 0;
+        for (var part : parts) {
+            System.arraycopy(part.chained(), 0, chained, at, part.count());
+            System.arraycopy(part.creek(), 0, creek, at, part.count());
+            at += part.count();
+        }
+        return new Islands(count, parts.stream().flatMapToDouble(p -> Arrays.stream(p.diameters())).toArray(), parts.stream().flatMapToDouble(p -> Arrays.stream(p.tops())).toArray(),
+            parts.stream().flatMapToDouble(p -> Arrays.stream(p.steepest())).toArray(), chained, creek, parts.stream().mapToDouble(Islands::regionArea).sum());
+    }
+
     private static double height(GeneratorContext context, Cell cell, double x, double z) {
         context.lookup.applyCell(cell.reset(), (int) Math.round(x), (int) Math.round(z), false, true);
         return (cell.height - context.levels.water) * context.levels.terrainScaleFactor;

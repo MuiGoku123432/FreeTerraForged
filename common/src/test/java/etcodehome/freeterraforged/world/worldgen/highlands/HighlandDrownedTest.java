@@ -57,7 +57,7 @@ class HighlandDrownedTest {
 
     /**
      * D-02: where the bound coast reports no drowned region its edge is bit-for-bit the unbound standalone (RH9)
-     * coast edge; inside a region the edge is never raised. Share half: regions cover 20-30% of the RH9 coastline
+     * coast edge; inside a region the edge is never raised, except under the island chains (11-06). Share half: regions cover 20-30% of the RH9 coastline
      * (traced on the unbound coast) in the user box and in the ROCKIES box.
      */
     @Test void drownedShareAndIdentity() throws Exception {
@@ -75,7 +75,7 @@ class HighlandDrownedTest {
                 assertEquals(Double.doubleToLongBits(reference), Double.doubleToLongBits(sample.edge()), "edge differs outside drowned regions at " + x + "," + z);
             } else {
                 inside++;
-                assertTrue(sample.edge() <= reference, "drowned edge above the RH9 edge at " + x + "," + z);
+                assertTrue(sample.edge() <= reference || bound.drowned().island(x, z) > 0, "drowned edge above the RH9 edge outside the island footprints at " + x + "," + z);
                 if (sample.edge() < reference) lowered++;
             }
         }
@@ -589,6 +589,103 @@ class HighlandDrownedTest {
         }
         System.out.print(out);
         Files.writeString(Path.of("build/rh10-bays.txt"), out);
+    }
+
+    /**
+     * D-08, D-09 (ria boxes on the user world and fjord boxes on ROCKIES, islands pooled): at least one island of 1-3 km across per
+     * 25 km2 of drowned region, at least 60% of the islands under 1 km, at least half of the islands within CHAIN_GAP of another
+     * (chains), and islands in both scopes.
+     */
+    @Test void islandsMixAndChains() throws Exception {
+        var census = islandCensus();
+        var all = HighlandDrownedProbe.poolIslands(List.of(census.ria, census.fjord));
+        System.out.println("RH10 islands ria " + census.ria.summary() + "\nRH10 islands fjord " + census.fjord.summary() + "\nRH10 islands pooled " + all.summary());
+        assertTrue(census.ria.count() > 0 && census.fjord.count() > 0, "no islands in a scope: ria " + census.ria.count() + " fjord " + census.fjord.count());
+        assertTrue(all.per25km2(1000, 3000) >= 1, "islands of 1-3 km per 25 km2 of drowned region: " + all.per25km2(1000, 3000) + ": " + all.summary());
+        assertTrue(all.under(0, 1000) >= .6 * all.count(), "islands under 1 km: " + all.under(0, 1000) + " of " + all.count());
+        assertTrue(all.chainedCount() >= .5 * all.count(), "islands within " + HighlandDrownedProbe.CHAIN_GAP + " blocks of another: " + all.chainedCount() + " of " + all.count());
+    }
+
+    /** D-11: island relief follows the drowned land: the median island top in fjord country is at least twice that in bay country, and its median steepest slope is higher. */
+    @Test void islandsReliefFollowsDrownedLand() throws Exception {
+        var census = islandCensus();
+        System.out.printf(java.util.Locale.ROOT, "RH10 island relief fjord top=%.1f steepest=%.3f ria top=%.1f steepest=%.3f%n",
+            census.fjord.medianTop(), census.fjord.medianSteepest(), census.ria.medianTop(), census.ria.medianSteepest());
+        assertTrue(census.fjord.medianTop() >= 2 * census.ria.medianTop(), "island tops: fjord " + census.fjord.medianTop() + " vs ria " + census.ria.medianTop());
+        assertTrue(census.fjord.medianSteepest() > census.ria.medianSteepest(), "island slopes: fjord " + census.fjord.medianSteepest() + " vs ria " + census.ria.medianSteepest());
+    }
+
+    /**
+     * D-12: small islands are dry. No island under 1 km has a channel plan node with at least the creek area or any river or lake
+     * water on it; the share of islands of 1 km or more that do is printed (recorded, not gated).
+     */
+    @Test void islandsSmallAreDry() throws Exception {
+        var census = islandCensus();
+        var all = HighlandDrownedProbe.poolIslands(List.of(census.ria, census.fjord));
+        System.out.printf(java.util.Locale.ROOT, "RH10 island water: under 1 km %d of %d wet; 1 km and more %d of %d wet%n",
+            all.creekCount(0, 1000), all.under(0, 1000), all.creekCount(1000, Double.MAX_VALUE), all.under(1000, Double.MAX_VALUE));
+        assertEquals(0, all.creekCount(0, 1000), "islands under 1 km with a creek, river or lake: " + all.creekCount(0, 1000) + " of " + all.under(0, 1000));
+    }
+
+    /** Agreed 11-03 navigable target: at least 95% of the drowned-scope sea (islands included) lies in water that reaches the open sea through channels of 6 blocks or more. */
+    static final double NAVIGABLE_TARGET = .95;
+
+    /** RH10-08: channels between islands stay boatable: the drowned-scope navigable share holds the agreed target at the ria site (user world) and the fjord site (ROCKIES). */
+    @Test void navigableChannels() throws Exception {
+        var user = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
+        var ria = HighlandDrownedProbe.measure(user, RIA_SITE_X, RIA_SITE_Z, SITE_RADIUS).drowned();
+        try (var rockies = WorldgenFixture.context(BiomeCensusProbe.rockies(), HighlandPlanformProbe.USER_SEED)) {
+            var fjord = HighlandDrownedProbe.measure(rockies, FJORD_SITE_X, FJORD_SITE_Z, SITE_RADIUS).drowned();
+            var arm = HighlandDrownedProbe.measure(rockies, FJORD_ARM_SITE_X, FJORD_ARM_SITE_Z, SITE_RADIUS).drowned();
+            System.out.printf(java.util.Locale.ROOT, "RH10 navigable ria=%.1f%% fjord=%.1f%% fjord arm site=%.1f%%%n", 100 * ria.navigableShare(), 100 * fjord.navigableShare(), 100 * arm.navigableShare());
+            assertTrue(ria.navigableShare() >= NAVIGABLE_TARGET && fjord.navigableShare() >= NAVIGABLE_TARGET && arm.navigableShare() >= NAVIGABLE_TARGET,
+                "navigable share under " + NAVIGABLE_TARGET + ": ria " + ria.navigableShare() + " fjord " + fjord.navigableShare() + " arm site " + arm.navigableShare());
+        }
+    }
+
+    /** The island censuses of the two scopes, taken once (every gate that needs them reads the same one). */
+    private record IslandCensus(HighlandDrownedProbe.Islands ria, HighlandDrownedProbe.Islands fjord) {}
+    private static IslandCensus islandCensus;
+
+    private static synchronized IslandCensus islandCensus() throws Exception {
+        if (islandCensus == null) {
+            var user = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
+            try (var rockies = WorldgenFixture.context(BiomeCensusProbe.rockies(), HighlandPlanformProbe.USER_SEED)) {
+                islandCensus = new IslandCensus(riaIslands(user), fjordIslands(rockies));
+            }
+        }
+        return islandCensus;
+    }
+
+    /** Island census over the ria boxes (user world, ria scope) and over the fjord boxes (ROCKIES, fjord scope). */
+    private static HighlandDrownedProbe.Islands riaIslands(GeneratorContext context) {
+        var parts = new ArrayList<HighlandDrownedProbe.Islands>();
+        for (int[] box : RIA_BOXES) parts.add(HighlandDrownedProbe.islands(context, box[0], box[1], SITE_RADIUS, false));
+        return HighlandDrownedProbe.poolIslands(parts);
+    }
+
+    private static HighlandDrownedProbe.Islands fjordIslands(GeneratorContext rockies) {
+        var parts = new ArrayList<HighlandDrownedProbe.Islands>();
+        for (int[] box : FJORD_BOXES) parts.add(HighlandDrownedProbe.islands(rockies, box[0], box[1], SITE_RADIUS, true));
+        return HighlandDrownedProbe.poolIslands(parts);
+    }
+
+    /** 11-06: island census per scope and the drowned-scope navigable share at the two sites (probe tag): build/rh10-islands.txt. */
+    @Tag("probe")
+    @Test void reportsIslands() throws Exception {
+        var context = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
+        var out = new StringBuilder();
+        for (int[] box : RIA_BOXES) out.append("ria box " + box[0] + "," + box[1] + " " + HighlandDrownedProbe.islands(context, box[0], box[1], SITE_RADIUS, false).summary() + "\n");
+        out.append("ria pooled " + riaIslands(context).summary() + "\n");
+        out.append("ria navigable " + HighlandDrownedProbe.measure(context, RIA_SITE_X, RIA_SITE_Z, SITE_RADIUS).drowned().summary() + "\n");
+        try (var rockies = WorldgenFixture.context(BiomeCensusProbe.rockies(), HighlandPlanformProbe.USER_SEED)) {
+            for (int[] box : FJORD_BOXES) out.append("fjord box " + box[0] + "," + box[1] + " " + HighlandDrownedProbe.islands(rockies, box[0], box[1], SITE_RADIUS, true).summary() + "\n");
+            out.append("fjord pooled " + fjordIslands(rockies).summary() + "\n");
+            out.append("fjord navigable " + HighlandDrownedProbe.measure(rockies, FJORD_SITE_X, FJORD_SITE_Z, SITE_RADIUS).drowned().summary() + "\n");
+            out.append("fjord arm site navigable " + HighlandDrownedProbe.measure(rockies, FJORD_ARM_SITE_X, FJORD_ARM_SITE_Z, SITE_RADIUS).drowned().summary() + "\n");
+        }
+        System.out.print(out);
+        Files.writeString(Path.of("build/rh10-islands" + System.getenv().getOrDefault("FTF_ISLANDS_TAG", "") + ".txt"), out.toString());
     }
 
     private static HighlandDrownedProbe.Fjords fjordCensus(GeneratorContext rockies) {
