@@ -2,7 +2,12 @@
 
 Deferred ideas and findings. Not scheduled; nothing here is a requirement until promoted to a plan.
 
-## Islands and archipelagos (Deferred, 2026-11-02)
+## Islands and archipelagos (Delivered in RH10, 2026-11-08; was deferred 2026-11-02)
+
+**Delivered:** option B as an edge-field transform in RH10 (model 9): drowned regions (rias and fjords), island chains,
+sparse open-sea islands, built from the existing coast edge field with no FTF archipelago code. Option A (re-enabling the
+upstream archipelago overlay) stays rejected. See IMPLEMENTATION.md item 10 for the as-built values and known limits.
+The analysis below is kept as history.
 
 Current state (code reading, not in-game verified):
 
