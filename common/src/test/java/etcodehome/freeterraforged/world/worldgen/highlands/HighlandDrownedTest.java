@@ -68,6 +68,46 @@ class HighlandDrownedTest {
             String.format(java.util.Locale.ROOT, "drowned share outside 20-30%%: user=%.1f%% rockies=%.1f%%", 100 * user, 100 * rockies));
     }
 
+    /**
+     * D-01: fjord weight exists only under FJORD regions, whose anchors are PNW coast with a range core nearby. In the ROCKIES
+     * fjord site box at least one region is a fjord, and every point with fjord weight has such an anchor.
+     */
+    @Test void fjordsOnlyWhereRangesMeetCoolCoast() throws Exception {
+        try (var rockies = WorldgenFixture.context(BiomeCensusProbe.rockies(), HighlandPlanformProbe.USER_SEED)) {
+            var coast = ((RollingHighlandsContinent) rockies.heightmap.continent()).coast();
+            var drowned = coast.drowned();
+            var land = drowned.land();
+            int fjordPoints = 0;
+            for (int z = FJORD_SITE_Z - SITE_RADIUS; z <= FJORD_SITE_Z + SITE_RADIUS; z += 64) for (int x = FJORD_SITE_X - SITE_RADIUS; x <= FJORD_SITE_X + SITE_RADIUS; x += 64) {
+                if (drowned.fjord(x, z) <= 0) continue;
+                fjordPoints++;
+                var region = drowned.dominant(x, z, true);
+                String where = x + "," + z;
+                assertTrue(region != null && region.fjord(), "no fjord region under fjord weight at " + where);
+                assertEquals(HighlandCoastProfile.PNW, coast.profile().climateClassAt(region.cx(), region.cz()), "fjord anchor is not PNW at " + where);
+                double half = HighlandDrowned.REGION_SIZE / 2, core = land.rangeCore(region.cx(), region.cz());
+                for (double[] probe : new double[][]{{half, 0}, {-half, 0}, {0, half}, {0, -half}})
+                    core = Math.max(core, land.rangeCore(region.cx() + probe[0], region.cz() + probe[1]));
+                assertTrue(core >= HighlandDrowned.FJORD_RANGE_CORE, "fjord anchor without a range core at " + where + ": " + core);
+            }
+            assertTrue(fjordPoints > 0, "no fjord region in the ROCKIES fjord site box");
+        }
+    }
+
+    /** D-03: the low Rolling world (no ranges) gets rias only: fjord weight is 0 at 100,000 random points while drowned regions exist. */
+    @Test void lowWorldGetsRiasOnly() throws Exception {
+        var context = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
+        var drowned = ((RollingHighlandsContinent) context.heightmap.continent()).coast().drowned();
+        var random = new Random(23);
+        int rias = 0;
+        for (int i = 0; i < 100_000; i++) {
+            double x = SITE_X + (random.nextDouble() * 2 - 1) * 40_000, z = SITE_Z + (random.nextDouble() * 2 - 1) * 40_000;
+            assertEquals(0, drowned.fjord(x, z), "fjord weight in the low world at " + x + "," + z);
+            if (drowned.weight(x, z) > 0) rias++;
+        }
+        assertTrue(rias > 0, "no drowned regions in the low world");
+    }
+
     /** Pitfall 4: plans build without exceptions where regions meet the coast, on the user seed and four other seeds. */
     @Test void plansBuildOnFiveSeeds() throws Exception {
         long[] seeds = {HighlandPlanformProbe.USER_SEED, 1L, 42L, -314159L, 20261107L};

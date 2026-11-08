@@ -81,8 +81,19 @@ public final class HighlandCoastProfile {
     /** Coast climate classes (A-3): middle (0, also off the coast), cool/wet, warm/dry. */
     public static final byte CALIFORNIA = 0, PNW = 1, BAJA = 2;
     /** Climate class of a shore: PNW or Baja where that lean is more than half on, otherwise California. */
-    public static byte climateClass(Shore shore) {
-        double lean = (shore.moisture() - shore.temperature()) * .5;
+    public static byte climateClass(Shore shore) { return classOf(shore.moisture(), shore.temperature()); }
+    /**
+     * Climate class at a position from the raw regional climate alone (CALIFORNIA when no climate is bound). It does not
+     * evaluate {@link #shore}, so RH10 region typing can use it where the shore itself reads the drowned layer.
+     */
+    byte climateClassAt(double x, double z) {
+        var source = climate;
+        if (source == null) return CALIFORNIA;
+        var raw = source.sampleRegional((float) x, (float) z);
+        return classOf(raw.moisture(), raw.temperature());
+    }
+    private static byte classOf(double moisture, double temperature) {
+        double lean = (moisture - temperature) * .5;
         return smooth(.05, .45, lean) > .5 ? PNW : smooth(.05, .45, -lean) > .5 ? BAJA : CALIFORNIA;
     }
     /** Dry beach in front of a bluff's scarp (blocks): half the beach width, 8-20 (A-1). */

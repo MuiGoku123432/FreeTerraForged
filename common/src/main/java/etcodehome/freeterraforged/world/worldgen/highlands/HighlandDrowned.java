@@ -17,6 +17,11 @@ import etcodehome.freeterraforged.world.worldgen.GeneratorContext;
  * the edge and is monotone in it, so land never goes below sea level, skipped owners (edge 0) are untouched and the
  * coast is bit-for-bit the RH9 coast wherever the weight or the valley factor is 0. The land binding is inert until
  * {@link #bind}: an unbound instance is the identity.
+ *
+ * <p>Each region is typed once, at its anchor (memoized with its orientation): FJORD where the land has ranges, the
+ * regional climate at the region centre is PNW and a range core stands within {@link #REGION_SIZE}/2 of the centre
+ * (D-01), otherwise RIA (D-03). Typing reads {@link HighlandCoastProfile#climateClassAt} (raw climate), never the
+ * shore, so the shore may read {@link #fjord} without recursion.
  */
 final class HighlandDrowned {
     /** Region cell size and chance, disc radius (fraction of the cell size, plus its jitter) and the share of it that is full weight. */
@@ -25,6 +30,8 @@ final class HighlandDrowned {
     static final double ANISO = 2.5, TRUNK_SCALE = 2000, BRANCH_SCALE = 700, BRANCH_WEIGHT = .8, VALLEY_LOW = .45, VALLEY_HIGH = .85;
     /** Blocks inland of the coast point over which arms shoal, and how far below the beach point arm water sits (fraction of beach to shallow ocean). */
     static final double ARM_REACH = 2500, DROWN_MARGIN = .3;
+    /** Range core (0..1) a region needs within half a region of its centre to be a fjord region. */
+    static final double FJORD_RANGE_CORE = .25;
     /** Half distance (blocks) of the central differences that orient a region. */
     private static final double GRADIENT_STEP = 256;
     /**
@@ -38,7 +45,8 @@ final class HighlandDrowned {
 
     /** Transformed edge value and the drowned-region weight (0..1) at the position. */
     record At(double edge, double drowned) {}
-    private record Region(int i, int j, double cx, double cz, double radius, double gx, double gz, double ox, double oz) {}
+    /** A region anchor: centre, disc radius, inland direction (unit), noise offsets and its type (fjord, else ria). */
+    record Region(int i, int j, double cx, double cz, double radius, double gx, double gz, double ox, double oz, boolean fjord) {}
     /**
      * Per-thread memos: the orientation of recently used regions, and the active discs of the 3x3 cells around the last
      * cell looked up (consecutive samples almost always share a cell, so the neighbour hashing is done once).
@@ -96,6 +104,40 @@ final class HighlandDrowned {
         return best;
     }
 
+    /**
+     * Position-only fjord weight (0..1): the largest weight over the FJORD regions near the position; 0 when unbound or
+     * when the land has no ranges.
+     */
+    double fjord(double x, double z) {
+        var land = this.land;
+        if (land == null || land.rangeHeight() <= 0) return 0;
+        var m = discs((int) Math.floor(x / REGION_SIZE), (int) Math.floor(z / REGION_SIZE));
+        double best = 0;
+        for (int n = 0; n < m.count; n++) {
+            double w = discWeight(m.cx[n], m.cz[n], m.radius[n], x, z);
+            if (w > best && region(m.h[n], m.ci[n], m.cj[n], m.cx[n], m.cz[n]).fjord) best = w;
+        }
+        return best;
+    }
+
+    /**
+     * The region with the largest weight at the position (among FJORD regions only when {@code fjordOnly}); null when
+     * there is none.
+     */
+    Region dominant(double x, double z, boolean fjordOnly) {
+        var m = discs((int) Math.floor(x / REGION_SIZE), (int) Math.floor(z / REGION_SIZE));
+        Region best = null;
+        double bestWeight = 0;
+        for (int n = 0; n < m.count; n++) {
+            double w = discWeight(m.cx[n], m.cz[n], m.radius[n], x, z);
+            if (w <= bestWeight) continue;
+            var region = region(m.h[n], m.ci[n], m.cj[n], m.cx[n], m.cz[n]);
+            if (fjordOnly && !region.fjord) continue;
+            best = region; bestWeight = w;
+        }
+        return best;
+    }
+
     /** True where the transform can change an edge value: above the arm target and inside the inland reach. */
     boolean inBand(double edge) { return land != null && edge > riaTarget && edge < coastEdge + reachEdge; }
 
@@ -141,10 +183,20 @@ final class HighlandDrowned {
             double angle = 2 * Math.PI * unit(mix(h + 5));
             gx = Math.cos(angle); gz = Math.sin(angle);
         } else { gx /= norm; gz /= norm; }
-        var region = new Region(i, j, cx, cz, radius(h), gx, gz, 1e4 * unit(mix(h + 6)), 1e4 * unit(mix(h + 7)));
+        var region = new Region(i, j, cx, cz, radius(h), gx, gz, 1e4 * unit(mix(h + 6)), 1e4 * unit(mix(h + 7)), fjordAnchor(cx, cz));
         m.slots[m.next] = region;
         m.next = (m.next + 1) % MEMO;
         return region;
+    }
+
+    /** D-01 typing: ranges in the land, PNW climate at the centre, and a range core at the centre or one of four probes half a region away. */
+    private boolean fjordAnchor(double cx, double cz) {
+        var land = this.land;
+        if (land == null || land.rangeHeight() <= 0 || coast.profile().climateClassAt(cx, cz) != HighlandCoastProfile.PNW) return false;
+        double half = REGION_SIZE / 2, core = land.rangeCore(cx, cz);
+        core = Math.max(core, Math.max(land.rangeCore(cx + half, cz), land.rangeCore(cx - half, cz)));
+        core = Math.max(core, Math.max(land.rangeCore(cx, cz + half), land.rangeCore(cx, cz - half)));
+        return core >= FJORD_RANGE_CORE;
     }
 
     private long hash(int i, int j) { return mix(seed ^ (i * 0x9e3779b97f4a7c15L) ^ (j * 0x632be59bd9b4e019L)); }
