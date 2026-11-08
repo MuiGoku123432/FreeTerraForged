@@ -825,8 +825,42 @@ class HighlandDrownedTest {
         assertEquals(0, all.creekCount(0, 1000), "islands under 1 km with a creek, river or lake: " + all.creekCount(0, 1000) + " of " + all.under(0, 1000));
     }
 
-    /** Agreed 11-03 navigable target: at least 95% of the drowned-scope sea (islands included) lies in water that reaches the open sea through channels of 6 blocks or more. */
-    static final double NAVIGABLE_TARGET = .95;
+    /**
+     * D-15 targets. 11-03 ("targets: accept", see 11-03-SUMMARY.md, Decision) agreed at least 25% sheltered water; 11-07
+     * revises that to 15% per site with the user's explicit approval ("Lower to 15% per site"), because the finished coast
+     * measures 17.7% (ria) and 21.3% (fjord) and one tuning pass that reached 23.9% / 29.2% broke the closed-water (5.5% over 5%)
+     * and big-islands (0.95 under 1) gates. The sheltered share is the drowned-scope sea deep enough for boats with a fetch of at
+     * most 400 blocks, asserted per site (ria user world, fjord ROCKIES). Still agreed: at least 1 harbor per 25 km2 of
+     * drowned sea, and at least 95% of the drowned-scope sea in water that reaches the open sea through channels of 6 blocks
+     * or more. Nothing places harbors; they come from bays, narrow mouths, spits and islands.
+     */
+    static final double SHELTERED_TARGET = .15, HARBOR_TARGET = 1, NAVIGABLE_TARGET = .95;
+    /** Model-8 references from 11-01-SUMMARY.md, user world and ROCKIES (printed with the measurement, not asserted). */
+    static final double MODEL8_SHELTERED_USER = .002, MODEL8_SHELTERED_ROCKIES = .002, MODEL8_HARBORS_USER = 1.56, MODEL8_HARBORS_ROCKIES = 1.65;
+
+    /**
+     * D-15: sheltered share, harbors per 25 km2 and navigability of the drowned-scope sea meet the agreed targets at the ria
+     * site (user world) and the fjord site (ROCKIES). The finished coast (bays, narrow mouths, islands) has to produce them.
+     */
+    @Test void shelteredWaterIsMeasured() throws Exception {
+        var user = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
+        var ria = HighlandDrownedProbe.measure(user, RIA_SITE_X, RIA_SITE_Z, SITE_RADIUS).drowned();
+        HighlandDrownedProbe.Scope fjord;
+        try (var rockies = WorldgenFixture.context(BiomeCensusProbe.rockies(), HighlandPlanformProbe.USER_SEED)) {
+            fjord = HighlandDrownedProbe.measure(rockies, FJORD_SITE_X, FJORD_SITE_Z, SITE_RADIUS).drowned();
+        }
+        System.out.printf(java.util.Locale.ROOT,
+            "RH10 sheltered ria=%.1f%% (model 8 %.1f%%) rockies=%.1f%% (model 8 %.1f%%) | harbors/25km2 ria=%.2f (model 8 %.2f) rockies=%.2f (model 8 %.2f) | navigable ria=%.1f%% rockies=%.1f%%%n",
+            100 * ria.shelteredShare(), 100 * MODEL8_SHELTERED_USER, 100 * fjord.shelteredShare(), 100 * MODEL8_SHELTERED_ROCKIES,
+            ria.harborsPer25km2(), MODEL8_HARBORS_USER, fjord.harborsPer25km2(), MODEL8_HARBORS_ROCKIES,
+            100 * ria.navigableShare(), 100 * fjord.navigableShare());
+        assertTrue(ria.shelteredShare() >= SHELTERED_TARGET && fjord.shelteredShare() >= SHELTERED_TARGET,
+            "sheltered share under " + SHELTERED_TARGET + ": ria " + ria.shelteredShare() + " rockies " + fjord.shelteredShare());
+        assertTrue(ria.harborsPer25km2() >= HARBOR_TARGET && fjord.harborsPer25km2() >= HARBOR_TARGET,
+            "harbors per 25 km2 under " + HARBOR_TARGET + ": ria " + ria.harborsPer25km2() + " rockies " + fjord.harborsPer25km2());
+        assertTrue(ria.navigableShare() >= NAVIGABLE_TARGET && fjord.navigableShare() >= NAVIGABLE_TARGET,
+            "navigable share under " + NAVIGABLE_TARGET + ": ria " + ria.navigableShare() + " rockies " + fjord.navigableShare());
+    }
 
     /** RH10-08: channels between islands stay boatable: the drowned-scope navigable share holds the agreed target at the ria site (user world) and the fjord site (ROCKIES). */
     @Test void navigableChannels() throws Exception {
