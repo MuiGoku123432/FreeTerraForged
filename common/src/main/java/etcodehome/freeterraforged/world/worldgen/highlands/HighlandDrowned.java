@@ -32,6 +32,23 @@ final class HighlandDrowned {
     static final double ARM_REACH = 2500, DROWN_MARGIN = .3;
     /** Range core (0..1) a region needs within half a region of its centre to be a fjord region. */
     static final double FJORD_RANGE_CORE = .25;
+    /**
+     * Fjord regions (D-05, D-06), tuned in 11-04 Task 2 against the pooled arm census of the fjord boxes (see the test's
+     * FJORD_BOXES): ramp steepening factor and the blocks inland it acts over; the valley network is stretched
+     * {@code FJORD_ANISO} along the inland direction (trunk scale as for rias), trunks (low thresholds, wide) and side arms
+     * (branch ridges, higher thresholds, narrow) have their own thresholds; arms fade out over {@code FJORD_REACH} blocks
+     * inland and {@code LONG_CHANCE} of fjord regions fade over {@code LONG_FACTOR} times that (the occasional long arm).
+     */
+    static final double FJORD_STEEP = 4, FJORD_WALL = 500, FJORD_ANISO = 5, FJORD_TRUNK_LOW = .6, FJORD_TRUNK_HIGH = .95,
+        FJORD_VALLEY_LOW = .58, FJORD_VALLEY_HIGH = .95, FJORD_BRANCH_WEIGHT = 1, FJORD_BRANCH_SCALE = 1100,
+        FJORD_REACH = 6000, LONG_CHANCE = .15, LONG_FACTOR = 2.5;
+    /**
+     * Fjord depth (D-06, D-17): the flooded part of the edge, its distance below the coast point, is stretched by
+     * {@code 1 + (FJORD_DEPTH - 1) f}, so arm water falls below the shallow-ocean point where the legacy ocean populators
+     * give deep floors (the shoreface alone never goes deeper than the shelf). The flooded set is unchanged (the stretch
+     * keeps the sign of {@code edge - coast}); the edge never falls below {@link #depthFloor}.
+     */
+    static final double FJORD_DEPTH = 2;
     /** Half distance (blocks) of the central differences that orient a region. */
     private static final double GRADIENT_STEP = 256;
     /**
@@ -46,7 +63,7 @@ final class HighlandDrowned {
     /** Transformed edge value and the drowned-region weight (0..1) at the position. */
     record At(double edge, double drowned) {}
     /** A region anchor: centre, disc radius, inland direction (unit), noise offsets and its type (fjord, else ria). */
-    record Region(int i, int j, double cx, double cz, double radius, double gx, double gz, double ox, double oz, boolean fjord) {}
+    record Region(int i, int j, double cx, double cz, double radius, double gx, double gz, double ox, double oz, boolean fjord, double reach, double target) {}
     /**
      * Per-thread memos: the orientation of recently used regions, and the active discs of the 3x3 cells around the last
      * cell looked up (consecutive samples almost always share a cell, so the neighbour hashing is done once).
@@ -63,7 +80,9 @@ final class HighlandDrowned {
 
     private final HighlandCoast coast;
     private final long seed;
-    private final double coastEdge, riaTarget, reachEdge;
+    private final double coastEdge, riaTarget, fjordTarget, reachEdge, wallEdge, longReachEdge, depthFloor;
+    /** Lowest edge value the transform can change: the ria target, or the deeper fjord target when the land has ranges. */
+    private volatile double lowEdge;
     private final ThreadLocal<Memo> memo = ThreadLocal.withInitial(Memo::new);
     private volatile HighlandLand land;
 
@@ -73,11 +92,19 @@ final class HighlandDrowned {
         this.seed = mix(context.seed.root() ^ 0x5248313044L ^ SEED_SALT);
         this.coastEdge = points.coast;
         this.riaTarget = points.beach - DROWN_MARGIN * (points.beach - points.shallowOcean);
+        this.fjordTarget = points.shallowOcean - DROWN_MARGIN * (points.shallowOcean - points.deepOcean);
         this.reachEdge = ARM_REACH * HighlandCoast.EDGE_PER_BLOCK;
+        this.wallEdge = FJORD_WALL * HighlandCoast.EDGE_PER_BLOCK;
+        this.longReachEdge = FJORD_REACH * LONG_FACTOR * HighlandCoast.EDGE_PER_BLOCK;
+        this.depthFloor = Math.max(points.deepOcean, .01);
+        this.lowEdge = riaTarget;
     }
 
     /** Land source for the range-aware parts of later RH10 steps; set once, after the continent exists. */
-    void bind(HighlandLand land) { this.land = land; }
+    void bind(HighlandLand land) {
+        this.lowEdge = land != null && land.rangeHeight() > 0 ? Math.min(riaTarget, fjordTarget) : riaTarget;
+        this.land = land;
+    }
     HighlandLand land() { return land; }
 
     /** Active discs of the 3x3 cells around (gi, gj), memoized per thread for the last cell. */
@@ -138,30 +165,70 @@ final class HighlandDrowned {
         return best;
     }
 
-    /** True where the transform can change an edge value: above the arm target and inside the inland reach. */
-    boolean inBand(double edge) { return land != null && edge > riaTarget && edge < coastEdge + reachEdge; }
+    /** True where the transform can change an edge value: above the (lowest) arm target and inside the longest inland reach. */
+    boolean inBand(double edge) {
+        var land = this.land;
+        return land != null && edge > lowEdge && edge < coastEdge + (land.rangeHeight() > 0 ? Math.max(reachEdge, longReachEdge) : reachEdge);
+    }
 
-    /** The edge value at a raw position given the standalone (pre-drowning) edge there, and the region weight. */
+    /**
+     * D-06 ramp steepening in fjord regions: the land side ramp {@code u = edge - coast} is remapped to
+     * {@code u + c f u (1 - u / wall)^2} (c = FJORD_STEEP - 1, f the fjord weight) for u inside the wall band, so the edge rises
+     * about FJORD_STEEP times faster at the water and joins the identity at the band's inland end with slope 1. The slope of
+     * {@code 1 + c f (1 - t)(1 - 3t)} is at least {@code 1 - c f / 3}, so with c f at most 3 the remap is monotone in the
+     * edge; it only raises land that is already land.
+     */
+    double steepen(double edge, double fjordWeight) {
+        double u = edge - coastEdge;
+        if (u <= 0 || u >= wallEdge || fjordWeight <= 0) return edge;
+        double r = 1 - u / wallEdge;
+        return edge + (FJORD_STEEP - 1) * fjordWeight * u * r * r;
+    }
+
+    /**
+     * The edge value at a raw position given the standalone (pre-drowning) edge there, and the region weight: steepened by
+     * the fjord weight, then lowered toward each overlapping region's target by weight times arm fade times valley (the
+     * smallest result wins, which is continuous where regions of different type overlap).
+     */
     At at(double rawX, double rawZ, double edge) {
         if (!inBand(edge)) return new At(edge, 0);
         var m = discs((int) Math.floor(rawX / REGION_SIZE), (int) Math.floor(rawZ / REGION_SIZE));
-        double weight = 0, k = 0, fade = -1;
+        double weight = 0, fjord = 0;
         for (int n = 0; n < m.count; n++) {
             double w = discWeight(m.cx[n], m.cz[n], m.radius[n], rawX, rawZ);
             if (w <= 0) continue;
             weight = Math.max(weight, w);
-            if (fade < 0) fade = edge <= coastEdge ? 1 : 1 - smooth(0, reachEdge, edge - coastEdge);
-            if (w * fade <= k) continue; // the valley factor is at most 1: this region cannot raise the maximum
-            k = Math.max(k, w * fade * valley(region(m.h[n], m.ci[n], m.cj[n], m.cx[n], m.cz[n]), rawX, rawZ));
+            if (w > fjord && region(m.h[n], m.ci[n], m.cj[n], m.cx[n], m.cz[n]).fjord) fjord = w;
         }
-        if (k <= 0) return new At(edge, weight);
-        return new At(edge + k * (riaTarget - edge), weight);
+        if (weight <= 0) return new At(edge, 0);
+        double steep = steepen(edge, fjord), lowering = 0;
+        for (int n = 0; n < m.count; n++) {
+            double w = discWeight(m.cx[n], m.cz[n], m.radius[n], rawX, rawZ);
+            if (w <= 0) continue;
+            var region = region(m.h[n], m.ci[n], m.cj[n], m.cx[n], m.cz[n]);
+            double fade = edge <= coastEdge ? 1 : 1 - smooth(0, region.reach, edge - coastEdge);
+            if (w * fade <= 0) continue;
+            double k = w * fade * valley(region, rawX, rawZ);
+            lowering = Math.min(lowering, k * (region.target - steep));
+        }
+        double result = steep + lowering;
+        if (fjord > 0 && result < coastEdge) result = Math.max(Math.min(result, depthFloor), coastEdge - (1 + (FJORD_DEPTH - 1) * fjord) * (coastEdge - result));
+        return new At(result, weight);
     }
 
-    /** Valley factor 0..1 of one region at a position: a trunk network with branches, rotated rigidly about the region centre. */
+    /**
+     * Valley factor 0..1 of one region at a position: a trunk network with branches, rotated rigidly about the region
+     * centre. Ria regions use one pair of thresholds on the stronger of trunk and branch; fjord regions stretch the network
+     * further and give trunks and side arms their own thresholds, so trunks stay wider than side arms.
+     */
     private static double valley(Region region, double x, double z) {
         double dx = x - region.cx, dz = z - region.cz;
         double along = dx * region.gx + dz * region.gz, across = -dx * region.gz + dz * region.gx;
+        if (region.fjord) {
+            double u = across + region.ox, v = along / FJORD_ANISO + region.oz;
+            return Math.max(smooth(FJORD_TRUNK_LOW, FJORD_TRUNK_HIGH, ridge(0x5248313045L, u, v, TRUNK_SCALE, 2)),
+                smooth(FJORD_VALLEY_LOW, FJORD_VALLEY_HIGH, FJORD_BRANCH_WEIGHT * ridge(0x5248313046L, u, v, FJORD_BRANCH_SCALE, 2)));
+        }
         double u = across + region.ox, v = along / ANISO + region.oz;
         return smooth(VALLEY_LOW, VALLEY_HIGH, Math.max(ridge(0x5248313045L, u, v, TRUNK_SCALE, 2), BRANCH_WEIGHT * ridge(0x5248313046L, u, v, BRANCH_SCALE, 2)));
     }
@@ -183,7 +250,9 @@ final class HighlandDrowned {
             double angle = 2 * Math.PI * unit(mix(h + 5));
             gx = Math.cos(angle); gz = Math.sin(angle);
         } else { gx /= norm; gz /= norm; }
-        var region = new Region(i, j, cx, cz, radius(h), gx, gz, 1e4 * unit(mix(h + 6)), 1e4 * unit(mix(h + 7)), fjordAnchor(cx, cz));
+        boolean fjord = fjordAnchor(cx, cz);
+        double reach = !fjord ? reachEdge : (unit(mix(h + 8)) < LONG_CHANCE ? longReachEdge : FJORD_REACH * HighlandCoast.EDGE_PER_BLOCK);
+        var region = new Region(i, j, cx, cz, radius(h), gx, gz, 1e4 * unit(mix(h + 6)), 1e4 * unit(mix(h + 7)), fjord, reach, fjord ? fjordTarget : riaTarget);
         m.slots[m.next] = region;
         m.next = (m.next + 1) % MEMO;
         return region;

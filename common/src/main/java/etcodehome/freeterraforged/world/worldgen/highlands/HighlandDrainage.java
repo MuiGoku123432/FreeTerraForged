@@ -626,6 +626,17 @@ public final class HighlandDrainage {
         return null;
     }
 
+    /**
+     * RH10 conservative plan mask (narrow arms): whether any of four sub-samples half a plan step either side of a node in x
+     * and z is sea. Arms narrower than the lattice can slip between nodes; a land node beside one counts as ocean (more flood
+     * sources, never fewer), so no planned link crosses arm water. Only nodes inside drowned regions pay for it.
+     */
+    private boolean touchesSea(double x, double z, int step) {
+        double half = step / 2.0;
+        return coast.sample(x - half, z).edge() <= coastEdge || coast.sample(x + half, z).edge() <= coastEdge
+            || coast.sample(x, z - half).edge() <= coastEdge || coast.sample(x, z + half).edge() <= coastEdge;
+    }
+
     public Plan build(int ownerX, int ownerZ) {
         long started = System.nanoTime();
         var bounds = coast.bounds(ownerX, ownerZ);
@@ -671,7 +682,7 @@ public final class HighlandDrainage {
                 var s = coast.sample(x, z);
                 owned[i] = s.ownerX() == ownerX && s.ownerZ() == ownerZ;
                 if (!owned[i]) continue;
-                land[i] = s.edge() > coastEdge;
+                land[i] = s.edge() > coastEdge && !(s.drowned() > 0 && touchesSea(x, z, step));
                 if (land[i]) {
                     landCount++;
                     ground[i] = planningHeight(x, z, s.edge());

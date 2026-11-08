@@ -31,6 +31,17 @@ class HighlandDrownedTest {
      * needs a ria or fjord site uses these.
      */
     static final int RIA_SITE_X = 20349, RIA_SITE_Z = 28476, FJORD_SITE_X = 8061, FJORD_SITE_Z = 20284, SITE_RADIUS = 4096;
+    /**
+     * Fjord arm site (11-04, ROCKIES, USER_SEED): the 8 km box with the most fjord-scope flooded land at model 9. The 11-03
+     * FJORD_SITE has no FJORD region under the D-01 typing (its region anchors read California, not PNW), so the fjord
+     * shape gates use this box; FJORD_SITE stays for the ria-shaped checks.
+     */
+    static final int FJORD_ARM_SITE_X = 34685, FJORD_ARM_SITE_Z = -12484;
+    /**
+     * The ROCKIES fjord boxes (centres, 8 km boxes, USER_SEED): the arm site plus the other 4 km tiles of the 32 km scan with
+     * the most fjord-scope flooded land (scan around the 11-01 box centre, see 11-04-SUMMARY.md). Shape gates pool their arms.
+     */
+    static final int[][] FJORD_BOXES = {{FJORD_ARM_SITE_X, FJORD_ARM_SITE_Z}, {14205, 48956}, {20349, 30524}};
     /** D-02: drowned share of the RH9 coastline, inclusive bounds. */
     static final double MIN_SHARE = .20, MAX_SHARE = .30;
 
@@ -78,7 +89,7 @@ class HighlandDrownedTest {
             var drowned = coast.drowned();
             var land = drowned.land();
             int fjordPoints = 0;
-            for (int z = FJORD_SITE_Z - SITE_RADIUS; z <= FJORD_SITE_Z + SITE_RADIUS; z += 64) for (int x = FJORD_SITE_X - SITE_RADIUS; x <= FJORD_SITE_X + SITE_RADIUS; x += 64) {
+            for (int z = FJORD_ARM_SITE_Z - SITE_RADIUS; z <= FJORD_ARM_SITE_Z + SITE_RADIUS; z += 64) for (int x = FJORD_ARM_SITE_X - SITE_RADIUS; x <= FJORD_ARM_SITE_X + SITE_RADIUS; x += 64) {
                 if (drowned.fjord(x, z) <= 0) continue;
                 fjordPoints++;
                 var region = drowned.dominant(x, z, true);
@@ -237,13 +248,24 @@ class HighlandDrownedTest {
         }
     }
 
-    /** The plan's land mask reads the transformed edge: no channel link between two land nodes runs through arm water. */
+    /**
+     * The plan's land mask reads the transformed edge: no channel link between two land nodes runs through arm water, at
+     * the ria site (user world) and the fjord site (ROCKIES), where the conservative mask covers arms narrower than the lattice.
+     */
     @Test void planAndRenderAgree() throws Exception {
-        var context = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
+        assertPlanAgrees(WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED), SITE_X, SITE_Z);
+        assertPlanAgrees(WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED), RIA_SITE_X, RIA_SITE_Z);
+        try (var rockies = WorldgenFixture.context(BiomeCensusProbe.rockies(), HighlandPlanformProbe.USER_SEED)) {
+            assertPlanAgrees(rockies, FJORD_SITE_X, FJORD_SITE_Z);
+            assertPlanAgrees(rockies, FJORD_ARM_SITE_X, FJORD_ARM_SITE_Z);
+        }
+    }
+
+    private static void assertPlanAgrees(GeneratorContext context, int x, int z) {
         var continent = (RollingHighlandsContinent) context.heightmap.continent();
         var coast = continent.coast();
         double coastEdge = context.preset.world().controlPoints.coast;
-        var plan = continent.planAt(SITE_X, SITE_Z).plan();
+        var plan = continent.planAt(x, z).plan();
         var nodes = plan.nodes();
         int links = 0;
         for (var node : nodes) {
@@ -253,11 +275,119 @@ class HighlandDrownedTest {
             links++;
             double length = Math.hypot(parent.x() - node.x(), parent.z() - node.z());
             for (double d = 0; d <= length; d += 8) {
-                double t = length > 0 ? d / length : 0, x = node.x() + (parent.x() - node.x()) * t, z = node.z() + (parent.z() - node.z()) * t;
-                assertTrue(coast.sample(x, z).edge() > coastEdge, "link crosses sea water at " + x + "," + z);
+                double t = length > 0 ? d / length : 0, px = node.x() + (parent.x() - node.x()) * t, pz = node.z() + (parent.z() - node.z()) * t;
+                assertTrue(coast.sample(px, pz).edge() > coastEdge, "link crosses sea water at " + px + "," + pz + " (site " + x + "," + z + ")");
             }
         }
-        assertTrue(links > 0 && plan.landNodes() > 0, "no land links in the site plan");
+        assertTrue(links > 0 && plan.landNodes() > 0, "no land links in the site plan at " + x + "," + z);
+    }
+
+    /**
+     * D-06/D-17: fjord water is deep because the edge falls below the shallow-ocean point, not because anything is carved.
+     * Over the fjord-scope arm columns of the ROCKIES site box (flooded land, fjord weight at least .5) the median depth is at
+     * least twice the shelf depth and at least 95% of the columns read the ocean continentalness band.
+     */
+    @Test void fjordWaterIsDeep() throws Exception {
+        try (var rockies = WorldgenFixture.context(BiomeCensusProbe.rockies(), HighlandPlanformProbe.USER_SEED)) {
+            var coast = ((RollingHighlandsContinent) rockies.heightmap.continent()).coast();
+            var standalone = new HighlandCoast(rockies);
+            double coastEdge = rockies.preset.world().controlPoints.coast;
+            double shelf = etcodehome.freeterraforged.world.worldgen.cell.terrain.Populators.shallowOceanDepth(rockies.preset.world().properties.oceanDepth);
+            var cell = new Cell();
+            var depths = new ArrayList<Double>();
+            int band = 0;
+            for (int z = FJORD_ARM_SITE_Z - SITE_RADIUS; z <= FJORD_ARM_SITE_Z + SITE_RADIUS; z += 16) for (int x = FJORD_ARM_SITE_X - SITE_RADIUS; x <= FJORD_ARM_SITE_X + SITE_RADIUS; x += 16) {
+                if (coast.sample(x, z).edge() > coastEdge || standalone.sample(x, z).edge() <= coastEdge || coast.drowned().fjord(x, z) < HighlandDrownedProbe.DROWNED_WEIGHT) continue;
+                rockies.lookup.applyCell(cell.reset(), x, z, false, true);
+                double depth = -(cell.height - rockies.levels.water) * rockies.levels.terrainScaleFactor;
+                if (depth < 1) continue;
+                depths.add(depth);
+                if (CellSampler.Field.CONTINENT.read(cell, rockies.heightmap) < Continentalness.COAST.min()) band++;
+            }
+            assertTrue(depths.size() >= 300, "too few fjord-scope sea columns: " + depths.size());
+            double[] sorted = depths.stream().mapToDouble(Double::doubleValue).sorted().toArray();
+            double median = HighlandCoastProbe.quantile(sorted, .5);
+            System.out.printf(java.util.Locale.ROOT, "RH10 fjord depth median=%.1f shelf=%.0f p10=%.1f p90=%.1f n=%d oceanBand=%.1f%%%n", median, shelf,
+                HighlandCoastProbe.quantile(sorted, .1), HighlandCoastProbe.quantile(sorted, .9), depths.size(), 100.0 * band / depths.size());
+            assertTrue(median >= 2 * shelf, "fjord water too shallow: median " + median + " vs 2 x shelf " + 2 * shelf);
+            assertTrue(band >= .95 * depths.size(), band + " of " + depths.size() + " fjord-scope columns read the ocean band");
+        }
+    }
+
+    /**
+     * Steepening keeps the edge monotone across walls (Pitfall 7): at 200 positions inside fjord regions the remap of a dense
+     * run of edge values (the coast point to the end of the wall band and beyond) never decreases, is the identity at the
+     * coast point and from the band's inland end on, and never lowers an edge.
+     */
+    @Test void steepeningIsMonotone() throws Exception {
+        try (var rockies = WorldgenFixture.context(BiomeCensusProbe.rockies(), HighlandPlanformProbe.USER_SEED)) {
+            var coast = ((RollingHighlandsContinent) rockies.heightmap.continent()).coast();
+            var drowned = coast.drowned();
+            double coastEdge = rockies.preset.world().controlPoints.coast, wall = HighlandDrowned.FJORD_WALL * HighlandCoast.EDGE_PER_BLOCK;
+            var random = new Random(31);
+            int positions = 0;
+            double steepest = 0;
+            for (int tries = 0; positions < 200 && tries < 200_000; tries++) {
+                double x = FJORD_ARM_SITE_X + (random.nextDouble() * 2 - 1) * 6_000, z = FJORD_ARM_SITE_Z + (random.nextDouble() * 2 - 1) * 6_000;
+                double f = drowned.fjord(x, z);
+                if (f <= 0) continue;
+                positions++;
+                double previous = coastEdge;
+                assertEquals(coastEdge, drowned.steepen(coastEdge, f), "steepening moves the coast point at " + x + "," + z);
+                for (int k = 1; k <= 2000; k++) {
+                    double edge = coastEdge + 1.5 * wall * k / 2000, steep = drowned.steepen(edge, f);
+                    assertTrue(steep >= previous - 1e-12, "steepened edge decreases inland at " + x + "," + z + " edge " + edge);
+                    assertTrue(steep >= edge, "steepening lowers the edge at " + x + "," + z);
+                    if (edge >= coastEdge + wall) assertEquals(edge, steep, "steepening acts beyond the wall band");
+                    steepest = Math.max(steepest, (steep - previous) / (1.5 * wall / 2000));
+                    previous = steep;
+                }
+            }
+            assertTrue(positions == 200, "too few fjord positions: " + positions);
+            assertTrue(steepest > 1.5, "steepening never steepens: max slope " + steepest);
+        }
+    }
+
+    /** Land stays at or above sea level (D-17): the narrowLandHasNoSeaPits logic over the fjord site box finds 0 pits. */
+    @Test void fjordLandHasNoSeaPits() throws Exception {
+        try (var rockies = WorldgenFixture.context(BiomeCensusProbe.rockies(), HighlandPlanformProbe.USER_SEED)) {
+            var coast = ((RollingHighlandsContinent) rockies.heightmap.continent()).coast();
+            double coastEdge = rockies.preset.world().controlPoints.coast;
+            var cell = new Cell();
+            int land = 0, pits = 0;
+            String example = "";
+            for (int z = FJORD_ARM_SITE_Z - SITE_RADIUS; z <= FJORD_ARM_SITE_Z + SITE_RADIUS; z += 8) for (int x = FJORD_ARM_SITE_X - SITE_RADIUS; x <= FJORD_ARM_SITE_X + SITE_RADIUS; x += 8) {
+                double edge = coast.sample(x, z).edge();
+                if (edge <= coastEdge || edge - coastEdge >= HighlandDrainage.COAST_BAND || coast.drowned().fjord(x, z) <= 0) continue;
+                rockies.lookup.applyCell(cell.reset(), x, z, false, true);
+                if (cell.hasRiverWater) continue;
+                land++;
+                if ((cell.height - rockies.levels.water) * rockies.levels.terrainScaleFactor < -.5) { pits++; example = x + "," + z; }
+            }
+            assertTrue(land >= 500, "too little fjord coastal land to judge: " + land);
+            assertEquals(0, pits, pits + " of " + land + " fjord coastal land columns below sea level, e.g. " + example);
+        }
+    }
+
+    /** 11-04 review: fjord arm census over the fjord boxes and renders of the arm site (probe tag): build/rh10-fjords.txt and fjord-*.png. */
+    @Tag("probe")
+    @Test void reportsFjords() throws Exception {
+        var dir = Path.of("build/rh10-arms");
+        Files.createDirectories(dir);
+        try (var rockies = WorldgenFixture.context(BiomeCensusProbe.rockies(), HighlandPlanformProbe.USER_SEED)) {
+            String out = "";
+            var parts = new ArrayList<HighlandDrownedProbe.Fjords>();
+            for (int[] box : FJORD_BOXES) {
+                var census = HighlandDrownedProbe.fjords(rockies, box[0], box[1], SITE_RADIUS);
+                parts.add(census);
+                out += "box " + box[0] + "," + box[1] + " " + census.summary() + "\n";
+            }
+            out += "pooled " + HighlandDrownedProbe.pool(parts).summary() + "\n" + "pooled " + HighlandDrownedProbe.walls(rockies, FJORD_BOXES, SITE_RADIUS).summary() + "\n";
+            HighlandPlanformProbe.render(rockies, FJORD_ARM_SITE_X, FJORD_ARM_SITE_Z, 2 * SITE_RADIUS, 8, dir.resolve("fjord-now.png"));
+            HighlandDrownedProbe.maskImage(rockies, FJORD_ARM_SITE_X, FJORD_ARM_SITE_Z, 2 * SITE_RADIUS, 8, dir.resolve("fjord-mask-now.png"));
+            System.out.print(out);
+            Files.writeString(Path.of("build/rh10-fjords.txt"), out);
+        }
     }
 
     /** P0: the drowned-coast metrics and the RH9 coast cost on today's tree, for the user world and ROCKIES. */
