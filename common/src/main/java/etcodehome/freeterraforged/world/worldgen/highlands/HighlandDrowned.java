@@ -49,6 +49,12 @@ final class HighlandDrowned {
      * keeps the sign of {@code edge - coast}); the edge never falls below {@link #depthFloor}.
      */
     static final double FJORD_DEPTH = 2;
+    /**
+     * Sounds (D-07): {@code SOUND_CHANCE} of fjord regions get a sound basin of radius {@code SOUND_RADIUS} blocks around the
+     * region's coast point, where the valley thresholds drop by up to {@code SOUND_DROP}: arms widen into 1-3 km of open water
+     * and only the crests of the valley noise survive as islands.
+     */
+    static final double SOUND_CHANCE = .3, SOUND_RADIUS = 1500, SOUND_DROP = .5;
     /** Half distance (blocks) of the central differences that orient a region. */
     private static final double GRADIENT_STEP = 256;
     /**
@@ -62,8 +68,8 @@ final class HighlandDrowned {
 
     /** Transformed edge value and the drowned-region weight (0..1) at the position. */
     record At(double edge, double drowned) {}
-    /** A region anchor: centre, disc radius, inland direction (unit), noise offsets and its type (fjord, else ria). */
-    record Region(int i, int j, double cx, double cz, double radius, double gx, double gz, double ox, double oz, boolean fjord, double reach, double target) {}
+    /** A region anchor: centre, disc radius, inland direction (unit), noise offsets, type (fjord, else ria), arm reach and target, sound basin centre (NaN: none). */
+    record Region(int i, int j, double cx, double cz, double radius, double gx, double gz, double ox, double oz, boolean fjord, double reach, double target, double soundX, double soundZ) {}
     /**
      * Per-thread memos: the orientation of recently used regions, and the active discs of the 3x3 cells around the last
      * cell looked up (consecutive samples almost always share a cell, so the neighbour hashing is done once).
@@ -81,7 +87,7 @@ final class HighlandDrowned {
     private final HighlandCoast coast;
     private final long seed;
     private final double coastEdge, riaTarget, fjordTarget, reachEdge, wallEdge, longReachEdge, depthFloor;
-    /** Lowest edge value the transform can change: the ria target, or the deeper fjord target when the land has ranges. */
+    /** Lowest edge value the transform can change: the ria target, or the depth floor (below the fjord target) when the land has ranges. */
     private volatile double lowEdge;
     private final ThreadLocal<Memo> memo = ThreadLocal.withInitial(Memo::new);
     private volatile HighlandLand land;
@@ -102,7 +108,7 @@ final class HighlandDrowned {
 
     /** Land source for the range-aware parts of later RH10 steps; set once, after the continent exists. */
     void bind(HighlandLand land) {
-        this.lowEdge = land != null && land.rangeHeight() > 0 ? Math.min(riaTarget, fjordTarget) : riaTarget;
+        this.lowEdge = land != null && land.rangeHeight() > 0 ? Math.min(riaTarget, depthFloor) : riaTarget;
         this.land = land;
     }
     HighlandLand land() { return land; }
@@ -225,9 +231,13 @@ final class HighlandDrowned {
         double dx = x - region.cx, dz = z - region.cz;
         double along = dx * region.gx + dz * region.gz, across = -dx * region.gz + dz * region.gx;
         if (region.fjord) {
-            double u = across + region.ox, v = along / FJORD_ANISO + region.oz;
-            return Math.max(smooth(FJORD_TRUNK_LOW, FJORD_TRUNK_HIGH, ridge(0x5248313045L, u, v, TRUNK_SCALE, 2)),
-                smooth(FJORD_VALLEY_LOW, FJORD_VALLEY_HIGH, FJORD_BRANCH_WEIGHT * ridge(0x5248313046L, u, v, FJORD_BRANCH_SCALE, 2)));
+            double u = across + region.ox, v = along / FJORD_ANISO + region.oz, drop = 0;
+            if (!Double.isNaN(region.soundX)) { // a sound basin: the thresholds drop toward its centre
+                double sx = x - region.soundX, sz = z - region.soundZ;
+                drop = SOUND_DROP * (1 - smooth(.5 * SOUND_RADIUS, SOUND_RADIUS, Math.sqrt(sx * sx + sz * sz)));
+            }
+            return Math.max(smooth(FJORD_TRUNK_LOW - drop, FJORD_TRUNK_HIGH - drop, ridge(0x5248313045L, u, v, TRUNK_SCALE, 2)),
+                smooth(FJORD_VALLEY_LOW - drop, FJORD_VALLEY_HIGH - drop, FJORD_BRANCH_WEIGHT * ridge(0x5248313046L, u, v, FJORD_BRANCH_SCALE, 2)));
         }
         double u = across + region.ox, v = along / ANISO + region.oz;
         return smooth(VALLEY_LOW, VALLEY_HIGH, Math.max(ridge(0x5248313045L, u, v, TRUNK_SCALE, 2), BRANCH_WEIGHT * ridge(0x5248313046L, u, v, BRANCH_SCALE, 2)));
@@ -252,11 +262,39 @@ final class HighlandDrowned {
         } else { gx /= norm; gz /= norm; }
         boolean fjord = fjordAnchor(cx, cz);
         double reach = !fjord ? reachEdge : (unit(mix(h + 8)) < LONG_CHANCE ? longReachEdge : FJORD_REACH * HighlandCoast.EDGE_PER_BLOCK);
-        var region = new Region(i, j, cx, cz, radius(h), gx, gz, 1e4 * unit(mix(h + 6)), 1e4 * unit(mix(h + 7)), fjord, reach, fjord ? fjordTarget : riaTarget);
+        double[] sound = fjord && unit(mix(h + 9)) < SOUND_CHANCE ? coastPoint(cx, cz, gx, gz) : null;
+        var region = new Region(i, j, cx, cz, radius(h), gx, gz, 1e4 * unit(mix(h + 6)), 1e4 * unit(mix(h + 7)), fjord, reach, fjord ? fjordTarget : riaTarget,
+            sound == null ? Double.NaN : sound[0], sound == null ? Double.NaN : sound[1]);
         m.slots[m.next] = region;
         m.next = (m.next + 1) % MEMO;
         return region;
     }
+
+    /**
+     * The coast point of a region: from its centre along the inland direction (or against it) to where the standalone edge
+     * crosses the coast point, found by 128-block steps up to {@link #COAST_SEARCH} blocks and bisection; null when the
+     * centre is in a skipped owner or no crossing lies in reach.
+     */
+    private double[] coastPoint(double cx, double cz, double gx, double gz) {
+        double e0 = coast.undrowned(cx, cz).edge();
+        if (!(e0 > 0)) return null;
+        boolean land = e0 > coastEdge;
+        double sign = land ? -1 : 1, lo = 0;
+        for (double d = 128; d <= COAST_SEARCH; d += 128) {
+            double e = coast.undrowned(cx + sign * d * gx, cz + sign * d * gz).edge();
+            if (!(e > 0) || (e > coastEdge) != land || e == coastEdge) {
+                double hi = d;
+                for (int k = 0; k < 10; k++) {
+                    double mid = (lo + hi) / 2, em = coast.undrowned(cx + sign * mid * gx, cz + sign * mid * gz).edge();
+                    if (em > 0 && (em > coastEdge) == land && em != coastEdge) lo = mid; else hi = mid;
+                }
+                return new double[]{cx + sign * hi * gx, cz + sign * hi * gz};
+            }
+            lo = d;
+        }
+        return null;
+    }
+    private static final double COAST_SEARCH = 6000;
 
     /** D-01 typing: ranges in the land, PNW climate at the centre, and a range core at the centre or one of four probes half a region away. */
     private boolean fjordAnchor(double cx, double cz) {

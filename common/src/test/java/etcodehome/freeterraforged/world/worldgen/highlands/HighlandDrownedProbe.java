@@ -458,29 +458,36 @@ final class HighlandDrownedProbe {
     }
     static final int WALL_NEAR = 64, WALL_FAR = 512, WALL_TRANSECTS = 300;
 
-    static Walls walls(GeneratorContext context, int[][] boxes, int radius) {
+    /** Arm water columns (flooded land in the fjord scope) with a land neighbour, on the GRID lattice of a box, as {x, z}. */
+    static List<int[]> armShore(GeneratorContext context, int[] box, int radius) {
         var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
         var standalone = new HighlandCoast(context);
         double coastEdge = context.preset.world().controlPoints.coast;
+        int gw = 2 * radius / GRID + 1, x0 = box[0] - radius, z0 = box[1] - radius;
+        boolean[] arm = new boolean[gw * gw], land = new boolean[gw * gw];
+        IntStream.range(0, gw).parallel().forEach(j -> {
+            for (int i = 0; i < gw; i++) {
+                double x = x0 + i * GRID, z = z0 + j * GRID;
+                boolean l = coast.sample(x, z).edge() > coastEdge;
+                land[j * gw + i] = l;
+                arm[j * gw + i] = !l && standalone.sample(x, z).edge() > coastEdge && coast.drowned().fjord(x, z) >= DROWNED_WEIGHT;
+            }
+        });
+        var shore = new ArrayList<int[]>();
+        for (int j = 1; j < gw - 1; j++) for (int i = 1; i < gw - 1; i++) {
+            int at = j * gw + i;
+            if (arm[at] && (land[at - 1] || land[at + 1] || land[at - gw] || land[at + gw])) shore.add(new int[]{x0 + i * GRID, z0 + j * GRID});
+        }
+        return shore;
+    }
+
+    static Walls walls(GeneratorContext context, int[][] boxes, int radius) {
+        var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
         var near = new ArrayList<Double>();
         var far = new ArrayList<Double>();
         var cell = new Cell();
         for (int[] box : boxes) {
-            int gw = 2 * radius / GRID + 1, x0 = box[0] - radius, z0 = box[1] - radius;
-            boolean[] arm = new boolean[gw * gw], land = new boolean[gw * gw];
-            IntStream.range(0, gw).parallel().forEach(j -> {
-                for (int i = 0; i < gw; i++) {
-                    double x = x0 + i * GRID, z = z0 + j * GRID;
-                    boolean l = coast.sample(x, z).edge() > coastEdge;
-                    land[j * gw + i] = l;
-                    arm[j * gw + i] = !l && standalone.sample(x, z).edge() > coastEdge && coast.drowned().fjord(x, z) >= DROWNED_WEIGHT;
-                }
-            });
-            var shore = new ArrayList<int[]>();
-            for (int j = 1; j < gw - 1; j++) for (int i = 1; i < gw - 1; i++) {
-                int at = j * gw + i;
-                if (arm[at] && (land[at - 1] || land[at + 1] || land[at - gw] || land[at + gw])) shore.add(new int[]{x0 + i * GRID, z0 + j * GRID});
-            }
+            var shore = armShore(context, box, radius);
             int stride = Math.max(1, shore.size() / WALL_TRANSECTS);
             for (int k = 0; k < shore.size(); k += stride) {
                 int[] at = shore.get(k);
@@ -494,6 +501,47 @@ final class HighlandDrownedProbe {
         }
         double[] n = near.stream().mapToDouble(Double::doubleValue).sorted().toArray(), f = far.stream().mapToDouble(Double::doubleValue).sorted().toArray();
         return new Walls(n.length, n.length > 0 ? HighlandCoastProbe.quantile(n, .5) : Double.NaN, f.length > 0 ? HighlandCoastProbe.quantile(f, .5) : Double.NaN);
+    }
+
+    /**
+     * Fjord shores: {@code samples} arm shore columns and the {@code cliff} ones among them (the shore profile's dominant
+     * type); {@code mouths} river-water columns within {@link #MOUTH_WINDOW} blocks of a shore column that touch the sea
+     * (a 4-block neighbour with the edge at or below the coast point) and {@code steps} of them whose river water surface
+     * is at least 2 blocks from sea level.
+     */
+    record Shores(int samples, int cliff, int mouths, int steps) {
+        String summary() { return String.format(Locale.ROOT, "shores n=%d cliff=%.1f%% riverMouths=%d steps=%d", samples, 100.0 * cliff / Math.max(1, samples), mouths, steps); }
+    }
+    static final int MOUTH_WINDOW = 32, MOUTH_STEP = 4, MOUTH_SHORES = 400;
+
+    static Shores shores(GeneratorContext context, int[][] boxes, int radius) {
+        var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+        double coastEdge = context.preset.world().controlPoints.coast;
+        var cell = new Cell();
+        int samples = 0, cliff = 0, mouths = 0, steps = 0;
+        for (int[] box : boxes) {
+            var shore = armShore(context, box, radius);
+            int stride = Math.max(1, shore.size() / MOUTH_SHORES);
+            var seen = new java.util.HashSet<Long>();
+            for (int k = 0; k < shore.size(); k++) {
+                int[] at = shore.get(k);
+                samples++;
+                if (coast.profile().shore(at[0], at[1]).dominant() == HighlandCoastProfile.Type.CLIFF) cliff++;
+                if (k % stride != 0) continue;
+                for (int dz = -MOUTH_WINDOW; dz <= MOUTH_WINDOW; dz += MOUTH_STEP) for (int dx = -MOUTH_WINDOW; dx <= MOUTH_WINDOW; dx += MOUTH_STEP) {
+                    int x = at[0] + dx, z = at[1] + dz;
+                    if (!seen.add(((long) x << 32) ^ (z & 0xffffffffL))) continue;
+                    context.heightmap.apply(cell.reset(), x, z, false);
+                    if (!cell.hasRiverWater) continue;
+                    boolean sea = coast.sample(x + MOUTH_STEP, z).edge() <= coastEdge || coast.sample(x - MOUTH_STEP, z).edge() <= coastEdge
+                        || coast.sample(x, z + MOUTH_STEP).edge() <= coastEdge || coast.sample(x, z - MOUTH_STEP).edge() <= coastEdge;
+                    if (!sea) continue;
+                    mouths++;
+                    if (Math.abs((cell.riverWaterLevel - context.levels.water) * context.levels.terrainScaleFactor) >= 2) steps++;
+                }
+            }
+        }
+        return new Shores(samples, cliff, mouths, steps);
     }
 
     private static double height(GeneratorContext context, Cell cell, double x, double z) {

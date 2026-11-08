@@ -42,6 +42,8 @@ class HighlandDrownedTest {
      * the most fjord-scope flooded land (scan around the 11-01 box centre, see 11-04-SUMMARY.md). Shape gates pool their arms.
      */
     static final int[][] FJORD_BOXES = {{FJORD_ARM_SITE_X, FJORD_ARM_SITE_Z}, {14205, 48956}, {20349, 30524}};
+    /** Centre of a sound basin (ROCKIES, USER_SEED): the coast point of region (-9, 2), one of the fjord regions that drew SOUND_CHANCE. */
+    static final int SOUND_SITE_X = -46448, SOUND_SITE_Z = 13654;
     /** D-02: drowned share of the RH9 coastline, inclusive bounds. */
     static final double MIN_SHARE = .20, MAX_SHARE = .30;
 
@@ -369,6 +371,62 @@ class HighlandDrownedTest {
         }
     }
 
+    /**
+     * D-05, D-06, D-07 (ROCKIES fjord boxes, arms pooled; the plan widens the site box to a scan box when it has fewer than 5
+     * arms, here the boxes are the scan's richest tiles): at least 5 arms, length median 1-4 km and p95 at most 8 km; trunk
+     * (widest reach) median width 250-600 and side arm median width 80-250, so side arms are narrower; at least 60% of fjords
+     * have a side arm; the land 64 blocks from fjord water is at least half as high as 512 blocks inland.
+     */
+    @Test void fjordShape() throws Exception {
+        try (var rockies = WorldgenFixture.context(BiomeCensusProbe.rockies(), HighlandPlanformProbe.USER_SEED)) {
+            var arms = fjordCensus(rockies);
+            var walls = HighlandDrownedProbe.walls(rockies, FJORD_BOXES, SITE_RADIUS);
+            System.out.println("RH10 fjord shape " + arms.summary() + " | " + walls.summary());
+            assertTrue(arms.arms() >= 5, "too few fjord arms: " + arms.arms());
+            double median = HighlandCoastProbe.quantile(arms.lengths(), .5), p95 = HighlandCoastProbe.quantile(arms.lengths(), .95);
+            assertTrue(median >= 1000 && median <= 4000 && p95 <= 8000, String.format(java.util.Locale.ROOT, "arm length median %.0f p95 %.0f outside 1-4 km / 8 km", median, p95));
+            double trunk = HighlandCoastProbe.quantile(arms.trunkWidths(), .5), side = HighlandCoastProbe.quantile(arms.sideWidths(), .5);
+            assertTrue(trunk >= 250 && trunk <= 600, "trunk width median " + trunk + " outside 250-600");
+            assertTrue(arms.sideWidths().length > 0 && side >= 80 && side <= 250, "side arm width median " + side + " outside 80-250");
+            assertTrue(arms.armsWithSide() >= .6 * arms.arms(), "fjords with a side arm: " + arms.armsWithSide() + " of " + arms.arms());
+            assertTrue(walls.transects() >= 300 && walls.near() >= .5 * walls.far(), "fjord walls too low: " + walls.summary());
+        }
+    }
+
+    /** D-07: sounds are occasional: water at least 1000 blocks across exists in the fjord boxes, in at most half of the fjord regions that hold arms. */
+    @Test void soundsAreOccasional() throws Exception {
+        try (var rockies = WorldgenFixture.context(BiomeCensusProbe.rockies(), HighlandPlanformProbe.USER_SEED)) {
+            var arms = fjordCensus(rockies);
+            System.out.println("RH10 sounds " + arms.summary());
+            assertTrue(arms.maxWidth() >= HighlandDrownedProbe.SOUND_WIDTH && arms.soundCells() > 0, "no sound in the fjord boxes: widest water " + arms.maxWidth());
+            assertTrue(arms.armRegions() >= 2 && arms.soundRegions() <= arms.armRegions() / 2.0,
+                "sounds in " + arms.soundRegions() + " of " + arms.armRegions() + " fjord regions");
+            var basin = HighlandDrownedProbe.fjords(rockies, SOUND_SITE_X, SOUND_SITE_Z, SITE_RADIUS);
+            System.out.println("RH10 sound basin " + basin.summary());
+            assertTrue(basin.maxWidth() >= HighlandDrownedProbe.SOUND_WIDTH, "the sound basin at " + SOUND_SITE_X + "," + SOUND_SITE_Z + " opens no water 1000 blocks across: " + basin.maxWidth());
+        }
+    }
+
+    /**
+     * D-16: fjord shores are rock walls in the PNW palette: at least 70% of arm shore columns are cliff-dominant, and the river
+     * mouths that enter fjord water (found within 32 blocks of arm shores) meet the sea at sea level (no water step of 2 or more).
+     */
+    @Test void fjordShoresAreRock() throws Exception {
+        try (var rockies = WorldgenFixture.context(BiomeCensusProbe.rockies(), HighlandPlanformProbe.USER_SEED)) {
+            var shores = HighlandDrownedProbe.shores(rockies, FJORD_BOXES, SITE_RADIUS);
+            System.out.println("RH10 fjord " + shores.summary());
+            assertTrue(shores.samples() >= 500, "too few fjord shore columns: " + shores.samples());
+            assertTrue(shores.cliff() >= .7 * shores.samples(), shores.summary());
+            assertEquals(0, shores.steps(), "river mouth water steps at fjord heads: " + shores.summary());
+        }
+    }
+
+    private static HighlandDrownedProbe.Fjords fjordCensus(GeneratorContext rockies) {
+        var parts = new ArrayList<HighlandDrownedProbe.Fjords>();
+        for (int[] box : FJORD_BOXES) parts.add(HighlandDrownedProbe.fjords(rockies, box[0], box[1], SITE_RADIUS));
+        return HighlandDrownedProbe.pool(parts);
+    }
+
     /** 11-04 review: fjord arm census over the fjord boxes and renders of the arm site (probe tag): build/rh10-fjords.txt and fjord-*.png. */
     @Tag("probe")
     @Test void reportsFjords() throws Exception {
@@ -382,7 +440,8 @@ class HighlandDrownedTest {
                 parts.add(census);
                 out += "box " + box[0] + "," + box[1] + " " + census.summary() + "\n";
             }
-            out += "pooled " + HighlandDrownedProbe.pool(parts).summary() + "\n" + "pooled " + HighlandDrownedProbe.walls(rockies, FJORD_BOXES, SITE_RADIUS).summary() + "\n";
+            out += "pooled " + HighlandDrownedProbe.pool(parts).summary() + "\n" + "pooled " + HighlandDrownedProbe.walls(rockies, FJORD_BOXES, SITE_RADIUS).summary() + "\n"
+                + "pooled " + HighlandDrownedProbe.shores(rockies, FJORD_BOXES, SITE_RADIUS).summary() + "\n";
             HighlandPlanformProbe.render(rockies, FJORD_ARM_SITE_X, FJORD_ARM_SITE_Z, 2 * SITE_RADIUS, 8, dir.resolve("fjord-now.png"));
             HighlandDrownedProbe.maskImage(rockies, FJORD_ARM_SITE_X, FJORD_ARM_SITE_Z, 2 * SITE_RADIUS, 8, dir.resolve("fjord-mask-now.png"));
             System.out.print(out);

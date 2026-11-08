@@ -42,8 +42,12 @@ public final class HighlandCoastProfile {
     /** Dry beach width and scarp heights (blocks, A-1). */
     static final double MIN_WIDTH = 15, MAX_WIDTH = 40, MIN_BLUFF = 6, MAX_BLUFF = 16, MIN_CLIFF = 15, MAX_CLIFF = 40;
 
+    /** RH10 fjord walls: how far the cliff weight moves toward 1 under a full fjord weight, and the cliff height lift toward MAX_CLIFF. */
+    static final double FJORD_CLIFF = .9, FJORD_CLIFF_LIFT = 1;
+
     private final long seed;
     private volatile Climate climate;
+    private volatile HighlandDrowned drowned;
 
     public HighlandCoastProfile(GeneratorContext context) {
         this.seed = HighlandMath.mix(context.seed.root() ^ 0x5248394321L);
@@ -51,6 +55,8 @@ public final class HighlandCoastProfile {
 
     /** Regional climate source; set once, after {@code Climate.make}, before any plan is built. */
     void climate(Climate climate) { this.climate = climate; }
+    /** RH10 drowned layer, for fjord rock walls; set once by the coast that owns both. */
+    void drowned(HighlandDrowned drowned) { this.drowned = drowned; }
 
     public Shore shore(double x, double z) {
         double temperature = 0, moisture = 0;
@@ -64,9 +70,19 @@ public final class HighlandCoastProfile {
         double cliff = smooth(CLIFF_AT - BLEND, CLIFF_AT + BLEND, hardness);
         double bluff = smooth(BLUFF_AT - BLEND, BLUFF_AT + BLEND, hardness) - cliff;
         double beach = 1 - bluff - cliff;
+        // RH10: under fjord regions the shore is rock wall. The cliff weight moves toward 1 and bluff and beach shrink with it,
+        // so the weights still sum to 1; the climate class (hence the PNW rock palette) is unchanged. Typing reads only the raw
+        // climate, so this cannot recurse. Heads: where a river enters, the river-mouth fade turns the wall to a small flat.
+        var layer = drowned;
+        double fjord = layer == null ? 0 : layer.fjord(x, z), toward = FJORD_CLIFF * fjord;
+        if (toward > 0) {
+            cliff += toward * (1 - cliff);
+            bluff *= 1 - toward; beach *= 1 - toward;
+        }
         double width = (MIN_WIDTH + (MAX_WIDTH - MIN_WIDTH) * noise(seed + 3, x, z, WIDTH_SCALE)) * (1 + .4 * baja) * (1 - .2 * pnw);
         double n = noise(seed + 4, x, z, HEIGHT_SCALE);
         double bluffHeight = MIN_BLUFF + (MAX_BLUFF - MIN_BLUFF) * n, cliffHeight = MIN_CLIFF + (MAX_CLIFF - MIN_CLIFF) * n;
+        cliffHeight += FJORD_CLIFF_LIFT * fjord * (MAX_CLIFF - cliffHeight);
         double height = bluff + cliff > 0 ? (bluff * bluffHeight + cliff * cliffHeight) / (bluff + cliff) : bluffHeight;
         return new Shore(beach, bluff, cliff, width, height, baja, hardness, temperature, moisture);
     }

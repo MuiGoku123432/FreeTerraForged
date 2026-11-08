@@ -19,6 +19,7 @@ public final class HighlandCoast extends AdvancedContinentGenerator {
         this.warpBound = Math.round(tectonicScale * .33F) / 2.0;
         this.profile = new HighlandCoastProfile(context);
         this.drowned = new HighlandDrowned(context, this);
+        this.profile.drowned(drowned);
         this.coastEdge = context.preset.world().controlPoints.coast;
     }
     public HighlandCoastProfile profile() { return profile; }
