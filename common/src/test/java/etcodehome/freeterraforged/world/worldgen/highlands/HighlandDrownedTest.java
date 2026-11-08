@@ -71,11 +71,12 @@ class HighlandDrownedTest {
             var sample = bound.sample(x, z);
             double reference = standalone.sample(x, z).edge();
             if (sample.drowned() == 0) {
+                if (bound.drowned().openIsland(x, z) > 0) continue; // an open-sea island footprint raises the edge (D-10)
                 outside++;
-                assertEquals(Double.doubleToLongBits(reference), Double.doubleToLongBits(sample.edge()), "edge differs outside drowned regions at " + x + "," + z);
+                assertEquals(Double.doubleToLongBits(reference), Double.doubleToLongBits(sample.edge()), "edge differs outside drowned regions and island footprints at " + x + "," + z);
             } else {
                 inside++;
-                assertTrue(sample.edge() <= reference || bound.drowned().island(x, z) > 0, "drowned edge above the RH9 edge outside the island footprints at " + x + "," + z);
+                assertTrue(sample.edge() <= reference || bound.drowned().island(x, z) > 0 || bound.drowned().openIsland(x, z) > 0, "drowned edge above the RH9 edge outside the island footprints at " + x + "," + z);
                 if (sample.edge() < reference) lowered++;
             }
         }
@@ -129,28 +130,95 @@ class HighlandDrownedTest {
         assertTrue(rias > 0, "no drowned regions in the low world");
     }
 
-    /** Pitfall 4: plans build without exceptions where regions meet the coast, on the user seed and four other seeds. */
+    /**
+     * Pitfall 4, T-11-09: plans build without exceptions where regions meet the coast and under open-sea islands, on the user seed
+     * and four other seeds, on the user preset and on ROCKIES. Per seed and preset, the owner of the first drowned coast point and
+     * the owner of the first open-sea island found by a ring search around the origin build their plans (no land bridge, box edge
+     * or outlet exception) with land nodes; the user preset must have a drowned coast point for every seed, and each preset must
+     * show both kinds of owner somewhere over the five seeds.
+     */
     @Test void plansBuildOnFiveSeeds() throws Exception {
         long[] seeds = {HighlandPlanformProbe.USER_SEED, 1L, 42L, -314159L, 20261107L};
+        int[] drownedOwners = new int[2], openOwners = new int[2];
         for (long seed : seeds) {
-            try (var context = WorldgenFixture.context(HighlandPlanformProbe.userPreset(), seed)) {
-                var continent = (RollingHighlandsContinent) context.heightmap.continent();
-                var coast = continent.coast();
-                double coastEdge = context.preset.world().controlPoints.coast;
-                HighlandCoast.Sample found = null;
-                for (int ring = 4096; ring <= 65536 && found == null; ring += 4096) {
-                    for (int a = 0; a < 64 && found == null; a++) {
-                        double angle = 2 * Math.PI * a / 64;
-                        for (int d = -2048; d <= 2048 && found == null; d += 64) {
-                            var s = coast.sample(Math.cos(angle) * (ring + d), Math.sin(angle) * (ring + d));
-                            if (s.drowned() >= HighlandDrownedProbe.DROWNED_WEIGHT && s.edge() > 0 && s.edge() < coastEdge + .1) found = s;
+            for (int preset = 0; preset < 2; preset++) {
+                var settings = preset == 0 ? HighlandPlanformProbe.userPreset() : BiomeCensusProbe.rockies();
+                try (var context = WorldgenFixture.context(settings, seed)) {
+                    var continent = (RollingHighlandsContinent) context.heightmap.continent();
+                    var coast = continent.coast();
+                    double coastEdge = context.preset.world().controlPoints.coast;
+                    HighlandCoast.Sample drowned = null, open = null;
+                    for (int ring = 4096; ring <= 65536 && (drowned == null || open == null); ring += 4096) {
+                        for (int a = 0; a < 128 && (drowned == null || open == null); a++) {
+                            double angle = 2 * Math.PI * a / 128;
+                            for (int d = -2048; d <= 2048 && (drowned == null || open == null); d += 64) {
+                                double x = Math.cos(angle) * (ring + d), z = Math.sin(angle) * (ring + d);
+                                var s = coast.sample(x, z);
+                                if (drowned == null && s.drowned() >= HighlandDrownedProbe.DROWNED_WEIGHT && s.edge() > 0 && s.edge() < coastEdge + .1) drowned = s;
+                                if (open == null && s.drowned() == 0 && s.edge() > coastEdge && coast.drowned().openIsland(x, z) > 0) open = s;
+                            }
                         }
                     }
+                    String where = "seed " + seed + (preset == 0 ? " user" : " ROCKIES");
+                    if (preset == 0) assertTrue(drowned != null, "no drowned coast point near the origin for " + where);
+                    if (drowned != null) {
+                        drownedOwners[preset]++;
+                        assertTrue(continent.planOf(drowned.ownerX(), drowned.ownerZ()).plan().landNodes() > 0, where + " drowned owner " + drowned.ownerX() + "," + drowned.ownerZ() + " has no land nodes");
+                    }
+                    if (open != null) {
+                        openOwners[preset]++;
+                        assertTrue(continent.planOf(open.ownerX(), open.ownerZ()).plan().landNodes() > 0, where + " island owner " + open.ownerX() + "," + open.ownerZ() + " has no land nodes");
+                    }
                 }
-                assertTrue(found != null, "no drowned coast point near the origin for seed " + seed);
-                var plan = continent.planOf(found.ownerX(), found.ownerZ()).plan();
-                assertTrue(plan.landNodes() > 0, "seed " + seed + " owner " + found.ownerX() + "," + found.ownerZ() + " has no land nodes");
             }
+        }
+        System.out.println("RH10 plans built: drowned owners user/ROCKIES " + drownedOwners[0] + "/" + drownedOwners[1] + ", island owners " + openOwners[0] + "/" + openOwners[1]);
+        assertTrue(drownedOwners[1] > 0 && openOwners[0] > 0 && openOwners[1] > 0, "a preset without drowned or island owners over five seeds: drowned " + java.util.Arrays.toString(drownedOwners) + " islands " + java.util.Arrays.toString(openOwners));
+    }
+
+    /** Open-sea island scan (D-10): radius and lattice step (blocks), and the sea cells an owner needs in the scan to count as covered (about 70 km2 of the 60-100 km2 of sea of an owner). */
+    static final int OPEN_SCAN = 32768, OPEN_STEP = 32, OPEN_FULL_SEA = 70_000;
+    /** Open-sea island extent, blocks (D-10: 0.3-3 km across). */
+    static final double OPEN_ACROSS_MIN = 300, OPEN_ACROSS_MAX = 3000;
+
+    /**
+     * D-10 (user world and ROCKIES, 32 km scan around the site): sparse open-sea islands, 1-4 per owner with ocean on average,
+     * at least 90% of them 0.3-3 km across (a fragment of an island cut by the owner-border guard can fall below, none is over
+     * 3.6 km), none with land where the standalone edge is below the guard edge, each inside its owner's plan
+     * bounds, and (for a sample of islands) in a plan with land nodes and shored by the RH9 profile (beach or scarp tags on the
+     * columns at their coast).
+     */
+    @Test void islandsOpenSea() throws Exception {
+        var user = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
+        assertOpenSea("user", user);
+        try (var rockies = WorldgenFixture.context(BiomeCensusProbe.rockies(), HighlandPlanformProbe.USER_SEED)) {
+            assertOpenSea("rockies", rockies);
+        }
+    }
+
+    private static void assertOpenSea(String label, GeneratorContext context) {
+        var census = HighlandDrownedProbe.openIslands(context, SITE_X, SITE_Z, OPEN_SCAN, OPEN_STEP, OPEN_FULL_SEA);
+        System.out.println("RH10 open-sea islands " + label + " " + census.summary());
+        assertTrue(census.islands().size() >= 5, label + ": too few open-sea islands: " + census.summary());
+        assertTrue(census.perOwner() >= 1 && census.perOwner() <= 4, label + ": islands per owner with ocean outside 1-4: " + census.summary());
+        assertEquals(0, census.belowGuard(), label + ": land below the guard edge: " + census.summary());
+        assertEquals(0, census.outOfBounds(), label + ": island land outside its owner's plan bounds: " + census.summary());
+        long inRange = census.islands().stream().filter(i -> i.across() >= OPEN_ACROSS_MIN && i.across() <= OPEN_ACROSS_MAX).count();
+        assertTrue(inRange >= .9 * census.islands().size(), label + ": islands " + OPEN_ACROSS_MIN + "-" + OPEN_ACROSS_MAX + " blocks across: " + inRange + " of " + census.islands().size() + ": " + census.summary());
+        assertTrue(census.islands().stream().noneMatch(i -> i.across() > 1.2 * OPEN_ACROSS_MAX), label + ": an island far over " + OPEN_ACROSS_MAX + " blocks across: " + census.summary());
+        var continent = (RollingHighlandsContinent) context.heightmap.continent();
+        var cell = new Cell();
+        int stride = Math.max(1, census.islands().size() / 6);
+        for (int k = 0; k < census.islands().size(); k += stride) {
+            var island = census.islands().get(k);
+            String where = label + " island " + island.ownerX() + "," + island.ownerZ() + " at " + island.shore()[0] + "," + island.shore()[1];
+            assertTrue(continent.planOf(island.ownerX(), island.ownerZ()).plan().landNodes() > 0, where + ": the owner plan has no land nodes");
+            boolean shored = false;
+            for (int dz = -OPEN_STEP; dz <= OPEN_STEP; dz += 8) for (int dx = -OPEN_STEP; dx <= OPEN_STEP; dx += 8) {
+                context.lookup.applyCell(cell.reset(), island.shore()[0] + dx, island.shore()[1] + dz, false, true);
+                if (cell.terrain == TerrainType.BEACH || cell.highlandCoast > 0) shored = true;
+            }
+            assertTrue(shored, where + ": no beach or scarp tag at the coast, the RH9 shore profile did not act");
         }
     }
 

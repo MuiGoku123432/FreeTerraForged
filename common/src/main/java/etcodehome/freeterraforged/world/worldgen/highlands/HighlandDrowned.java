@@ -84,6 +84,20 @@ final class HighlandDrowned {
      */
     static final double ISLAND_GAP = 100, ISLAND_SOFT = 150, ISLAND_PEAK = 300, ISLAND_PEAK_FJORD = 750,
         CHAIN_ANISO = 3, CHAIN_SCALE = 1200, CHAIN_AT = .4, CHAIN_HIGH = .7, GAP_SCALE = 700, GAP_AT = .15, BLOB_SCALE = 2400, BLOB_AT = .4;
+    /**
+     * Open-sea islands (D-10): a few RH-native islands offshore, independent of the regions, built from the same edge field. One
+     * jittered cell per {@code OPEN_SPACING} blocks is active with chance {@code OPEN_CHANCE}; its island centre is the first of
+     * {@code OPEN_TRIALS} hashed points whose standalone edge is in the open-sea band (at or below the shallow-ocean point, at or above
+     * {@link #islandMinEdge}). Radius is log-uniform from {@code OPEN_MIN_RADIUS} to {@code OPEN_MAX_RADIUS} blocks with an outline
+     * noise of relative amplitude {@code OPEN_OUTLINE}; the top stands {@code OPEN_PEAK} blocks of coast ramp above the coast point
+     * for the largest island and {@code sqrt(r / OPEN_MAX_RADIUS)} of that for a smaller one; the flank is the outer
+     * {@code OPEN_FLANK} of the radius. The weight is zero at and below {@link #islandMinEdge} ({@code OPEN_GUARD} times the deep-ocean point,
+     * above 0) and rises over the next {@code OPEN_GUARD_FADE} of it, so an island never reaches a neighbouring owner or a region border,
+     * and it keeps the same coast gap as the island chains.
+     */
+    static final double OPEN_SPACING = 6000, OPEN_CHANCE = .5, OPEN_MIN_RADIUS = 380, OPEN_MAX_RADIUS = 1000, OPEN_OUTLINE = .2, OPEN_PEAK = 450,
+        OPEN_FLANK = .3, OPEN_GUARD = .5, OPEN_GUARD_FADE = .2;
+    private static final int OPEN_TRIALS = 24;
     /** Half distance (blocks) of the central differences that orient a region. */
     private static final double GRADIENT_STEP = 256;
     /**
@@ -111,13 +125,19 @@ final class HighlandDrowned {
         final long[] h = new long[9];
         final int[] ci = new int[9], cj = new int[9];
         final double[] cx = new double[9], cz = new double[9], radius = new double[9];
+        /** The open-sea island candidates of the 3x3 cells around (oi, oj): centre, radius and the hash that shapes them. */
+        int oi, oj, ocount;
+        boolean ovalid;
+        final double[] ox = new double[9], oz = new double[9], oradius = new double[9];
+        final long[] oh = new long[9];
     }
 
     private final HighlandCoast coast;
     private final long seed;
-    private final double coastEdge, riaTarget, fjordTarget, reachEdge, wallEdge, longReachEdge, depthFloor, shelfEdge;
+    private final double coastEdge, riaTarget, fjordTarget, reachEdge, wallEdge, longReachEdge, depthFloor, shelfEdge, islandMinEdge, openBandEdge;
     /** Lowest edge value the transform can change: the ria target, or the depth floor (below the fjord target) when the land has ranges. */
     private volatile double lowEdge;
+    private final long openSeed;
     private final ThreadLocal<Memo> memo = ThreadLocal.withInitial(Memo::new);
     private volatile HighlandLand land;
 
@@ -125,6 +145,7 @@ final class HighlandDrowned {
         var points = context.preset.world().controlPoints;
         this.coast = coast;
         this.seed = mix(context.seed.root() ^ 0x5248313044L ^ SEED_SALT);
+        this.openSeed = mix(context.seed.root() ^ 0x524831304BL);
         this.coastEdge = points.coast;
         this.riaTarget = points.beach - DROWN_MARGIN * (points.beach - points.shallowOcean);
         this.fjordTarget = points.shallowOcean - DROWN_MARGIN * (points.shallowOcean - points.deepOcean);
@@ -133,6 +154,8 @@ final class HighlandDrowned {
         this.longReachEdge = FJORD_REACH * LONG_FACTOR * HighlandCoast.EDGE_PER_BLOCK;
         this.depthFloor = Math.max(points.deepOcean, .01);
         this.shelfEdge = points.deepOcean;
+        this.islandMinEdge = OPEN_GUARD * points.deepOcean;
+        this.openBandEdge = points.shallowOcean;
         this.lowEdge = riaTarget;
     }
 
@@ -220,7 +243,7 @@ final class HighlandDrowned {
     /** True where the transform can change an edge value: above the (lowest) arm target and inside the longest inland reach. */
     boolean inBand(double edge) {
         var land = this.land;
-        return land != null && edge > Math.min(lowEdge, shelfEdge) && edge < coastEdge + (land.rangeHeight() > 0 ? Math.max(reachEdge, longReachEdge) : reachEdge);
+        return land != null && edge > Math.min(lowEdge, Math.min(shelfEdge, islandMinEdge)) && edge < coastEdge + (land.rangeHeight() > 0 ? Math.max(reachEdge, longReachEdge) : reachEdge);
     }
 
     /**
@@ -244,6 +267,7 @@ final class HighlandDrowned {
      */
     At at(double rawX, double rawZ, double edge) {
         if (!inBand(edge)) return new At(edge, 0);
+        double open = openRaise(rawX, rawZ, edge);
         var m = discs((int) Math.floor(rawX / REGION_SIZE), (int) Math.floor(rawZ / REGION_SIZE));
         double weight = 0, fjord = 0;
         for (int n = 0; n < m.count; n++) {
@@ -252,8 +276,8 @@ final class HighlandDrowned {
             weight = Math.max(weight, w);
             if (w > fjord && region(m.h[n], m.ci[n], m.cj[n], m.cx[n], m.cz[n]).fjord) fjord = w;
         }
-        if (weight <= 0) return new At(edge, 0);
-        double raised = raise(m, rawX, rawZ, edge);
+        if (weight <= 0) return new At(open, 0);
+        double raised = raise(m, rawX, rawZ, open);
         double steep = steepen(raised, fjord), lowering = 0;
         for (int n = 0; n < m.count; n++) {
             double w = discWeight(m.cx[n], m.cz[n], m.radius[n], rawX, rawZ);
@@ -287,6 +311,64 @@ final class HighlandDrowned {
             double peak = (region.fjord ? ISLAND_PEAK_FJORD : ISLAND_PEAK) * HighlandCoast.EDGE_PER_BLOCK;
             best = Math.max(best, edge + s * (coastEdge + peak - edge));
         }
+        return best;
+    }
+
+    /** Open-sea island candidates of the 3x3 cells around (gi, gj), memoized per thread for the last cell. */
+    private Memo open(int gi, int gj) {
+        var m = memo.get();
+        if (m.ovalid && m.oi == gi && m.oj == gj) return m;
+        m.ocount = 0;
+        for (int j = gj - 1; j <= gj + 1; j++) for (int i = gi - 1; i <= gi + 1; i++) {
+            long h = mix(openSeed ^ (i * 0x9e3779b97f4a7c15L) ^ (j * 0x632be59bd9b4e019L));
+            if (unit(h) >= OPEN_CHANCE) continue;
+            for (int t = 0; t < OPEN_TRIALS; t++) {
+                double cx = (i + unit(mix(h + 11 + 2 * t))) * OPEN_SPACING, cz = (j + unit(mix(h + 12 + 2 * t))) * OPEN_SPACING;
+                double e = coast.undrowned(cx, cz).edge();
+                if (!(e >= islandMinEdge && e <= openBandEdge)) continue;
+                int n = m.ocount++;
+                m.oh[n] = h; m.ox[n] = cx; m.oz[n] = cz;
+                m.oradius[n] = OPEN_MIN_RADIUS * Math.pow(OPEN_MAX_RADIUS / OPEN_MIN_RADIUS, unit(mix(h + 5)));
+                break;
+            }
+        }
+        m.oi = gi; m.oj = gj; m.ovalid = true;
+        return m;
+    }
+
+    /** Footprint weight 0..1 of open-sea island candidate n at a position: 0 outside its (noisy) outline, rising over the outer OPEN_FLANK of the radius. */
+    private double openWeight(Memo m, int n, double x, double z) {
+        double dx = x - m.ox[n], dz = z - m.oz[n], r = m.oradius[n], d2 = dx * dx + dz * dz, reach = r * (1 + OPEN_OUTLINE);
+        if (d2 >= reach * reach) return 0;
+        double outline = r * (1 + OPEN_OUTLINE * (2 * noise(openSeed + 3, x, z, Math.max(120, .8 * r)) - 1));
+        return smooth(0, OPEN_FLANK, 1 - Math.sqrt(d2) / outline);
+    }
+
+    /**
+     * The standalone edge with the open-sea islands raised in: zero weight at and below {@link #islandMinEdge}, full from twice it,
+     * and no island within the coast gap of the coast point. Position and standalone edge only, like the rest of the transform.
+     */
+    private double openRaise(double x, double z, double edge) {
+        double window = smooth(islandMinEdge, (1 + OPEN_GUARD_FADE) * islandMinEdge, edge)
+            * (1 - smooth(coastEdge - (ISLAND_GAP + ISLAND_SOFT) * HighlandCoast.EDGE_PER_BLOCK, coastEdge - ISLAND_GAP * HighlandCoast.EDGE_PER_BLOCK, edge));
+        if (window <= 0) return edge;
+        var m = open((int) Math.floor(x / OPEN_SPACING), (int) Math.floor(z / OPEN_SPACING));
+        double best = edge;
+        for (int n = 0; n < m.ocount; n++) {
+            double s = openWeight(m, n, x, z);
+            if (s <= 0) continue;
+            double peak = OPEN_PEAK * HighlandCoast.EDGE_PER_BLOCK * Math.sqrt(m.oradius[n] / OPEN_MAX_RADIUS);
+            best = Math.max(best, edge + window * s * (coastEdge + peak - edge));
+        }
+        return best;
+    }
+
+    /** Open-sea island footprint weight (0..1) at a position: above 0 inside an island outline, where the edge may be raised (used by the identity gate). */
+    double openIsland(double x, double z) {
+        if (land == null) return 0;
+        var m = open((int) Math.floor(x / OPEN_SPACING), (int) Math.floor(z / OPEN_SPACING));
+        double best = 0;
+        for (int n = 0; n < m.ocount; n++) best = Math.max(best, openWeight(m, n, x, z));
         return best;
     }
 

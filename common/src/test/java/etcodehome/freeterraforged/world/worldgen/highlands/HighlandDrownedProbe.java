@@ -857,6 +857,82 @@ final class HighlandDrownedProbe {
         return new Islands(count, diameters, tops, steepest, chained, creek, regionArea);
     }
 
+    /**
+     * Open-sea islands (11-06) of a square scan: land (bound coast) outside every drowned region whose standalone edge is sea,
+     * labelled 4-connected on a {@code step}-block lattice (components touching the scan border dropped). Per island: its owner,
+     * its largest extent ({@code across}, blocks) and one coast column. {@code belowGuard} counts island land cells whose standalone
+     * edge is below the guard edge, {@code outOfBounds} the ones outside their owner's plan bounds, and {@code fullOwners} the owners with at
+     * least {@code fullOwnerSea} sea cells in the scan (the ones the scan covers mostly) with {@code inFullOwners} islands among them.
+     */
+    record OpenIsland(int ownerX, int ownerZ, double across, int[] shore) {}
+    record OpenIslands(List<OpenIsland> islands, int fullOwners, int inFullOwners, int belowGuard, int outOfBounds) {
+        double perOwner() { return fullOwners > 0 ? (double) inFullOwners / fullOwners : Double.NaN; }
+        String summary() {
+            double[] across = islands.stream().mapToDouble(OpenIsland::across).sorted().toArray();
+            return String.format(Locale.ROOT, "openIslands=%d owners(full)=%d perOwner=%.2f across min=%.0f median=%.0f max=%.0f belowGuard=%d outOfBounds=%d",
+                islands.size(), fullOwners, perOwner(), across.length > 0 ? across[0] : Double.NaN, across.length > 0 ? HighlandCoastProbe.quantile(across, .5) : Double.NaN,
+                across.length > 0 ? across[across.length - 1] : Double.NaN, belowGuard, outOfBounds);
+        }
+    }
+
+    static OpenIslands openIslands(GeneratorContext context, int originX, int originZ, int radius, int step, int fullOwnerSea) {
+        var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+        var standalone = new HighlandCoast(context);
+        var controls = context.preset.world().controlPoints;
+        double coastEdge = controls.coast, guard = HighlandDrowned.OPEN_GUARD * controls.deepOcean;
+        int gw = 2 * radius / step + 1, x0 = originX - radius, z0 = originZ - radius;
+        boolean[] island = new boolean[gw * gw], low = new boolean[gw * gw];
+        int[] ownerX = new int[gw * gw], ownerZ = new int[gw * gw];
+        boolean[] sea = new boolean[gw * gw];
+        IntStream.range(0, gw).parallel().forEach(j -> {
+            for (int i = 0; i < gw; i++) {
+                double x = x0 + i * step, z = z0 + j * step;
+                var sample = coast.sample(x, z);
+                int at = j * gw + i;
+                ownerX[at] = sample.ownerX(); ownerZ[at] = sample.ownerZ();
+                sea[at] = sample.edge() > 0 && sample.edge() <= coastEdge;
+                if (sample.edge() <= coastEdge || sample.drowned() > 0 || coast.drowned().openIsland(x, z) <= 0) continue;
+                double base = standalone.sample(x, z).edge();
+                if (base > coastEdge) continue;
+                island[at] = true;
+                low[at] = base < guard;
+            }
+        });
+        var seaCells = new java.util.HashMap<Long, Integer>();
+        for (int at = 0; at < sea.length; at++) if (sea[at]) seaCells.merge(((long) ownerX[at] << 32) ^ (ownerZ[at] & 0xffffffffL), 1, Integer::sum);
+        var parts = label(island, gw);
+        boolean[] border = borderTouching(parts.id, gw, parts.area.length - 1);
+        int count = parts.area.length - 1;
+        int[] minI = new int[count + 1], maxI = new int[count + 1], minJ = new int[count + 1], maxJ = new int[count + 1];
+        java.util.Arrays.fill(minI, Integer.MAX_VALUE); java.util.Arrays.fill(minJ, Integer.MAX_VALUE);
+        int[][] shore = new int[count + 1][];
+        int belowGuard = 0, outOfBounds = 0;
+        var bounds = new java.util.HashMap<Long, HighlandCoast.Bounds>();
+        for (int at = 0; at < island.length; at++) {
+            if (!island[at]) continue;
+            int id = parts.id[at], i = at % gw, j = at / gw;
+            minI[id] = Math.min(minI[id], i); maxI[id] = Math.max(maxI[id], i); minJ[id] = Math.min(minJ[id], j); maxJ[id] = Math.max(maxJ[id], j);
+            if (shore[id] == null && ((i > 0 && !island[at - 1]) || (i < gw - 1 && !island[at + 1]) || (j > 0 && !island[at - gw]) || (j < gw - 1 && !island[at + gw]))) shore[id] = new int[]{x0 + i * step, z0 + j * step};
+            if (low[at]) belowGuard++;
+            int ox = ownerX[at], oz = ownerZ[at];
+            var b = bounds.computeIfAbsent(((long) ox << 32) ^ (oz & 0xffffffffL), key -> coast.bounds(ox, oz));
+            double x = x0 + i * step, z = z0 + j * step;
+            if (x < b.minX() || x > b.maxX() || z < b.minZ() || z > b.maxZ()) outOfBounds++;
+        }
+        var islands = new ArrayList<OpenIsland>();
+        int fullOwners = 0, inFull = 0;
+        for (var entry : seaCells.entrySet()) if (entry.getValue() >= fullOwnerSea) fullOwners++;
+        for (int id = 1; id <= count; id++) {
+            if (border[id]) continue;
+            int first = -1;
+            for (int at = 0; at < island.length && first < 0; at++) if (parts.id[at] == id) first = at;
+            double across = (Math.max(maxI[id] - minI[id], maxJ[id] - minJ[id]) + 1.0) * step;
+            islands.add(new OpenIsland(ownerX[first], ownerZ[first], across, shore[id]));
+            if (seaCells.getOrDefault(((long) ownerX[first] << 32) ^ (ownerZ[first] & 0xffffffffL), 0) >= fullOwnerSea) inFull++;
+        }
+        return new OpenIslands(islands, fullOwners, inFull, belowGuard, outOfBounds);
+    }
+
     /** One island census over several boxes: lists concatenated, region areas summed. */
     static Islands poolIslands(List<Islands> parts) {
         int count = parts.stream().mapToInt(Islands::count).sum();

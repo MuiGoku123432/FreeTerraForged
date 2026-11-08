@@ -20,13 +20,18 @@ import etcodehome.freeterraforged.world.worldgen.cell.terrain.TerrainType;
  * </ul>
  *
  * <p>RH10: the RH9 gates describe the RH9 coast, so samples whose {@code coast.sample(x, z).drowned()} is at least
- * {@link #DROWNED_SKIP} (inside a drowned region, where the coastline is a flooded valley shore) are left out of the
+ * {@link #DROWNED_SKIP} (inside a drowned region, where the coastline is a flooded valley shore), or that lie on an open-sea
+ * island (11-06), are left out of the
  * type shares, beach widths, cliff height/depth, stacks, hollow share and the stretch runs (runs are split at drowned
  * points). {@code sunk} still counts every transect (no sea pit anywhere) and the cost covers every transect.
  */
 final class HighlandCoastProbe {
     /** RH10: drowned-region weight from which a coast sample no longer counts as RH9 coast. */
     static final double DROWNED_SKIP = .1;
+    /** RH10: a coast sample that is not RH9 coast: inside a drowned region, or on an open-sea island (11-06, which has its own gates). */
+    private static boolean notRh9Coast(HighlandCoast coast, double x, double z) {
+        return coast.sample(x, z).drowned() >= DROWNED_SKIP || coast.drowned().openIsland(x, z) > 0;
+    }
     static final int ROW = 32, MAX_BEACH = 96, INLAND = 96, OFFSHORE = 60, WINDOW = 2000, TRACE = 8, RESAMPLE = 8, HOLLOW_REACH = 48;
 
     record Sample(int x, int z, String type, String geometry, int beachWidth, double h4, double h8, double h32, double depth8, boolean stack, double slope, boolean hollow, int sunk) {}
@@ -82,7 +87,7 @@ final class HighlandCoastProbe {
                 }
                 nanos += System.nanoTime() - start;
                 columns += height.length;
-                if (coast.sample(x, z).drowned() >= DROWNED_SKIP) { sunkInDrowned += sunk; continue; }
+                if (notRh9Coast(coast, x, z)) { sunkInDrowned += sunk; continue; }
                 int width = 0;
                 int d0 = 0;
                 while (d0 < 4 && height[d0 + OFFSHORE] <= 0) d0++;
@@ -196,7 +201,7 @@ final class HighlandCoastProbe {
             double start = 0;
             for (int i = 0; i < line.size(); i++) {
                 double x = line.get(i)[0], z = line.get(i)[1];
-                if (coast.sample(x, z).drowned() >= DROWNED_SKIP) {
+                if (notRh9Coast(coast, x, z)) {
                     if (previous != null) runs.add(at[i - 1] - start);
                     previous = null;
                     continue;
