@@ -364,6 +364,7 @@ public final class RollingHighlandsContinent implements Continent {
         cell.waterTable = 0;
         cell.highlandRange = 0; cell.highlandSnowline = 0; cell.highlandTreeline = 0; cell.highlandFoot = 0;
         cell.highlandCoast = 0; cell.highlandCoastClimate = HighlandCoastProfile.CALIFORNIA;
+        cell.highlandWater = HighlandWater.NONE;
         cell.continentX = location.centerX(); cell.continentZ = location.centerZ();
         cell.continentId = (float) noise(971, location.ownerX(), location.ownerZ(), 1.37);
         cell.continentEdge = (float) location.edge();
@@ -371,6 +372,7 @@ public final class RollingHighlandsContinent implements Continent {
         cell.beachNoise = beachNoise.compute((float) x, (float) z, 0);
         if (location.edge() <= coastEdge) {
             oceans.apply(cell, (float) x, (float) z);
+            cell.highlandWater = HighlandWater.classify(coast, location, x, z, coastEdge);
             // Shoreface: beyond the shallow-ocean point the legacy lerp eases the floor up to sea level by edge value, which
             // leaves wide one-block-deep flats wherever the edge field lingers just under the coast point (in-game
             // 2026-11-04: dirt/gravel/clay patchwork seabeds). The floor instead deepens with distance from the shoreline.

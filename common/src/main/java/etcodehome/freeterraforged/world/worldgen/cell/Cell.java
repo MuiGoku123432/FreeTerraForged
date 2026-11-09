@@ -58,6 +58,11 @@ public class Cell {
     /** RH9 M: coastal scarp weight (0 off bluff/cliff faces, 1 on a sea cliff's face) and its climate class (HighlandCoastProfile.PNW / CALIFORNIA / BAJA). */
     public float highlandCoast;
     public byte highlandCoastClimate;
+    /**
+     * RH10 drowned-water tag (HighlandWater.NONE / FJORD / BAY): sea that the drowned coast flooded into former land.
+     * A tag only: nothing in generation reads it, so it never changes the world; locate and future biome hooks do.
+     */
+    public byte highlandWater;
     public boolean hasRiverWater;
     public int continentX;
     public int continentZ;
@@ -124,6 +129,7 @@ public class Cell {
         this.highlandTreeline = other.highlandTreeline;
         this.highlandCoast = other.highlandCoast;
         this.highlandCoastClimate = other.highlandCoastClimate;
+        this.highlandWater = other.highlandWater;
         this.hasRiverWater = other.hasRiverWater;
         this.riverZone = other.riverZone;
         this.waterTable = other.waterTable;

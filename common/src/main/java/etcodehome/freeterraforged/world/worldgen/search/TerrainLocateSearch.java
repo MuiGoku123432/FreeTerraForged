@@ -82,7 +82,7 @@ public final class TerrainLocateSearch {
 				false,
 				null,
 				control,
-				(cell, x, z) -> cell.terrain == target
+				(cell, x, z) -> TerrainSearchTargets.matches(target, cell)
 					? new Match(x, z, distanceSq(origin, x, z))
 					: null
 			);
@@ -95,7 +95,7 @@ public final class TerrainLocateSearch {
 				// Raw terrain identity is fully determined by the heightmap path; climate fields are only
 				// needed by biome selection and would add avoidable work to every terrain sample.
 				context.heightmap.apply(scratch.reset(), x, z, false);
-				return scratch.terrain == target ? new Match(x, z, distanceSq(origin, x, z)) : null;
+				return TerrainSearchTargets.matches(target, scratch) ? new Match(x, z, distanceSq(origin, x, z)) : null;
 			}
 		);
 	}

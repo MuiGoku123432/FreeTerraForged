@@ -1099,4 +1099,48 @@ class HighlandDrownedTest {
     private static String line(HighlandDrownedProbe.Site site) {
         return String.format(java.util.Locale.ROOT, "  %d %d %d %.2f %.2f %d\n", site.x(), site.z(), site.crossings(), site.pnwShare(), site.rangeCore(), site.mouths());
     }
+
+    /**
+     * Drowned-water tags (locate "fjord" / "bay"): fjord water in the ROCKIES fjord boxes and bay water in the user-world ria
+     * boxes; every tagged cell is sea that the RH9 coast has as land, and a FJORD tag only where a fjord region outweighs
+     * any ria region. Untagged sea stays the legacy ocean terrain, so the tag never changes terrain identity.
+     */
+    @Test void drownedWaterTags() throws Exception {
+        try (var rockies = WorldgenFixture.context(BiomeCensusProbe.rockies(), HighlandPlanformProbe.USER_SEED)) {
+            int[] fjord = tagCensus(rockies, FJORD_BOXES);
+            System.out.println("RH10 water tags ROCKIES fjord boxes: fjord " + fjord[1] + " bay " + fjord[2] + " of " + fjord[0]);
+            assertTrue(fjord[1] >= 100, "too few fjord-tagged cells in the fjord boxes: " + fjord[1]);
+        }
+        var user = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
+        int[] bay = tagCensus(user, new int[][] {RIA_BOXES[0], RIA_BOXES[1]});
+        System.out.println("RH10 water tags user ria boxes: fjord " + bay[1] + " bay " + bay[2] + " of " + bay[0]);
+        assertTrue(bay[2] >= 100, "too few bay-tagged cells in the ria boxes: " + bay[2]);
+    }
+
+    /** Samples the boxes on a 32-block grid and checks each tag's contract; returns {cells, fjord, bay}. */
+    private static int[] tagCensus(GeneratorContext context, int[][] boxes) {
+        var continent = (RollingHighlandsContinent) context.heightmap.continent();
+        var coast = continent.coast();
+        double coastEdge = context.preset.world().controlPoints.coast;
+        var cell = new Cell();
+        int[] counts = new int[3];
+        for (int[] box : boxes) {
+            for (int z = box[1] - SITE_RADIUS; z <= box[1] + SITE_RADIUS; z += 32) {
+                for (int x = box[0] - SITE_RADIUS; x <= box[0] + SITE_RADIUS; x += 32) {
+                    context.heightmap.apply(cell.reset(), x, z, false);
+                    counts[0]++;
+                    if (cell.highlandWater == HighlandWater.NONE) continue;
+                    counts[cell.highlandWater]++;
+                    var at = coast.sample(x, z);
+                    assertTrue(at.edge() <= coastEdge, "tagged cell is not sea at " + x + "," + z);
+                    assertTrue(coast.undrowned(x, z).edge() > coastEdge, "tagged cell is sea on the RH9 coast at " + x + "," + z);
+                    assertTrue(cell.terrain.isSubmerged() || cell.terrain.isCoast(), "tagged cell has non-water terrain " + cell.terrain.getName() + " at " + x + "," + z);
+                    if (cell.highlandWater == HighlandWater.FJORD) {
+                        assertTrue(coast.drowned().fjord(x, z) >= coast.drowned().ria(x, z), "fjord tag where a ria region dominates at " + x + "," + z);
+                    }
+                }
+            }
+        }
+        return counts;
+    }
 }
