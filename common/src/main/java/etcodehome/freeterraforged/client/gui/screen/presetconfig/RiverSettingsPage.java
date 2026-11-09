@@ -214,36 +214,39 @@ class RiverSettingsPage extends PresetEditorPage {
 			return value;
 		});
 
-		if (preset.world().continent.continentType == etcodehome.freeterraforged.data.worldgen.preset.settings.ContinentType.ROLLING_HIGHLANDS) {
-			// Rolling Highlands routes rivers from the terrain; these FTF settings shape what it builds.
+		boolean highlands = preset.world().continent.continentType == etcodehome.freeterraforged.data.worldgen.preset.settings.ContinentType.ROLLING_HIGHLANDS;
+		if (highlands) {
+			// Rolling Highlands routes rivers from the terrain. The FTF settings it reads stay live; the rest are greyed
+			// out with the reason (RollingHighlandsContinent reads river count, main river bed depth, bank heights and
+			// bank width, lake chance, depth and maximum size, and wetland chance).
 			this.left.addWidget(PresetWidgets.createLabel("gui.ftf.highlands.rivers"));
-			this.left.addWidget(this.riverCount);
+			this.left.addWidget(PresetWidgets.createLabel("gui.ftf.highlands.rivers_settings"));
+			PresetWidgets.disableIf(this.seedOffset, true, "highlands.river_seed");
+			PresetWidgets.disableIf(this.mainRiverBedWidth, true, "highlands.river_bed");
+			PresetWidgets.disableIf(this.mainRiverFade, true, "highlands.river_bed");
+			for (var widget : new net.minecraft.client.gui.components.AbstractWidget[] {
+				this.branchRiverBedDepth, this.branchRiverMinBankHeight, this.branchRiverMaxBankHeight,
+				this.branchRiverBedWidth, this.branchRiverBankWidth, this.branchRiverFade }) {
+				PresetWidgets.disableIf(widget, true, "highlands.branch_rivers");
+			}
+			for (var widget : new net.minecraft.client.gui.components.AbstractWidget[] {
+				this.lakeMinStartDistance, this.lakeMaxStartDistance, this.lakeSizeMin, this.lakeMinBankHeight, this.lakeMaxBankHeight }) {
+				PresetWidgets.disableIf(widget, true, "highlands.lakes");
+			}
+			PresetWidgets.disableIf(this.wetlandSizeMin, true, "highlands.wetlands");
+			PresetWidgets.disableIf(this.wetlandSizeMax, true, "highlands.wetlands");
+		}
+
+		this.left.addWidget(this.seedOffset);
+		this.left.addWidget(this.riverCount);
+		if (highlands) {
 			var terrain = preset.terrain();
 			this.left.addWidget(PresetWidgets.createIntSlider(terrain.highlands().meanders(), 0, 200, "gui.ftf.highlands.meanders", (slider, value) -> {
 				terrain.rollingHighlands = terrain.highlands().withMeanders((int) slider.scaleValue(value));
 				this.regenerate();
 				return value;
 			}));
-			this.left.addWidget(PresetWidgets.createLabel(FTFTranslationKeys.GUI_LABEL_RIVER_FLOW_DYNAMICS));
-			this.left.addWidget(this.toggleFlowParticles);
-			this.left.addWidget(this.toggleBoatFlowDynamics);
-			this.left.addWidget(this.toggleNavigableWaterfalls);
-			this.left.addWidget(PresetWidgets.createLabel(FTFTranslationKeys.GUI_LABEL_MAIN_RIVERS));
-			this.left.addWidget(this.mainRiverBedDepth);
-			this.left.addWidget(this.mainRiverMinBankHeight);
-			this.left.addWidget(this.mainRiverMaxBankHeight);
-			this.left.addWidget(this.mainRiverBankWidth);
-			this.left.addWidget(PresetWidgets.createLabel(FTFTranslationKeys.GUI_LABEL_LAKES));
-			this.left.addWidget(this.lakeChance);
-			this.left.addWidget(this.lakeDepth);
-			this.left.addWidget(PresetWidgets.createLabel(FTFTranslationKeys.GUI_LABEL_WETLANDS));
-			this.left.addWidget(this.wetlandChance);
-			this.left.addWidget(PresetWidgets.createLabel("gui.ftf.highlands.rivers_settings"));
-			return;
 		}
-
-		this.left.addWidget(this.seedOffset);
-		this.left.addWidget(this.riverCount);
 
 		this.left.addWidget(PresetWidgets.createLabel(FTFTranslationKeys.GUI_LABEL_RIVER_FLOW_DYNAMICS));
 		this.left.addWidget(this.toggleFlowParticles);

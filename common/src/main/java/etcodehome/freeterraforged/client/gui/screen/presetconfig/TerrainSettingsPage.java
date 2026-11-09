@@ -99,6 +99,7 @@ public class TerrainSettingsPage extends PresetEditorPage {
             addHighlandSlider(terrain, 7, terrain.highlands().rangeRidges(), 1, RollingHighlandsSettings.MAX_RANGE_RIDGES, "gui.ftf.highlands.rangeRidges");
             this.left.addWidget(PresetWidgets.createToggle(terrain.highlands().rangesReplaceMountains(), "gui.ftf.highlands.rangesReplaceMountains", (button, value) -> {
                 terrain.rollingHighlands = terrain.highlands().withRangesReplaceMountains(value);
+                this.applyRangesReplaceMountains(preset);
                 this.regenerate();
             }));
             this.left.addWidget(PresetWidgets.createLabel("gui.ftf.highlands.preview"));
@@ -347,11 +348,12 @@ public class TerrainSettingsPage extends PresetEditorPage {
 			return value;
 		});
 
-		this.globalVerticalScale.active = !isUpliftContinent;
-		this.steppeBaseScale.active = !isUpliftContinent;
-		this.plainsBaseScale.active = !isUpliftContinent;
-		this.hillsBaseScale.active = !isUpliftContinent;
-		
+		PresetWidgets.disableIf(this.globalVerticalScale, isUpliftContinent, "uplift_scale");
+		PresetWidgets.disableIf(this.steppeBaseScale, isUpliftContinent, "uplift_scale");
+		PresetWidgets.disableIf(this.plainsBaseScale, isUpliftContinent, "uplift_scale");
+		PresetWidgets.disableIf(this.hillsBaseScale, isUpliftContinent, "uplift_scale");
+		this.applyRangesReplaceMountains(preset);
+
 		this.left.addWidget(PresetWidgets.createLabel(FTFTranslationKeys.GUI_LABEL_GENERAL));
 		this.left.addWidget(this.terrainSeedOffset);
 		this.left.addWidget(this.terrainRegionSize);
@@ -416,6 +418,22 @@ public class TerrainSettingsPage extends PresetEditorPage {
 		this.left.addWidget(this.volcanoHorizontalScale);
 	}
 
+    /**
+     * With Rolling Highlands ranges replacing mountains (Range Height above 0 and the toggle on), the mountain terrain
+     * weight and the mountain chain strength are both 0 (HighlandLand), so every mountain setting has no effect.
+     * Re-run whenever Range Height or the toggle changes.
+     */
+    private void applyRangesReplaceMountains(Preset preset) {
+        if (this.mountainsWeight == null) return; // RH widgets are built before the legacy ones
+        boolean replaced = preset.world().continent.continentType == ContinentType.ROLLING_HIGHLANDS
+            && preset.terrain().highlands().replacesMountains();
+        for (var widget : new net.minecraft.client.gui.components.AbstractWidget[] {
+            this.fancyMountains, this.legacyMountainScaling, this.mountainVariety,
+            this.mountainsWeight, this.mountainsBaseScale, this.mountainsVerticalScale, this.mountainsHorizontalScale }) {
+            PresetWidgets.disableIf(widget, replaced, "highlands.mountains");
+        }
+    }
+
     private void addHighlandSlider(TerrainSettings terrain, int field, int initial, int min, int max, String label) {
         this.left.addWidget(PresetWidgets.createIntSlider(initial, min, max, label, (slider, value) -> {
             var old = terrain.highlands();
@@ -425,6 +443,7 @@ public class TerrainSettingsPage extends PresetEditorPage {
                 field == 2 ? blocks : old.valleyDepth(), field == 3 ? blocks : old.valleyWidth(), old.meanders(),
                 field == 4 ? blocks : old.rangeHeight(), field == 5 ? blocks : old.rangeLength(), old.rangesReplaceMountains(),
                 field == 6 ? blocks : old.snowline(), field == 7 ? blocks : old.rangeRidges());
+            if (field == 4) this.applyRangesReplaceMountains(this.preset.getPreset());
             this.regenerate();
             return value;
         }));
