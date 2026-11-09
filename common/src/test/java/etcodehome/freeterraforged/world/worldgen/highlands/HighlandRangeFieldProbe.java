@@ -5,6 +5,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Locale;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import etcodehome.freeterraforged.data.worldgen.preset.settings.RollingHighlandsSettings;
 
@@ -20,6 +21,7 @@ import etcodehome.freeterraforged.data.worldgen.preset.settings.RollingHighlands
  * </ul>
  * Writes build/range-field-probe.txt.
  */
+@Tag("probe")
 class HighlandRangeFieldProbe {
     static final int WINDOW = 16384, STEP = 64, LENGTH = RollingHighlandsSettings.DEFAULT_RANGE_LENGTH;
     static final int[] DISTANCES = {0, 10_000, 20_000, 40_000, 80_000};

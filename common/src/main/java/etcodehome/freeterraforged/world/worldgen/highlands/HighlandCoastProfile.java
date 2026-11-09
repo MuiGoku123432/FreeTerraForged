@@ -42,8 +42,19 @@ public final class HighlandCoastProfile {
     /** Dry beach width and scarp heights (blocks, A-1). */
     static final double MIN_WIDTH = 15, MAX_WIDTH = 40, MIN_BLUFF = 6, MAX_BLUFF = 16, MIN_CLIFF = 15, MAX_CLIFF = 40;
 
+    /** RH10 fjord walls: how far the cliff weight moves toward 1 under a full fjord weight, and the cliff height lift toward MAX_CLIFF. */
+    static final double FJORD_CLIFF = .9, FJORD_CLIFF_LIFT = 1;
+
+    /**
+     * RH10 calm bays (D-16): under a full ria weight the beach weight moves {@code RIA_BEACH} of the way to 1 (bluff and cliff
+     * shrink with it), the dry beach width shrinks to {@code RIA_WIDTH} of its value (more and smaller beaches), and scarp
+     * heights are capped at the top of the bluff range ({@link #MAX_BLUFF}), so bays have no tall sea cliffs.
+     */
+    static final double RIA_BEACH = .6, RIA_WIDTH = .6;
+
     private final long seed;
     private volatile Climate climate;
+    private volatile HighlandDrowned drowned;
 
     public HighlandCoastProfile(GeneratorContext context) {
         this.seed = HighlandMath.mix(context.seed.root() ^ 0x5248394321L);
@@ -51,6 +62,8 @@ public final class HighlandCoastProfile {
 
     /** Regional climate source; set once, after {@code Climate.make}, before any plan is built. */
     void climate(Climate climate) { this.climate = climate; }
+    /** RH10 drowned layer, for fjord rock walls; set once by the coast that owns both. */
+    void drowned(HighlandDrowned drowned) { this.drowned = drowned; }
 
     public Shore shore(double x, double z) {
         double temperature = 0, moisture = 0;
@@ -64,9 +77,26 @@ public final class HighlandCoastProfile {
         double cliff = smooth(CLIFF_AT - BLEND, CLIFF_AT + BLEND, hardness);
         double bluff = smooth(BLUFF_AT - BLEND, BLUFF_AT + BLEND, hardness) - cliff;
         double beach = 1 - bluff - cliff;
-        double width = (MIN_WIDTH + (MAX_WIDTH - MIN_WIDTH) * noise(seed + 3, x, z, WIDTH_SCALE)) * (1 + .4 * baja) * (1 - .2 * pnw);
+        // RH10: under fjord regions the shore is rock wall. The cliff weight moves toward 1 and bluff and beach shrink with it,
+        // so the weights still sum to 1; the climate class (hence the PNW rock palette) is unchanged. Typing reads only the raw
+        // climate, so this cannot recurse. Heads: where a river enters, the river-mouth fade turns the wall to a small flat.
+        var layer = drowned;
+        double fjord = layer == null ? 0 : layer.fjord(x, z), toward = FJORD_CLIFF * fjord;
+        if (toward > 0) {
+            cliff += toward * (1 - cliff);
+            bluff *= 1 - toward; beach *= 1 - toward;
+        }
+        // RH10: calm bays. Same weights-sum-to-1 move as the fjord walls, toward beach; the climate class and palette are unchanged.
+        double ria = layer == null ? 0 : layer.ria(x, z) * (1 - fjord), calm = RIA_BEACH * ria;
+        if (calm > 0) {
+            beach += calm * (1 - beach);
+            bluff *= 1 - calm; cliff *= 1 - calm;
+        }
+        double width = (MIN_WIDTH + (MAX_WIDTH - MIN_WIDTH) * noise(seed + 3, x, z, WIDTH_SCALE)) * (1 + .4 * baja) * (1 - .2 * pnw) * (1 - (1 - RIA_WIDTH) * ria);
         double n = noise(seed + 4, x, z, HEIGHT_SCALE);
         double bluffHeight = MIN_BLUFF + (MAX_BLUFF - MIN_BLUFF) * n, cliffHeight = MIN_CLIFF + (MAX_CLIFF - MIN_CLIFF) * n;
+        cliffHeight += FJORD_CLIFF_LIFT * fjord * (MAX_CLIFF - cliffHeight);
+        cliffHeight += ria * (Math.min(cliffHeight, MAX_BLUFF) - cliffHeight);
         double height = bluff + cliff > 0 ? (bluff * bluffHeight + cliff * cliffHeight) / (bluff + cliff) : bluffHeight;
         return new Shore(beach, bluff, cliff, width, height, baja, hardness, temperature, moisture);
     }
@@ -81,8 +111,19 @@ public final class HighlandCoastProfile {
     /** Coast climate classes (A-3): middle (0, also off the coast), cool/wet, warm/dry. */
     public static final byte CALIFORNIA = 0, PNW = 1, BAJA = 2;
     /** Climate class of a shore: PNW or Baja where that lean is more than half on, otherwise California. */
-    public static byte climateClass(Shore shore) {
-        double lean = (shore.moisture() - shore.temperature()) * .5;
+    public static byte climateClass(Shore shore) { return classOf(shore.moisture(), shore.temperature()); }
+    /**
+     * Climate class at a position from the raw regional climate alone (CALIFORNIA when no climate is bound). It does not
+     * evaluate {@link #shore}, so RH10 region typing can use it where the shore itself reads the drowned layer.
+     */
+    byte climateClassAt(double x, double z) {
+        var source = climate;
+        if (source == null) return CALIFORNIA;
+        var raw = source.sampleRegional((float) x, (float) z);
+        return classOf(raw.moisture(), raw.temperature());
+    }
+    private static byte classOf(double moisture, double temperature) {
+        double lean = (moisture - temperature) * .5;
         return smooth(.05, .45, lean) > .5 ? PNW : smooth(.05, .45, -lean) > .5 ? BAJA : CALIFORNIA;
     }
     /** Dry beach in front of a bluff's scarp (blocks): half the beach width, 8-20 (A-1). */

@@ -130,17 +130,6 @@ class HighlandRangeTest {
             assertTrue(g.medianSlope() >= 24 && g.medianSlope() <= 38, g.summary());
             assertTrue(g.gentleShare() <= .22, g.summary());
             assertTrue(g.crestWidth() <= 40, g.summary());
-            // Plan cost (best of five fresh builds): the drainage relief at most doubles the RH6 river plan's cost.
-            var continent = (RollingHighlandsContinent) context.heightmap.continent();
-            long plan = Long.MAX_VALUE, relief = Long.MAX_VALUE;
-            for (int rep = 0; rep < 5; rep++) {
-                var index = continent.rebuildAt(HighlandPlanformProbe.USER_X, HighlandPlanformProbe.USER_Z);
-                plan = Math.min(plan, index.plan().buildNanos());
-                relief = Math.min(relief, index.relief.buildNanos);
-            }
-            String cost = String.format(java.util.Locale.ROOT, "RHRelief cost plan=%.0fms relief=%.0fms", plan / 1e6, relief / 1e6);
-            System.out.println(cost);
-            assertTrue(relief <= plan, cost);
             on = columnTime(context);
         }
         var flat = HighlandPlanformProbe.userPreset();
@@ -184,7 +173,7 @@ class HighlandRangeTest {
      * Gates lock in the measured state; the targets themselves are tracked in the plan.
      */
     @Test void tallRangesAreDissected() throws Exception {
-        try (var context = WorldgenFixture.context(tallPreset(400), HighlandPlanformProbe.USER_SEED)) {
+        { var context = WorldgenFixture.shared(tallPreset(400), HighlandPlanformProbe.USER_SEED);
             var g = HighlandMountainProbe.measure(context, HighlandPlanformProbe.USER_X, HighlandPlanformProbe.USER_Z);
             System.out.println("RH400 " + g.summary());
             var m = HighlandRangeProbe.measure(context, HighlandPlanformProbe.USER_X, HighlandPlanformProbe.USER_Z);
@@ -199,12 +188,12 @@ class HighlandRangeTest {
     }
 
     /**
-     * RH8 D-b: one ridge per range reproduces the model-7 ranges exactly (rendered heights, water and range fields of the
+     * RH8 D-b: one ridge per range reproduces the frozen ranges exactly (golden re-recorded at model 9: RH10 moves the coastline) (rendered heights, water and range fields of the
      * user world at Range Height 400 in the tall frame). Capture with -Dftf.captureBaseline=true.
      */
     @Test void singleRidgeRangesAreFrozen() throws Exception {
         var hash = java.security.MessageDigest.getInstance("SHA-256");
-        try (var context = WorldgenFixture.context(tallPreset(400), HighlandPlanformProbe.USER_SEED)) {
+        { var context = WorldgenFixture.shared(tallPreset(400), HighlandPlanformProbe.USER_SEED);
             Cell c = new Cell();
             int x0 = 2656, z0 = 7396;
             for (int z = 0; z < 8192; z += 256) for (int x = 0; x < 8192; x += 256) {
@@ -215,7 +204,7 @@ class HighlandRangeTest {
             }
         }
         String actual = java.util.HexFormat.of().formatHex(hash.digest()) + "\n";
-        var fixture = java.nio.file.Path.of("src/test/resources/rolling-highlands/ranges-model8.sha256");
+        var fixture = java.nio.file.Path.of("src/test/resources/rolling-highlands/ranges-model9.sha256");
         if (Boolean.getBoolean("ftf.captureBaseline")) java.nio.file.Files.writeString(fixture, actual);
         assertEquals(java.nio.file.Files.readString(fixture), actual);
     }
@@ -246,14 +235,8 @@ class HighlandRangeTest {
             var g = HighlandMountainProbe.measure(context, ux, uz);
             var m = HighlandRangeProbe.measure(context, ux, uz);
             var p = HighlandPlanformProbe.measure("user-ridges", context, ux, uz);
-            var continent = (RollingHighlandsContinent) context.heightmap.continent();
-            long plan = Long.MAX_VALUE, relief = Long.MAX_VALUE;
-            HighlandPlanIndex index = null;
-            for (int rep = 0; rep < 3; rep++) {
-                index = continent.rebuildAt(ux, uz);
-                plan = Math.min(plan, index.plan().buildNanos());
-                relief = Math.min(relief, index.relief.buildNanos);
-            }
+            var index = planAt(context, ux, uz);
+            long plan = index.plan().buildNanos(), relief = index.relief.buildNanos;
             int[] spill = tarnContainment(context, index.relief);
             String summary = String.format(java.util.Locale.ROOT, "RH8 %s | %s | %s | crossings=%d | cost plan=%.0fms relief=%.0fms | cirques=%d (%.1f per 10 km) tarns=%d spills=%d walls=%d",
                 r.summary(), g.summary(), m.summary(), p.crossings(), plan / 1e6, relief / 1e6, index.relief.cirques,
@@ -267,10 +250,9 @@ class HighlandRangeTest {
             assertTrue(index.relief.tarnCount() >= 10, summary);
             assertEquals(0, spill[1], summary);
             assertEquals(0, spill[2], summary);
-            assertTrue(relief <= 1.3 * plan, summary);
             on = columnTime(context);
         }
-        try (var context = WorldgenFixture.context(tallPreset(400), HighlandPlanformProbe.USER_SEED)) {
+        { var context = WorldgenFixture.shared(tallPreset(400), HighlandPlanformProbe.USER_SEED);
             off = columnTime(context);
         }
         String time = String.format(java.util.Locale.ROOT, "RH8 time ridges3=%.2f ridges1=%.2f us/column", on, off);
@@ -323,10 +305,10 @@ class HighlandRangeTest {
         for (int run = 0; run < 2; run++) {
             var preset = tallPreset(400);
             if (run == 1) preset.terrain().rollingHighlands = preset.terrain().rollingHighlands.withSnowline(100);
-            try (var context = WorldgenFixture.context(preset, HighlandPlanformProbe.USER_SEED)) {
+            { var context = WorldgenFixture.shared(preset, HighlandPlanformProbe.USER_SEED);
                 var g = HighlandMountainProbe.measure(context, HighlandPlanformProbe.USER_X, HighlandPlanformProbe.USER_Z);
                 var m = HighlandRangeProbe.measure(context, HighlandPlanformProbe.USER_X, HighlandPlanformProbe.USER_Z);
-                var index = ((RollingHighlandsContinent) context.heightmap.continent()).rebuildAt(HighlandPlanformProbe.USER_X, HighlandPlanformProbe.USER_Z);
+                var index = planAt(context, HighlandPlanformProbe.USER_X, HighlandPlanformProbe.USER_Z);
                 cirquesPer10km[run] = index.relief.cirques * 1e4 / m.totalLength();
                 int[] spill = tarnContainment(context, index.relief);
                 tarns[run] = index.relief.tarnCount();
@@ -391,7 +373,7 @@ class HighlandRangeTest {
      * Mountain biome parameters sit above the treeline, snow only on gentle ground, rock on the steepest ground.
      */
     @Test void tallRangeSurfacesFollowSlopeAndSnowline() throws Exception {
-        try (var context = WorldgenFixture.context(tallPreset(400), HighlandPlanformProbe.USER_SEED)) {
+        { var context = WorldgenFixture.shared(tallPreset(400), HighlandPlanformProbe.USER_SEED);
             var levels = context.levels;
             Cell c = new Cell(), e = new Cell();
             int x0 = 2656, z0 = 7396, size = 8192;
@@ -446,6 +428,41 @@ class HighlandRangeTest {
         assertEquals(HighlandSurface.Cover.BIOME, HighlandSurface.choose(47, 150, 300, 200, 1, 0));
         for (double slope = 0; slope <= 90; slope += 1) for (double y = 0; y < 600; y += 7)
             assertTrue(slope <= 45 || HighlandSurface.choose(slope, y, 300, 200, 1, 1) != HighlandSurface.Cover.SNOW);
+    }
+
+    /**
+     * Plan cost (best of fresh builds; probe, timing-sensitive): the drainage relief at most doubles the RH6 river plan's
+     * cost for the user ranges, and three-ridge belts keep it within 1.3x.
+     */
+    @Test @org.junit.jupiter.api.Tag("probe") void planCostStaysWithinBudget() throws Exception {
+        var user = HighlandPlanformProbe.userPreset();
+        user.terrain().rollingHighlands = user.terrain().rollingHighlands.withRanges(200, 6144);
+        var ridges = tallPreset(400);
+        ridges.terrain().rollingHighlands = ridges.terrain().rollingHighlands.withRangeRidges(3);
+        var presets = new etcodehome.freeterraforged.data.worldgen.preset.settings.Preset[] {user, ridges};
+        double[] limits = {1, 1.3};
+        int[] reps = {5, 3};
+        for (int i = 0; i < 2; i++) {
+            try (var context = WorldgenFixture.context(presets[i], HighlandPlanformProbe.USER_SEED)) {
+                var continent = (RollingHighlandsContinent) context.heightmap.continent();
+                long plan = Long.MAX_VALUE, relief = Long.MAX_VALUE;
+                for (int rep = 0; rep < reps[i]; rep++) {
+                    var index = continent.rebuildAt(HighlandPlanformProbe.USER_X, HighlandPlanformProbe.USER_Z);
+                    plan = Math.min(plan, index.plan().buildNanos());
+                    relief = Math.min(relief, index.relief.buildNanos);
+                }
+                String cost = String.format(java.util.Locale.ROOT, "RHRelief cost %s plan=%.0fms relief=%.0fms", i == 0 ? "user" : "ridges3", plan / 1e6, relief / 1e6);
+                System.out.println(cost);
+                assertTrue(relief <= limits[i] * plan, cost);
+            }
+        }
+    }
+
+    /** The context's cached plan for the continent owning a block position (built once, unlike rebuildAt). */
+    static HighlandPlanIndex planAt(etcodehome.freeterraforged.world.worldgen.GeneratorContext context, double x, double z) {
+        var continent = (RollingHighlandsContinent) context.heightmap.continent();
+        var site = continent.coast().sample(x, z);
+        return continent.planOf(site.ownerX(), site.ownerZ());
     }
 
     /** Best of three heightmap passes (µs per column) over a 4 km square of the user continent, after warming its plans. */

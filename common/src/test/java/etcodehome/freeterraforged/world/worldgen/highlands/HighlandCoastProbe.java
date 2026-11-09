@@ -18,8 +18,20 @@ import etcodehome.freeterraforged.world.worldgen.cell.terrain.TerrainType;
  * <li>stacks: transects with a sea column (edge at or below the coast point) ≥ 5 above water 10-60 blocks offshore,
  * per 10 km of cliff coast (land of a neighbouring headland does not count).</li>
  * </ul>
+ *
+ * <p>RH10: the RH9 gates describe the RH9 coast, so samples whose {@code coast.sample(x, z).drowned()} is at least
+ * {@link #DROWNED_SKIP} (inside a drowned region, where the coastline is a flooded valley shore), or that lie on an open-sea
+ * island (11-06), are left out of the
+ * type shares, beach widths, cliff height/depth, stacks, hollow share and the stretch runs (runs are split at drowned
+ * points). {@code sunk} still counts every transect (no sea pit anywhere) and the cost covers every transect.
  */
 final class HighlandCoastProbe {
+    /** RH10: drowned-region weight from which a coast sample no longer counts as RH9 coast. */
+    static final double DROWNED_SKIP = .1;
+    /** RH10: a coast sample that is not RH9 coast: inside a drowned region, or on an open-sea island (11-06, which has its own gates). */
+    private static boolean notRh9Coast(HighlandCoast coast, double x, double z) {
+        return coast.sample(x, z).drowned() >= DROWNED_SKIP || coast.drowned().openIsland(x, z) > 0;
+    }
     static final int ROW = 32, MAX_BEACH = 96, INLAND = 96, OFFSHORE = 60, WINDOW = 2000, TRACE = 8, RESAMPLE = 8, HOLLOW_REACH = 48;
 
     record Sample(int x, int z, String type, String geometry, int beachWidth, double h4, double h8, double h32, double depth8, boolean stack, double slope, boolean hollow, int sunk) {}
@@ -45,7 +57,7 @@ final class HighlandCoastProbe {
         var levels = context.levels;
         var samples = new ArrayList<Sample>();
         Cell cell = new Cell();
-        long columns = 0, nanos = 0;
+        long columns = 0, nanos = 0, sunkInDrowned = 0;
         for (int z = originZ - radius; z <= originZ + radius; z += ROW) {
             boolean previous = coast.sample(originX - radius, z).edge() > coastEdge;
             for (int x = originX - radius + 1; x <= originX + radius; x++) {
@@ -75,6 +87,7 @@ final class HighlandCoastProbe {
                 }
                 nanos += System.nanoTime() - start;
                 columns += height.length;
+                if (notRh9Coast(coast, x, z)) { sunkInDrowned += sunk; continue; }
                 int width = 0;
                 int d0 = 0;
                 while (d0 < 4 && height[d0 + OFFSHORE] <= 0) d0++;
@@ -114,9 +127,9 @@ final class HighlandCoastProbe {
         double sinuosity = sinuosity(lines);
         return new Report(n, (double) beaches / n, (double) bluffs / n, (double) cliffs.size() / n, quantile(widths, .5),
             quantile(widths, .1), sinuosity, quantile(cliffH, .5), quantile(cliffD, .5), cliffKm > 0 ? 10 * stacks / cliffKm : 0,
-            columns > 0 ? (double) nanos / columns : 0, quantile(samples.stream().mapToDouble(Sample::slope).sorted().toArray(), .5), stretchMedian(coast.profile(), lines),
+            columns > 0 ? (double) nanos / columns : 0, quantile(samples.stream().mapToDouble(Sample::slope).sorted().toArray(), .5), stretchMedian(coast, lines),
             (double) samples.stream().filter(Sample::hollow).count() / Math.max(1, samples.stream().filter(t -> !t.type().equals("beach")).count()),
-            samples.stream().mapToLong(Sample::sunk).sum(), samples);
+            samples.stream().mapToLong(Sample::sunk).sum() + sunkInDrowned, samples);
     }
 
     /**
@@ -175,21 +188,32 @@ final class HighlandCoastProbe {
         return at;
     }
 
-    /** Median length (blocks) of runs of one dominant coast type along the traced coastlines. */
-    static double stretchMedian(HighlandCoastProfile profile, List<List<double[]>> lines) {
+    /**
+     * Median length (blocks) of runs of one dominant coast type along the traced coastlines; a run ends at a drowned
+     * point (DROWNED_SKIP) and the next one starts after it.
+     */
+    static double stretchMedian(HighlandCoast coast, List<List<double[]>> lines) {
+        var profile = coast.profile();
         var runs = new ArrayList<Double>();
         for (var line : lines) {
             double[] at = distances(line);
-            var previous = profile.shore(line.get(0)[0], line.get(0)[1]).dominant();
+            HighlandCoastProfile.Type previous = null;
             double start = 0;
-            for (int i = 1; i < line.size(); i++) {
-                var type = profile.shore(line.get(i)[0], line.get(i)[1]).dominant();
+            for (int i = 0; i < line.size(); i++) {
+                double x = line.get(i)[0], z = line.get(i)[1];
+                if (notRh9Coast(coast, x, z)) {
+                    if (previous != null) runs.add(at[i - 1] - start);
+                    previous = null;
+                    continue;
+                }
+                var type = profile.shore(x, z).dominant();
+                if (previous == null) { previous = type; start = at[i]; continue; }
                 if (type == previous) continue;
                 double change = (at[i] + at[i - 1]) * .5;
                 runs.add(change - start);
                 start = change; previous = type;
             }
-            runs.add(at[at.length - 1] - start);
+            if (previous != null) runs.add(at[at.length - 1] - start);
         }
         return quantile(runs.stream().mapToDouble(Double::doubleValue).sorted().toArray(), .5);
     }
