@@ -60,8 +60,16 @@ class HighlandDrownedTest {
      * 53248,20480 (the next 8 km tile east): plan0's two largest valleys of the old box end at an RH9 sea pocket about 150 blocks short of
      * the open sea, so with a narrow mouth their bays cannot reach the open sea (the gate asks every bay to), a fact of the plan0 valleys there
      * and not of the bay shape; the new box holds two bays whose valleys reach the sea.
+     * 11-23 appended a ninth box (index 8) at -20480,-4096 (D-11-11-1, user 2026-11-10): at the 11-11 law the eight boxes hold fewer than 3 bays
+     * 1 km across (one in RIA_SITE, one in 53248,20480) while the sheltered gate (ROCKIES) caps the law, so a box with larger valleys joins
+     * the pool. rankBaySites picks by a fixed preference (append one, append two, replace one of RIA_BOXES[4..7]; user tiles that overlap no
+     * current box, ranked by ria crossings of the standalone coast, at most 12): the first change set whose projected pooled census meets
+     * every baysBranchAndNarrowAtTheMouth assertion. -20480,-4096 (tile of the 11-05 grid, 4 bays, inners 349, 672, 1216 and 1856, 2 of
+     * them 1 km or more, mouth median 704, narrow mouths 3, branching 4, connected 4 of 4, closed 0) takes the pool from 17 bays with 2
+     * of 1 km to 21 bays with 4, closed share 3.4%. Indices 0-3 (marsh, path independence, water tags, the 11-12 fidelity boxes) are unchanged.
+     * The scan ran against the eight 11-11 boxes; a re-run now excludes the ninth and proposes the next change.
      */
-    static final int[][] RIA_BOXES = {{RIA_SITE_X, RIA_SITE_Z}, {8061, 24380}, {12288, -36864}, {53248, 20480}, {-28672, 20480}, {45056, 28672}, {61440, 61440}, {-4096, 53248}};
+    static final int[][] RIA_BOXES = {{RIA_SITE_X, RIA_SITE_Z}, {8061, 24380}, {12288, -36864}, {53248, 20480}, {-28672, 20480}, {45056, 28672}, {61440, 61440}, {-4096, 53248}, {-20480, -4096}};
     /**
      * ROCKIES ria box (USER_SEED, 8 km box) for the sheltered-water gate and the inland bay check (11-23, D-11-11-1, user 2026-11-10).
      * FJORD_SITE's box holds a single bay about 1.7 km across at the 11-11 law (sheltered share 5.2%), and the user world needs bays that
@@ -1999,7 +2007,8 @@ class HighlandDrownedTest {
     private static boolean userBaysPass(HighlandDrownedProbe.Bays bays) {
         if (bays.count() < 5) return false;
         double widest = bays.inners()[bays.inners().length - 1];
-        return widest >= 1000 && widest <= 5000 && java.util.Arrays.stream(bays.inners()).filter(w -> w >= 1000).count() >= 3
+        long wide = java.util.Arrays.stream(bays.inners()).filter(w -> w >= 1000).count();
+        return widest >= 1000 && widest <= 5000 && wide >= 3
             && bays.narrowMouth() >= .7 * bays.count() && bays.branching() >= .5 * bays.count() && bays.singleOwner() == bays.count()
             && bays.connected() == bays.count() && bays.closedShare() <= MAX_CLOSED;
     }
