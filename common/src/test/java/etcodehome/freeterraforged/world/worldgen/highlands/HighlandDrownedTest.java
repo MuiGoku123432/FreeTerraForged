@@ -2247,6 +2247,95 @@ class HighlandDrownedTest {
         return judged;
     }
 
+    /**
+     * Land between arms (11-14): census boxes. Server preset: one 6 km box over the four fjord-country UAT sites around 33-36k, -12k (32976,-11851;
+     * 33570,-12422; 35583,-12022; 34272,-12747) and the 9373,2111 crossing box; user world RIA_BOXES; ROCKIES FJORD_BOXES (8 km boxes).
+     */
+    static final int[][] LAND_SERVER_BOXES = {{34272, -12300}, {9373, 2111}};
+    static final int LAND_SERVER_RADIUS = 3072;
+    /** The lone bay knoll of G-11-2 (e) (server preset): a 3 km box around it. */
+    static final int KNOLL_SITE_X = 7231, KNOLL_SITE_Z = 19462, KNOLL_SITE_RADIUS = 1536, KNOLL_STEP = 4;
+
+    /** Land runs flanked by flooded sea on both sides: the widths and peaks of one scope, pooled over the worlds. */
+    private static String stripLine(String label, List<HighlandDrownedProbe.Strip> runs) {
+        double[] wide = runs.stream().filter(r -> r.width() > STRIP_NARROW && r.width() <= STRIP_MEDIUM).mapToDouble(HighlandDrownedProbe.Strip::peak).sorted().toArray();
+        double[] thin = runs.stream().filter(r -> r.width() <= 40).mapToDouble(HighlandDrownedProbe.Strip::peak).sorted().toArray();
+        long upTo40 = runs.stream().filter(r -> r.width() <= 40).count(), upTo80 = runs.stream().filter(r -> r.width() <= STRIP_NARROW).count();
+        return String.format(java.util.Locale.ROOT, "%s: runs=%d <=40 %.1f%% <=80 %.1f%% (%d); 80-150 runs=%d median peak %.1f; <=40 median peak %.1f", label, runs.size(),
+            100. * upTo40 / Math.max(1, runs.size()), 100. * upTo80 / Math.max(1, runs.size()), upTo80, wide.length, wide.length > 0 ? wide[wide.length / 2] : Double.NaN, thin.length > 0 ? thin[thin.length / 2] : Double.NaN);
+    }
+
+    /** Widths (blocks) of a narrow and a medium strip, the share of narrow runs allowed, the least median peak (blocks above sea) of medium runs, and the runs a scope needs to be judged. */
+    static final double STRIP_NARROW = 80, STRIP_MEDIUM = 150, MAX_NARROW_SHARE = .10, MIN_MEDIUM_PEAK = 8;
+    static final int MIN_STRIP_RUNS = 100;
+
+    /**
+     * 11-14 (G-11-4, D-GC3): land between arms is real relief. Transects (32-block lines along both axes, 4-block lattice) through the server preset
+     * fjord-country boxes (LAND_SERVER_BOXES), the user RIA_BOXES and the ROCKIES FJORD_BOXES: land runs flanked by flooded sea on both sides, per scope
+     * (FJORD where the fjord weight at the run is above 0 and at least the ria weight, else RIA) and per origin (a mainland strip between arms, or a raised
+     * island). At most MAX_NARROW_SHARE of the mainland runs of a scope with at least MIN_STRIP_RUNS are STRIP_NARROW blocks wide or less, and the mainland
+     * runs 80 to 150 blocks wide have a median peak ground of at least MIN_MEDIUM_PEAK blocks above sea (heightmap ground). Raised islands (the 11-06
+     * chains, a few blocks high and ruler straight: 11-15) are printed, not judged (the census never meets them: they are flanked by open sea, not by flooded land). Every census line goes to build/rh10-gap/land-strips.txt.
+     */
+    @Test void landBetweenArmsIsRelief() throws Exception {
+        var runs = new ArrayList<HighlandDrownedProbe.Strip>();
+        runs.addAll(HighlandDrownedProbe.strips(WorldgenFixture.shared(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED), LAND_SERVER_BOXES, LAND_SERVER_RADIUS));
+        runs.addAll(HighlandDrownedProbe.strips(WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED), RIA_BOXES, SITE_RADIUS));
+        try (var rockies = WorldgenFixture.context(BiomeCensusProbe.rockies(), HighlandPlanformProbe.USER_SEED)) {
+            runs.addAll(HighlandDrownedProbe.strips(rockies, FJORD_BOXES, SITE_RADIUS));
+        }
+        var lines = new ArrayList<String>();
+        var failures = new ArrayList<String>();
+        for (boolean fjord : new boolean[] {false, true}) {
+            String scope = fjord ? "FJORD" : "RIA";
+            var scoped = runs.stream().filter(r -> r.fjord() == fjord).toList();
+            var mainland = scoped.stream().filter(HighlandDrownedProbe.Strip::mainland).toList();
+            lines.add(stripLine(scope + " all", scoped));
+            lines.add(stripLine(scope + " mainland", mainland));
+            lines.add(stripLine(scope + " raised islands", scoped.stream().filter(r -> !r.mainland()).toList()));
+            if (mainland.size() < MIN_STRIP_RUNS) { failures.add(scope + ": only " + mainland.size() + " mainland runs"); continue; }
+            double narrow = mainland.stream().filter(r -> r.width() <= STRIP_NARROW).count() / (double) mainland.size();
+            double[] peaks = mainland.stream().filter(r -> r.width() > STRIP_NARROW && r.width() <= STRIP_MEDIUM).mapToDouble(HighlandDrownedProbe.Strip::peak).sorted().toArray();
+            double median = peaks.length > 0 ? peaks[peaks.length / 2] : Double.NaN;
+            if (narrow > MAX_NARROW_SHARE) failures.add(String.format(java.util.Locale.ROOT, "%s: %.1f%% of mainland runs are %.0f blocks or less (at most %.0f%%)", scope, 100 * narrow, STRIP_NARROW, 100 * MAX_NARROW_SHARE));
+            if (!(median >= MIN_MEDIUM_PEAK)) failures.add(String.format(java.util.Locale.ROOT, "%s: median peak ground of 80-150 block runs %.1f (at least %.0f)", scope, median, MIN_MEDIUM_PEAK));
+        }
+        lines.forEach(line -> System.out.println("RH10 land strips " + line));
+        Files.createDirectories(Path.of("build/rh10-gap"));
+        Files.write(Path.of("build/rh10-gap/land-strips.txt"), lines);
+        assertTrue(failures.isEmpty(), "land between arms is not relief: " + failures + " " + lines);
+    }
+
+    /**
+     * 11-14 (G-11-2 e, D-GC3): no leftover knolls. In the same boxes plus a 3 km box at the bay knoll of the server preset (KNOLL_SITE), the 4-block
+     * land raster holds zero components that are walled in by flooded sea (at least 95% of the sea cells beside them), are standing land of the unbound
+     * coast (not a raised island: the island weight fields are above 0 beyond the windowed raise, see the probe), lie outside sound basins and are under 1 km2 (and at least HighlandDrownedProbe.KNOLL_MIN_CELLS cells). Every knoll goes to
+     * build/rh10-gap/land-knolls.txt.
+     */
+    @Test void noLeftoverKnolls() throws Exception {
+        var lines = new ArrayList<String>();
+        var server = WorldgenFixture.shared(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED);
+        for (int[] box : LAND_SERVER_BOXES) knollBox("server", server, box, LAND_SERVER_RADIUS, lines);
+        knollBox("server", server, new int[] {KNOLL_SITE_X, KNOLL_SITE_Z}, KNOLL_SITE_RADIUS, lines);
+        var user = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
+        for (int[] box : RIA_BOXES) knollBox("user", user, box, SITE_RADIUS, lines);
+        try (var rockies = WorldgenFixture.context(BiomeCensusProbe.rockies(), HighlandPlanformProbe.USER_SEED)) {
+            for (int[] box : FJORD_BOXES) knollBox("rockies", rockies, box, SITE_RADIUS, lines);
+        }
+        Files.createDirectories(Path.of("build/rh10-gap"));
+        Files.write(Path.of("build/rh10-gap/land-knolls.txt"), lines);
+        var found = lines.stream().filter(line -> line.startsWith("  knoll")).toList();
+        assertTrue(found.isEmpty(), found.size() + " leftover knolls: " + found.stream().limit(10).toList());
+    }
+
+    private static void knollBox(String label, GeneratorContext context, int[] box, int radius, List<String> lines) {
+        var found = HighlandDrownedProbe.knolls(context, box[0], box[1], radius, KNOLL_STEP);
+        String line = label + " box " + box[0] + "," + box[1] + " r" + radius + ": " + found.found().size() + " knolls (small land components " + found.candidates() + ": raised islands " + found.raised() + ", not walled in by flooded sea " + found.notWalled() + ", in a sound " + found.inSound() + ")";
+        System.out.println("RH10 knolls " + line);
+        lines.add(line);
+        for (var k : found.found()) lines.add(String.format(java.util.Locale.ROOT, "  knoll %s %.0f,%.0f area %.0f", label, k[0], k[1], k[2]));
+    }
+
     /** rimArmsAreDrowned: server preset boxes where arms cross a warped rim (diagnosis sites), on an 8-block grid. */
     static final int[][] RIM_SERVER_BOXES = {{9373, 2111}, {4317, 20060}, {17716, 21956}, {12660, 16042}, {34272, -12747}};
     static final int RIM_GRID = 8, RIM_MIN_COLUMNS = 50, RIM_SHORE_REACH = 8;

@@ -1145,6 +1145,122 @@ final class HighlandDrownedProbe {
         return out;
     }
 
+    /**
+     * Land between arms (11-14, G-11-4): transects every {@link #STRIP_LINE} blocks along both axes of a box on a {@link #STRIP_STEP}-block
+     * lattice. A run is land (bound coast) between two flooded columns (sea on the bound coast, land on the unbound one) with nothing but that land
+     * between them. Per run: its width, whether it is mainland (the unbound coast is land at its middle) or a raised island, its scope (FJORD
+     * where the fjord weight there is above 0 and at least the ria weight, else RIA) and, for runs of at most {@link #STRIP_PEAK_MAX} blocks, the
+     * peak ground (blocks above sea level, real column lookups) over up to {@link #STRIP_PEAK_POINTS} points along it (the diagnosis method of the
+     * untracked DrownedShapeProbe.strips()).
+     */
+    record Strip(double width, boolean mainland, boolean fjord, double peak, double x, double z) {}
+    static final int STRIP_LINE = 32, STRIP_STEP = 4, STRIP_PEAK_MAX = 150, STRIP_PEAK_POINTS = 12;
+
+    static List<Strip> strips(GeneratorContext context, int[][] boxes, int radius) {
+        var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+        var drowned = coast.drowned();
+        double coastEdge = context.preset.world().controlPoints.coast;
+        var found = new java.util.concurrent.ConcurrentLinkedQueue<Strip>();
+        int n = 2 * radius / STRIP_STEP + 1, lines = 2 * radius / STRIP_LINE + 1;
+        for (int[] box : boxes) {
+            IntStream.range(0, 2 * lines).parallel().forEach(line -> {
+                boolean alongX = line < lines;
+                double across = (alongX ? box[1] : box[0]) - radius + (line % lines) * STRIP_LINE;
+                var cell = new Cell();
+                int state = 0, start = 0;
+                for (int k = 0; k < n; k++) {
+                    double along = (alongX ? box[0] : box[1]) - radius + k * STRIP_STEP;
+                    double x = alongX ? along : across, z = alongX ? across : along;
+                    double edge = coast.sample(x, z).edge();
+                    boolean land = edge > coastEdge, flooded = !land && edge > 0 && coast.undrowned(x, z).edge() > coastEdge;
+                    if (flooded) {
+                        if (state == 2) found.add(strip(context, coast, drowned, cell, alongX, across, box, radius, start, k, coastEdge));
+                        state = 1;
+                    } else if (!land) state = 0;
+                    else if (state == 1) { state = 2; start = k; }
+                }
+            });
+        }
+        return new ArrayList<>(found);
+    }
+
+    private static Strip strip(GeneratorContext context, HighlandCoast coast, HighlandDrowned drowned, Cell cell, boolean alongX, double across, int[] box, int radius, int start, int end, double coastEdge) {
+        double first = (alongX ? box[0] : box[1]) - radius + start * STRIP_STEP, width = (end - start) * (double) STRIP_STEP, mid = first + width / 2;
+        double mx = alongX ? mid : across, mz = alongX ? across : mid;
+        boolean mainland = coast.undrowned(mx, mz).edge() > coastEdge;
+        double fjord = drowned.fjord(mx, mz), ria = drowned.ria(mx, mz), peak = Double.NaN;
+        if (width <= STRIP_PEAK_MAX) {
+            peak = Double.NEGATIVE_INFINITY;
+            for (int p = 0; p < STRIP_PEAK_POINTS; p++) {
+                double a = first + (p + .5) * width / STRIP_PEAK_POINTS;
+                peak = Math.max(peak, height(context, cell, alongX ? a : across, alongX ? across : a));
+            }
+        }
+        return new Strip(width, mainland, fjord > 0 && fjord >= ria, peak, mx, mz);
+    }
+
+    /**
+     * Leftover knolls (11-14, G-11-2 e): land components of a box on a {@code step}-block lattice that do not touch the box border, are under 1 km2
+     * and at least {@link #KNOLL_MIN_CELLS} cells, are walled in by flooded sea (at least 95% of the sea cells beside them flooded), are standing land of
+     * the unbound coast (at least 90% of their cells; a raised island, chain or open-sea, is land only where the unbound coast is sea, and the island weight
+     * fields {@code island()} and {@code openIsland()} are above 0 beyond the windowed raise, so they cannot be the test) and lie outside sound
+     * basins (within {@code SOUND_RADIUS} of a sound centre). Each is reported as
+     * {@code x,z area}, the centroid and its area in blocks2.
+     */
+    static final int KNOLL_MIN_CELLS = 4;
+    static final double KNOLL_MAX_AREA = 1e6;
+
+    /** The knolls of a box and how the small land components (not on the border, under 1 km2) were sorted: {@code candidates}, those raised (island chain or open sea), those not walled in by flooded sea, those in a sound basin. */
+    record Knolls(List<double[]> found, int candidates, int raised, int notWalled, int inSound) {}
+
+    static Knolls knolls(GeneratorContext context, int originX, int originZ, int radius, int step) {
+        var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+        var drowned = coast.drowned();
+        double coastEdge = context.preset.world().controlPoints.coast;
+        int w = 2 * radius / step + 1, x0 = originX - radius, z0 = originZ - radius;
+        boolean[] land = new boolean[w * w], flooded = new boolean[w * w];
+        IntStream.range(0, w).parallel().forEach(j -> {
+            for (int i = 0; i < w; i++) {
+                double x = x0 + i * step, z = z0 + j * step, edge = coast.sample(x, z).edge();
+                land[j * w + i] = edge > coastEdge;
+                flooded[j * w + i] = edge > 0 && edge <= coastEdge && coast.undrowned(x, z).edge() > coastEdge;
+            }
+        });
+        var parts = label(land, w);
+        boolean[] border = borderTouching(parts.id, w, parts.area.length - 1);
+        int count = parts.area.length - 1;
+        long[] sea = new long[count + 1], floodedSea = new long[count + 1];
+        double[] sx = new double[count + 1], sz = new double[count + 1];
+        int[] standalone = new int[count + 1];
+        for (int at = 0; at < land.length; at++) {
+            int id = parts.id[at];
+            if (id == 0 || border[id] || parts.area[id] < KNOLL_MIN_CELLS || parts.area[id] * (double) step * step >= KNOLL_MAX_AREA) continue;
+            int i = at % w, j = at / w;
+            double x = x0 + i * step, z = z0 + j * step;
+            sx[id] += x; sz[id] += z;
+            if (coast.undrowned(x, z).edge() > coastEdge) standalone[id]++;
+            for (int k = 0; k < 4; k++) {
+                int ni = i + (k == 0 ? 1 : k == 1 ? -1 : 0), nj = j + (k == 2 ? 1 : k == 3 ? -1 : 0);
+                if (land[nj * w + ni]) continue; // a component off the border has all four neighbours in the lattice
+                sea[id]++;
+                if (flooded[nj * w + ni]) floodedSea[id]++;
+            }
+        }
+        var found = new ArrayList<double[]>();
+        int candidates = 0, raisedCount = 0, notWalled = 0, inSound = 0;
+        for (int id = 1; id <= count; id++) {
+            if (border[id] || parts.area[id] < KNOLL_MIN_CELLS || parts.area[id] * (double) step * step >= KNOLL_MAX_AREA) continue;
+            candidates++;
+            if (standalone[id] < .9 * parts.area[id]) { raisedCount++; continue; }
+            if (floodedSea[id] < .95 * sea[id]) { notWalled++; continue; }
+            double cx = sx[id] / parts.area[id], cz = sz[id] / parts.area[id];
+            var sound = drowned.dominant(cx, cz, true);
+            if (sound != null && !Double.isNaN(sound.soundX()) && Math.hypot(cx - sound.soundX(), cz - sound.soundZ()) < HighlandDrowned.SOUND_RADIUS) { inSound++; continue; }
+            found.add(new double[] {cx, cz, parts.area[id] * (double) step * step});
+        }
+        return new Knolls(found, candidates, raisedCount, notWalled, inSound);
+    }
+
     /** Rim census (11-13): rays from a region's centre, the step along a ray, and how far out (in region radii) the outermost flooded land is looked for; a ray counts when it has flooded land beyond half a radius. */
     static final int RIM_RAYS = 80, RIM_STEP = 8;
     static final double RIM_FAR = 1.4;
