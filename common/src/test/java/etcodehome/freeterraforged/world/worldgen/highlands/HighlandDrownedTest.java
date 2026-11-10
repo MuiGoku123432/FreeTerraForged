@@ -260,6 +260,74 @@ class HighlandDrownedTest {
         assertTrue(rias > 0, "no drowned regions in the low world");
     }
 
+    /** Server world (HighlandPlanformProbe.serverPreset): the stranded river mouth the owner plan of the G-11-1 gates is read at, and the X crossing of two noise networks. */
+    static final int MOUTH_X = 7453, MOUTH_Z = 3341, CROSSING_X = 9373, CROSSING_Z = 2111;
+
+    /**
+     * D-GC1: the plan behind the arm data is the RH9 planner's plan. On the server preset, the owner of 7453,3341 built by
+     * the base planner (a separate, never-bound coast) has the node count, node positions and valley-axis positions of the
+     * plan built on a fresh context whose drowned layer is unbound.
+     */
+    @Test void plan0IsUndrowned() throws Exception {
+        var context = WorldgenFixture.shared(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED);
+        var continent = (RollingHighlandsContinent) context.heightmap.continent();
+        var owner = continent.coast().undrowned(MOUTH_X, MOUTH_Z);
+        var plan0 = continent.basePlan(owner.ownerX(), owner.ownerZ());
+        try (var inert = WorldgenFixture.context(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED)) {
+            var reference = (RollingHighlandsContinent) inert.heightmap.continent();
+            reference.coast().bindDrowned(null, null);
+            var expected = reference.drainage().build(owner.ownerX(), owner.ownerZ());
+            assertEquals(expected.nodes().size(), plan0.nodes().size(), "plan0 node count differs from the RH9 plan");
+            assertEquals(expected.axis().size(), plan0.axis().size(), "plan0 axis count differs from the RH9 plan");
+            assertTrue(plan0.nodes().size() > 1000, "no river plan at the owner: " + plan0.nodes().size());
+            for (int i = 0; i < expected.nodes().size(); i++) {
+                assertEquals(expected.nodes().get(i).x(), plan0.nodes().get(i).x(), "node x at " + i);
+                assertEquals(expected.nodes().get(i).z(), plan0.nodes().get(i).z(), "node z at " + i);
+            }
+            for (int i = 0; i < expected.axis().size(); i++) {
+                assertEquals(expected.axis().get(i).x(), plan0.axis().get(i).x(), "axis x at " + i);
+                assertEquals(expected.axis().get(i).z(), plan0.axis().get(i).z(), "axis z at " + i);
+            }
+        }
+    }
+
+    /**
+     * D-GC1: arms lie along the valleys of plan0. The arm data of the owner of 7453,3341 holds at least 20 coastal axis
+     * segments, all inside the owner's coast bounds. Over a 16-block grid of the 8 km box around the X crossing 9373,2111, at
+     * least 500 columns are land on the unbound coast and sea on the bound one, and each lies within MAX_HALF_WIDTH of an
+     * axis segment of its own owner's arm data.
+     */
+    @Test void armsFollowPlan0() throws Exception {
+        var context = WorldgenFixture.shared(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED);
+        var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+        var standalone = new HighlandCoast(context);
+        double coastEdge = context.preset.world().controlPoints.coast;
+        var owner = coast.undrowned(MOUTH_X, MOUTH_Z);
+        var bounds = coast.bounds(owner.ownerX(), owner.ownerZ());
+        var ownerArms = coast.drowned().arms(owner.ownerX(), owner.ownerZ());
+        System.out.println("RH10 arm segments owner " + owner.ownerX() + "," + owner.ownerZ() + ": " + ownerArms.segments() + " (" + ownerArms.estimatedBytes() + " bytes)");
+        assertTrue(ownerArms.segments() >= 20, "too few coastal axis segments: " + ownerArms.segments());
+        for (int i = 0; i < ownerArms.segments(); i++) {
+            assertTrue(ownerArms.ax[i] >= bounds.minX() && ownerArms.ax[i] <= bounds.maxX() && ownerArms.az[i] >= bounds.minZ() && ownerArms.az[i] <= bounds.maxZ()
+                && ownerArms.bx[i] >= bounds.minX() && ownerArms.bx[i] <= bounds.maxX() && ownerArms.bz[i] >= bounds.minZ() && ownerArms.bz[i] <= bounds.maxZ(),
+                "arm segment " + i + " outside the owner bounds");
+        }
+        int flooded = 0, far = 0;
+        String first = null;
+        for (int z = CROSSING_Z - SITE_RADIUS; z <= CROSSING_Z + SITE_RADIUS; z += 16) for (int x = CROSSING_X - SITE_RADIUS; x <= CROSSING_X + SITE_RADIUS; x += 16) {
+            var reference = standalone.sample(x, z);
+            if (!(reference.edge() > coastEdge) || coast.sample(x, z).edge() > coastEdge) continue;
+            flooded++;
+            var hits = coast.drowned().arms(reference.ownerX(), reference.ownerZ()).query(x, z);
+            double nearest = Double.POSITIVE_INFINITY;
+            for (int h = 0; h < hits.count; h++) nearest = Math.min(nearest, hits.distance[h]);
+            if (!(nearest <= HighlandDrowned.MAX_HALF_WIDTH)) { far++; if (first == null) first = x + "," + z; }
+        }
+        System.out.println("RH10 arms follow plan0: " + flooded + " flooded columns, " + far + " farther than " + HighlandDrowned.MAX_HALF_WIDTH + " from an arm segment");
+        assertTrue(flooded >= 500, "too few flooded columns around the crossing: " + flooded);
+        assertEquals(0, far, far + " flooded columns lie farther than MAX_HALF_WIDTH from an arm segment of their owner, first at " + first);
+    }
+
     /**
      * Pitfall 4, T-11-09: plans build without exceptions where regions meet the coast and under open-sea islands, on the user seed
      * and four other seeds, on the user preset and on ROCKIES. Per seed and preset, the owner of the first drowned coast point and
@@ -388,7 +456,7 @@ class HighlandDrownedTest {
         var model9 = (RollingHighlandsContinent) context.heightmap.continent();
         try (var inert = WorldgenFixture.context(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED)) {
             var model8 = (RollingHighlandsContinent) inert.heightmap.continent();
-            model8.coast().bindDrowned(null);
+            model8.coast().bindDrowned(null, null);
             for (int pass = 0; pass < 3; pass++) { // warm, then the last pass is the number
                 plan8 = model8.rebuildAt(SITE_X, SITE_Z).plan().buildNanos();
                 plan9 = model9.rebuildAt(SITE_X, SITE_Z).plan().buildNanos();
@@ -411,7 +479,7 @@ class HighlandDrownedTest {
     @Test void modelEightBoxCost() throws Exception {
         try (var bound = WorldgenFixture.context(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
              var inert = WorldgenFixture.context(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED)) {
-            ((RollingHighlandsContinent) inert.heightmap.continent()).coast().bindDrowned(null);
+            ((RollingHighlandsContinent) inert.heightmap.continent()).coast().bindDrowned(null, null);
             var report = HighlandDrownedProbe.measure(bound, SITE_X, SITE_Z, RADIUS);
             double model9 = HighlandDrownedProbe.boxNanos(bound, report.boxX(), report.boxZ());
             double model8 = HighlandDrownedProbe.boxNanos(inert, report.boxX(), report.boxZ());

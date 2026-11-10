@@ -22,6 +22,8 @@ final class HighlandPlanformProbe {
     /** The user's in-game preset (Test-America-v3, continent scale 5000, sea level 62) and world seed. */
     static final long USER_SEED = -6240223350076425471L;
     static final int USER_X = 4551, USER_Z = 9377;
+    /** The live server world's seed (its preset is the tracked fixture {@link #serverPreset}, D-GC2). */
+    static final long SERVER_SEED = -6240223350076425471L;
 
     record Metrics(String label, int gridStep, int gridNodes, int landNodes, int refinedNodes, double buildMs,
                    double sinuosity, double straightShare, double meanderShare, int sinuosityWindows,
@@ -39,8 +41,18 @@ final class HighlandPlanformProbe {
         }
     }
 
+    // note: serverPreset() repeats this loader for a second resource (two uses, not extracted).
     static Preset userPreset() throws Exception {
         try (var in = HighlandPlanformProbe.class.getResourceAsStream("/rolling-highlands/test-america-v3.json")) {
+            var json = com.google.gson.JsonParser.parseReader(new InputStreamReader(Objects.requireNonNull(in), StandardCharsets.UTF_8));
+            return Preset.DIRECT_CODEC.parse(JsonOps.INSTANCE, json).getOrThrow();
+        }
+    }
+
+    /** The live server preset (Rolling Highlands, model 9), a byte-for-byte copy of the server's file. */
+    // note: repeats userPreset() for the server fixture.
+    static Preset serverPreset() throws Exception {
+        try (var in = HighlandPlanformProbe.class.getResourceAsStream("/rolling-highlands/server-preset.json")) {
             var json = com.google.gson.JsonParser.parseReader(new InputStreamReader(Objects.requireNonNull(in), StandardCharsets.UTF_8));
             return Preset.DIRECT_CODEC.parse(JsonOps.INSTANCE, json).getOrThrow();
         }

@@ -38,6 +38,9 @@ public final class RollingHighlandsContinent implements Continent {
     private final HighlandCoast coast;
     private final HighlandLand land;
     private final HighlandDrainage drainage;
+    /** D-GC1 base planner: the same drainage on a separate coast whose drowned layer is never bound, so its plans (plan0) are the RH9 plans. */
+    private final HighlandCoast baseCoast;
+    private final HighlandDrainage baseDrainage;
     private final RollingHighlandsSettings settings;
     private final Levels levels;
     private final double coastEdge;
@@ -66,6 +69,9 @@ public final class RollingHighlandsContinent implements Continent {
         this.land = HighlandLand.create(context);
         this.drainage = new HighlandDrainage(coast, land, settings.uplandSpacing(), context.preset.world().controlPoints, context.preset.rivers().lakes.chance, context.preset.rivers().lakes.depth,
             settings.valleyDepth(), context.preset.rivers().riverCount, settings.meanders() / 100.0, context.preset.rivers().lakes.sizeMax);
+        this.baseCoast = new HighlandCoast(context);
+        this.baseDrainage = new HighlandDrainage(baseCoast, land, settings.uplandSpacing(), context.preset.world().controlPoints, context.preset.rivers().lakes.chance, context.preset.rivers().lakes.depth,
+            settings.valleyDepth(), context.preset.rivers().riverCount, settings.meanders() / 100.0, context.preset.rivers().lakes.sizeMax);
         this.coastEdge = context.preset.world().controlPoints.coast;
         this.classSeed = context.seed.root() * 0x9E3779B97F4A7C15L + 0x52484632L;
         this.stackSeed = mix(context.seed.root() ^ 0x5348394358L);
@@ -93,6 +99,7 @@ public final class RollingHighlandsContinent implements Continent {
      * requests for the same owner wait on the same future) and the cache keeps the MAX_PLANS most recently used.
      * A failed provisional drainage build uses the existing logged river-less fallback. Final lake-resolution
      * failures remain visible rather than publishing inconsistent water. Cancellation is not cached.
+     * // note: HighlandDrowned.arms copies this single-flight pattern for the per-owner arm data (second use, not extracted).
      */
     private HighlandPlanIndex plan(int x, int z) {
         if (closed) throw new IllegalStateException("Rolling Highlands owner is closed");
@@ -270,9 +277,12 @@ public final class RollingHighlandsContinent implements Continent {
     /** RH9: the game's climate, for the coast profile's regional climate (built after this continent). */
     public void useClimate(etcodehome.freeterraforged.world.worldgen.cell.climate.Climate climate) {
         coast.profile().climate(climate);
-        coast.bindDrowned(land); // RH10: drowned arms switch on only now; nothing samples the continent before this point
+        baseCoast.profile().climate(climate);
+        coast.bindDrowned(land, baseDrainage); // RH10: drowned arms switch on only now; nothing samples the continent before this point
     }
     HighlandDrainage drainage() { return drainage; }
+    /** Test access: plan0 of an owner (the RH9 plan on the never-bound base coast), built afresh and uncached. */
+    HighlandDrainage.Plan basePlan(int ownerX, int ownerZ) { return baseDrainage.build(ownerX, ownerZ); }
     HighlandPlanIndex planOf(int ownerX, int ownerZ) { return plan(ownerX, ownerZ); }
     /** Test access: builds the owner plan at a block position afresh (uncached), for cost measurements. */
     HighlandPlanIndex rebuildAt(double x, double z) { var s = coast.sample(x, z); return buildIndex(s.ownerX(), s.ownerZ()); }

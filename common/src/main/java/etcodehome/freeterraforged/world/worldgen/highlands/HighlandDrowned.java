@@ -5,6 +5,7 @@ import static etcodehome.freeterraforged.world.worldgen.highlands.HighlandMath.n
 import static etcodehome.freeterraforged.world.worldgen.highlands.HighlandMath.ridge;
 import static etcodehome.freeterraforged.world.worldgen.highlands.HighlandMath.smooth;
 import etcodehome.freeterraforged.world.worldgen.GeneratorContext;
+import etcodehome.freeterraforged.world.worldgen.util.PosUtil;
 
 /**
  * RH10 drowned coast: flooded river-valley bays (rias) as a transform of the coast edge value, a function of
@@ -12,9 +13,9 @@ import etcodehome.freeterraforged.world.worldgen.GeneratorContext;
  *
  * <p>Regions are jittered discs (one candidate per {@link #REGION_SIZE} cell, active with chance
  * {@link #REGION_CHANCE}); each has a weight 1 at its core falling to 0 at its rim. Inside a region the edge is
- * pulled down toward {@link #riaTarget} along a branching valley network (ridged noise, rigidly rotated per region so
- * channels run inland along the standalone edge gradient at the region centre, stretched by {@link #ANISO}), fading
- * out {@link #ARM_REACH} blocks inland of the coast point so arms shoal toward their heads. Apart from the island chains
+ * pulled down toward {@link #riaTarget} along the coastal valleys of the column's owner (D-GC1): the valley axes of its plan0, the
+ * RH9 planner's plan on a coast whose drowned layer is never bound ({@link HighlandArms}, built once per owner, see {@link #arms}),
+ * each with a half width from its drainage area, fading out inland of the coast point so arms shoal toward their heads. Apart from the island chains
  * (11-06, on the shelf seaward of the coast point, away from owner borders) the transform only lowers
  * the edge (it is monotone in it in fjord regions and in ria regions away from the mouth and basin terms), so land never goes below sea
  * level, skipped owners (edge 0) are untouched and the coast is bit-for-bit the RH9 coast wherever the weight or the
@@ -34,6 +35,13 @@ final class HighlandDrowned {
     static final double ANISO = 2.5, TRUNK_SCALE = 2000, BRANCH_SCALE = 700, BRANCH_WEIGHT = .8, VALLEY_LOW = .45, VALLEY_HIGH = .85;
     /** Blocks inland of the coast point over which arms shoal, and how far below the beach point arm water sits (fraction of beach to shallow ocean). */
     static final double ARM_REACH = 2500, DROWN_MARGIN = .3;
+    /**
+     * Arms along plan0 valleys (D-GC1): arm half width is {@code HW_REF (area / 1 km^2)^HW_EXP} blocks of drainage area, at least
+     * {@code HW_MIN} and at most {@code MAX_HALF_WIDTH} (the widest any later tuning may use; also how far a region disc is grown for
+     * the arm data filter), {@code HW_REF} per region type; the valley profile is full inside {@code ARM_CORE} of the half width and
+     * falls to 0 at it; the lowering fades in over the {@code ARM_SEA_BAND} blocks seaward of the old coastline.
+     */
+    static final double MAX_HALF_WIDTH = 1200, ARM_SEA_BAND = 150, HW_REF = 90, FJORD_HW_REF = 60, HW_EXP = .35, HW_MIN = 24, ARM_CORE = .55, FJORD_ARM_CORE = .7;
     /** Range core (0..1) a region needs within half a region of its centre to be a fjord region. */
     static final double FJORD_RANGE_CORE = .25;
     /**
@@ -143,6 +151,13 @@ final class HighlandDrowned {
     private final long openSeed;
     private final ThreadLocal<Memo> memo = ThreadLocal.withInitial(Memo::new);
     private volatile HighlandLand land;
+    /** The base planner (plan0, never bound to a drowned layer) and the arm reach (edge units) of the bound land; arms of an owner, built once. */
+    private volatile HighlandDrainage base;
+    private volatile double armReach;
+    private final java.util.concurrent.ConcurrentHashMap<Long, ArmEntry> armCache = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final class ArmEntry {
+        final java.util.concurrent.CompletableFuture<HighlandArms> future = new java.util.concurrent.CompletableFuture<>();
+    }
 
     HighlandDrowned(GeneratorContext context, HighlandCoast coast) {
         var points = context.preset.world().controlPoints;
@@ -160,11 +175,20 @@ final class HighlandDrowned {
         this.islandMinEdge = OPEN_GUARD * points.deepOcean;
         this.openBandEdge = points.shallowOcean;
         this.lowEdge = riaTarget;
+        this.armReach = reachEdge;
     }
 
-    /** Land source for the range-aware parts of later RH10 steps; set once, after the continent exists. */
-    void bind(HighlandLand land) {
-        this.lowEdge = land != null && land.rangeHeight() > 0 ? Math.min(riaTarget, depthFloor) : riaTarget;
+    /**
+     * Land source for the range-aware parts of later RH10 steps and the base planner whose plan0 gives the arms; set once, after
+     * the continent exists. A null land is inert (the RH9 coast); a null base means no arms (island raises only).
+     */
+    void bind(HighlandLand land) { bind(land, null); } // the untracked DrownedShapeProbe (user-owned) still calls this form
+    void bind(HighlandLand land, HighlandDrainage base) {
+        boolean ranges = land != null && land.rangeHeight() > 0;
+        this.lowEdge = ranges ? Math.min(riaTarget, depthFloor) : riaTarget;
+        this.armReach = ranges ? Math.max(reachEdge, longReachEdge) : reachEdge;
+        this.armCache.clear();
+        this.base = base;
         this.land = land;
     }
     HighlandLand land() { return land; }
@@ -264,11 +288,11 @@ final class HighlandDrowned {
     }
 
     /**
-     * The edge value at a raw position given the standalone (pre-drowning) edge there, and the region weight: steepened by
-     * the fjord weight, then lowered toward each overlapping region's target by weight times arm fade times valley (the
-     * smallest result wins, which is continuous where regions of different type overlap).
+     * The edge value at a raw position given the standalone (pre-drowning) edge there, the owner of the position and the region
+     * weight: steepened by the fjord weight, then lowered toward each overlapping region's target by weight times the valley
+     * factor of the owner's plan0 arms (the smallest result wins, which is continuous where regions of different type overlap).
      */
-    At at(double rawX, double rawZ, double edge) {
+    At at(double rawX, double rawZ, double edge, int ownerX, int ownerZ) {
         if (!inBand(edge)) return new At(edge, 0);
         double open = openRaise(rawX, rawZ, edge);
         var m = discs((int) Math.floor(rawX / REGION_SIZE), (int) Math.floor(rawZ / REGION_SIZE));
@@ -280,20 +304,82 @@ final class HighlandDrowned {
             if (w > fjord && region(m.h[n], m.ci[n], m.cj[n], m.cx[n], m.cz[n]).fjord) fjord = w;
         }
         if (weight <= 0) return new At(open, 0);
+        double sea = smooth(coastEdge - ARM_SEA_BAND * HighlandCoast.EDGE_PER_BLOCK, coastEdge, edge);
+        HighlandArms arms = HighlandArms.EMPTY;
+        if (sea > 0 && edge < coastEdge + armReach) {
+            arms = arms(ownerX, ownerZ);
+            m = discs((int) Math.floor(rawX / REGION_SIZE), (int) Math.floor(rawZ / REGION_SIZE)); // building the arms read other discs and replaced the memoized cell
+        }
         double raised = raise(m, rawX, rawZ, open);
         double steep = steepen(raised, fjord), lowering = 0;
-        for (int n = 0; n < m.count; n++) {
+        var hits = arms.query(rawX, rawZ);
+        if (hits.count > 0) for (int n = 0; n < m.count; n++) {
             double w = discWeight(m.cx[n], m.cz[n], m.radius[n], rawX, rawZ);
             if (w <= 0) continue;
             var region = region(m.h[n], m.ci[n], m.cj[n], m.cx[n], m.cz[n]);
-            double fade = raised <= coastEdge ? 1 : 1 - smooth(region.fjord ? 0 : BAY_PLATEAU * region.reach, region.reach, raised - coastEdge);
-            if (w * fade <= 0) continue;
-            double k = w * fade * valley(region, rawX, rawZ, bayWiden(region, raised - coastEdge), bayNarrow(region, raised - coastEdge));
+            double k = w * sea * valley(region, hits);
             lowering = Math.min(lowering, k * (region.target - steep));
         }
         double result = steep + lowering;
         if (fjord > 0 && result < coastEdge) result = Math.max(Math.min(result, depthFloor), coastEdge - (1 + (FJORD_DEPTH - 1) * fjord) * (coastEdge - result));
         return new At(result, weight);
+    }
+
+    /**
+     * Valley factor 0..1 of one region from the arm segments near the position: the largest over the segments of the valley
+     * profile (full inside {@link #ARM_CORE} of the half width, 0 at it) times the arm fade at the segment's own u (today's fade, so
+     * ria arms keep full strength out to BAY_PLATEAU of the reach and shoal over the rest, fjord arms shoal from the coast point).
+     */
+    private static double valley(Region region, HighlandArms.Hits hits) {
+        double core = region.fjord ? FJORD_ARM_CORE : ARM_CORE, ref = region.fjord ? FJORD_HW_REF : HW_REF, best = 0;
+        for (int h = 0; h < hits.count; h++) {
+            double hw = Math.max(HW_MIN, Math.min(MAX_HALF_WIDTH, ref * hits.width[h])), u = hits.u[h];
+            if (hits.distance[h] >= hw) continue;
+            double fade = u <= 0 ? 1 : 1 - smooth(region.fjord ? 0 : BAY_PLATEAU * region.reach, region.reach, u);
+            if (fade > 0) best = Math.max(best, fade * (1 - smooth(core, 1, hits.distance[h] / hw)));
+        }
+        return best;
+    }
+
+    /** Width factor of an arm from its drainage area (blocks^2): {@code (area / 1 km^2)^HW_EXP}; the half width is HW_REF times it. */
+    static double armWidth(double area) { return Math.pow(Math.max(area, 0) / 1e6, HW_EXP); }
+
+    /** The widest half width (blocks) an arm of this width factor can have in any region type; also its index radius. */
+    static double armRadius(double width) { return Math.max(HW_MIN, Math.min(MAX_HALF_WIDTH, Math.max(HW_REF, FJORD_HW_REF) * width)); }
+
+    /** True where a position lies within a region disc grown by {@link #MAX_HALF_WIDTH} (the arm data filter). */
+    boolean nearRegion(double x, double z) {
+        var m = discs((int) Math.floor(x / REGION_SIZE), (int) Math.floor(z / REGION_SIZE));
+        for (int n = 0; n < m.count; n++) if (discWeight(m.cx[n], m.cz[n], m.radius[n] + MAX_HALF_WIDTH, x, z) > 0) return true;
+        return false;
+    }
+
+    /**
+     * The arm data of an owner, built once: plan0 of the owner from the base planner (a separate coast whose drowned layer is
+     * never bound, so it never reads this layer), reduced to {@link HighlandArms} and discarded. Single flight: the first thread
+     * to ask builds on its own thread, others wait on its future; a failed build is never cached. Empty without a base planner.
+     * // note: copies the owner-plan cache pattern of RollingHighlandsContinent.plan (second use, not extracted).
+     */
+    HighlandArms arms(int ownerX, int ownerZ) {
+        var base = this.base;
+        if (base == null) return HighlandArms.EMPTY;
+        long key = PosUtil.pack(ownerX, ownerZ);
+        var entry = armCache.get(key);
+        if (entry == null) {
+            var created = new ArmEntry();
+            entry = armCache.putIfAbsent(key, created);
+            if (entry == null) {
+                entry = created;
+                try {
+                    created.future.complete(HighlandArms.of(base.build(ownerX, ownerZ), coast, coastEdge, armReach, this));
+                } catch (RuntimeException | Error failure) {
+                    created.future.completeExceptionally(failure);
+                    armCache.remove(key, created);
+                    throw failure;
+                }
+            }
+        }
+        return entry.future.join();
     }
 
     /**

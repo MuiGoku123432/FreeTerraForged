@@ -679,9 +679,12 @@ public final class HighlandDrainage {
             for (int ix = 0; ix < width; ix++) {
                 int i = iz * width + ix;
                 double x = nodeX[i], z = nodeZ[i];
-                var s = coast.sample(x, z);
-                owned[i] = s.ownerX() == ownerX && s.ownerZ() == ownerZ;
+                // Ownership is the undrowned owner (drowning keeps it): a node of another owner is skipped without a sample, so a
+                // final build never asks a neighbour's arm data (plan0) for nodes it does not use.
+                var rh9 = coast.undrowned(x, z);
+                owned[i] = rh9.ownerX() == ownerX && rh9.ownerZ() == ownerZ;
                 if (!owned[i]) continue;
+                var s = coast.sample(x, z);
                 land[i] = s.edge() > coastEdge && !(s.drowned() > 0 && touchesSea(x, z, step));
                 if (land[i]) {
                     landCount++;
@@ -752,7 +755,7 @@ public final class HighlandDrainage {
                 if (nx < 0 || nz < 0 || nx >= width || nz >= depth) continue;
                 int j = nz * width + nx;
                 if (!owned[j]) {
-                    var adjacent = coast.sample(nodeX[j], nodeZ[j]);
+                    var adjacent = coast.undrowned(nodeX[j], nodeZ[j]); // the RH9 coast the planner always accepted; drowning only removes land
                     if (adjacent.edge() > coastEdge) throw new IllegalStateException("RH land bridge requires shared ports at " + ownerX + "," + ownerZ);
                 }
             }

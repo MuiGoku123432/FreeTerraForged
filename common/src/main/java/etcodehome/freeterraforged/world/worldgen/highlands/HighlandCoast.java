@@ -24,8 +24,11 @@ public final class HighlandCoast extends AdvancedContinentGenerator {
     }
     public HighlandCoastProfile profile() { return profile; }
     HighlandDrowned drowned() { return drowned; }
-    /** RH10: arms stay inert (the RH9 coast) until the land is bound, after the continent is built. */
-    void bindDrowned(HighlandLand land) { drowned.bind(land); }
+    /**
+     * RH10: arms stay inert (the RH9 coast) until the land is bound, after the continent is built. {@code base} is the planner
+     * of the never-bound base coast whose plan0 gives the arms (D-GC1); null means no arms.
+     */
+    void bindDrowned(HighlandLand land, HighlandDrainage base) { drowned.bind(land, base); }
     /** Edge-field slope (edge units per block) at a position whose edge is {@code edge}, from two SLOPE_PROBE steps. */
     public double edgeSlope(double x, double z, double edge) {
         double gx = sample(x + SLOPE_PROBE, z).edge() - edge, gz = sample(x, z + SLOPE_PROBE).edge() - edge;
@@ -84,7 +87,7 @@ public final class HighlandCoast extends AdvancedContinentGenerator {
     public Sample sample(double rawX, double rawZ) {
         var base = undrowned(rawX, rawZ);
         if (!(base.edge() > 0) || !drowned.inBand(base.edge())) return base;
-        var at = drowned.at(rawX, rawZ, base.edge());
+        var at = drowned.at(rawX, rawZ, base.edge(), base.ownerX(), base.ownerZ());
         if (at.drowned() == 0 && at.edge() == base.edge()) return base;
         return new Sample(base.ownerX(), base.ownerZ(), base.centerX(), base.centerZ(), at.edge(), at.drowned());
     }
