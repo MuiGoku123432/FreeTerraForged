@@ -47,6 +47,12 @@ final class HighlandDrowned {
      * falls to 0 at it; the lowering fades in over the {@code ARM_SEA_BAND} blocks seaward of the old coastline.
      */
     static final double MAX_HALF_WIDTH = 1200, ARM_SEA_BAND = 150, HW_REF = 90, FJORD_HW_REF = 60, HW_EXP = .35, HW_MIN = 24, ARM_CORE = .55, FJORD_ARM_CORE = .7;
+    /**
+     * Arm eligibility (D-GC8): a physical valley carries an arm only where its drainage area is at least {@code ARM_AREA} of
+     * uplandSpacing squared (the RH5 creek-head area at the reference River Count, so the arm topology stays close to 11-09 and 11-10).
+     * A fixed shape constant 11-11 may tune; it never reads River Count (creekArea) and never the structural lake area.
+     */
+    static final double ARM_AREA = .065;
     /** Range core (0..1) a region needs within half a region of its centre to be a fjord region. */
     static final double FJORD_RANGE_CORE = .25;
     /**

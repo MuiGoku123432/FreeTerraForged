@@ -18,7 +18,8 @@ import java.util.Map;
  * above the coast point, at both ends, the physical branch (its id, the grid index of its downstream-most land node; "plan0 reach"
  * below means this branch) and its downstream branch (the ancestry the arm gates read). Only the connected coastal subtree is kept:
  * from each branch's junction up to and including the first sample beyond the arm reach, only segments within a region disc grown by
- * {@link HighlandDrowned#MAX_HALF_WIDTH}, and only branches whose downstream chain of kept branches ends at a sea root.
+ * {@link HighlandDrowned#MAX_HALF_WIDTH}, only samples draining at least {@link HighlandDrowned#ARM_AREA}, and only branches whose
+ * downstream chain of kept branches ends at a sea root.
  *
  * <p>Segments are indexed in a uniform bucket grid, each over its box grown by its own largest half width, so a query reads one
  * bucket.
@@ -83,6 +84,7 @@ final class HighlandArms {
     static HighlandArms of(HighlandDrainage.Plan plan0, HighlandCoast coast, double coastEdge, double maxReachEdge, HighlandDrowned drowned) {
         var valleys = plan0.valleys();
         boolean[] kept = new boolean[valleys.branches()];
+        double minArea = HighlandDrowned.ARM_AREA * valleys.area2();
         List<double[]> found = new ArrayList<>();
         // Branches are listed downstream first (a branch follows its downstream branch).
         for (int b = 0; b < kept.length; b++) {
@@ -91,6 +93,7 @@ final class HighlandArms {
             boolean any = false;
             double px = 0, pz = 0, pu = 0, pw = 0;
             for (int s = valleys.first()[b]; s < valleys.first()[b + 1]; s++) {
+                if (valleys.area()[s] < minArea) break; // areas only fall upstream: nothing further up this branch, nor its subtree, is eligible
                 double x = valleys.x()[s], z = valleys.z()[s];
                 double u = coast.undrowned(x, z).edge() - coastEdge, w = HighlandDrowned.armWidth(valleys.area()[s]);
                 if (s > valleys.first()[b] && (drowned.nearRegion(px, pz) || drowned.nearRegion(x, z))) {

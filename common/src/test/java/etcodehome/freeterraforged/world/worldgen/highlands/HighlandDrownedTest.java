@@ -699,10 +699,187 @@ class HighlandDrownedTest {
         assertTrue(drawn[0] < drawn[1] && drawn[2] >= drawn[1], "River Count no longer thins the drawn axis: " + java.util.Arrays.toString(drawn));
     }
 
+    /** One owner's results at one River Count (lake fields only where the fixture asks for them). */
+    private static final class OwnerRun {
+        HighlandDrainage.Valleys base, bound;
+        HighlandArms arms;
+        int provisionalBasins, finalBasins, flooded;
+        double[] provisionalSurface;
+        boolean[] finalFlooded;
+        Set<Point> finalAxis;
+        double finalLength;
+    }
+
+    /** One fixture at one River Count: the column samples and the owner results. */
+    private static final class FixtureRun {
+        int[][] columns;
+        double[] edge, drowned;
+        final List<OwnerRun> owners = new ArrayList<>();
+    }
+
+    private static FixtureRun runAtRiverCount(java.util.concurrent.Callable<Preset> preset, long seed, int riverCount, int[][] sites, int perSite, int lakeSite) throws Exception {
+        var run = new FixtureRun();
+        try (var context = riverCountContext(preset, seed, riverCount)) {
+            var continent = (RollingHighlandsContinent) context.heightmap.continent();
+            var coast = continent.coast();
+            run.columns = drownedColumns(context, sites, perSite);
+            run.edge = new double[run.columns.length];
+            run.drowned = new double[run.columns.length];
+            var order = new ArrayList<Integer>();
+            for (int i = 0; i < run.columns.length; i++) order.add(i);
+            sampleColumns(coast, run.columns, order, run.edge, run.drowned);
+            for (int site = 0; site < sites.length; site++) {
+                var owner = coast.undrowned(sites[site][0], sites[site][1]);
+                var result = new OwnerRun();
+                result.base = continent.basePlan(owner.ownerX(), owner.ownerZ()).valleys();
+                result.arms = coast.drowned().arms(owner.ownerX(), owner.ownerZ());
+                var provisional = continent.drainage().build(owner.ownerX(), owner.ownerZ());
+                result.bound = provisional.valleys();
+                if (site == lakeSite) {
+                    result.provisionalBasins = provisional.basins().count();
+                    result.provisionalSurface = new double[provisional.gridNodes()];
+                    for (int i = 0; i < result.provisionalSurface.length; i++) result.provisionalSurface[i] = provisional.basins().nodeSurface(i);
+                    var plan = continent.planOf(owner.ownerX(), owner.ownerZ()).plan();
+                    result.finalBasins = plan.basins().count();
+                    result.finalFlooded = new boolean[plan.gridNodes()];
+                    double low = Double.POSITIVE_INFINITY, high = Double.NEGATIVE_INFINITY;
+                    for (int i = 0; i < result.finalFlooded.length; i++) {
+                        double surface = plan.basins().nodeSurface(i);
+                        if (Double.isNaN(surface)) continue;
+                        result.finalFlooded[i] = true;
+                        result.flooded++;
+                        low = Math.min(low, surface); high = Math.max(high, surface);
+                    }
+                    result.finalAxis = axisPoints(plan);
+                    result.finalLength = 1 / HighlandPlanformProbe.spacing(plan, 0);
+                    System.out.println("RH10 River Count " + riverCount + " owner " + owner.ownerX() + "," + owner.ownerZ() + ": final lakes " + result.finalBasins + ", flooded nodes " + result.flooded
+                        + (result.flooded > 0 ? String.format(java.util.Locale.ROOT, " (nodeSurface %.2f to %.2f)", low, high) : "") + ", drawn axis " + plan.axis().size() + " samples, drawn length "
+                        + String.format(java.util.Locale.ROOT, "%.6f", result.finalLength));
+                }
+                run.owners.add(result);
+            }
+        }
+        return run;
+    }
+
     /**
-     * D-GC1: the plan behind the arm data is the RH9 planner's plan. On the server preset, the owner of 7453,3341 built by
-     * the base planner (a separate, never-bound coast) has the node count, node positions and valley-axis positions of the
-     * plan built on a fresh context whose drowned layer is unbound.
+     * D-GC8 matrix: River Count 3, 7 and 30 (three fresh contexts) give, for each owner of the fixture's sites, bit-identical plan0 valley
+     * networks, arm arrays and valley networks of the final physical build on the drowned coast, and bit-identical transformed edge and drowned
+     * weight over the drowned-region columns around the sites. For the lake owner also the provisional (structural) basins, count and per-grid-node
+     * surface; the final drawn axis nests (3 within 7 within 30) and its length thins. The final lake bodies are reported only (D-11-22-1).
+     */
+    private static void assertRiverCountIndependent(String label, java.util.concurrent.Callable<Preset> preset, long seed, int[][] sites, int perSite, int lakeSite) throws Exception {
+        int[] counts = {3, 7, 30};
+        var runs = new FixtureRun[3];
+        for (int i = 0; i < 3; i++) runs[i] = runAtRiverCount(preset, seed, counts[i], sites, perSite, lakeSite);
+        System.out.println("RH10 River Count matrix " + label + ": " + runs[0].columns.length + " columns, owners " + sites.length + ", valley samples "
+            + runs[0].owners.stream().map(o -> o.base.x().length + "/" + o.bound.x().length).toList() + ", arm segments " + runs[0].owners.stream().map(o -> o.arms.segments()).toList());
+        for (int i = 1; i < 3; i++) {
+            String versus = label + " River Count " + counts[0] + " vs " + counts[i];
+            assertTrue(java.util.Arrays.deepEquals(runs[0].columns, runs[i].columns), versus + ": the drowned-region columns differ");
+            assertSameBits(versus + " edge", runs[0].columns, runs[0].edge, runs[i].edge);
+            assertSameBits(versus + " drowned weight", runs[0].columns, runs[0].drowned, runs[i].drowned);
+            for (int o = 0; o < sites.length; o++) {
+                var a = runs[0].owners.get(o);
+                var b = runs[i].owners.get(o);
+                assertTrue(a.base.x().length > 0 && a.arms.segments() > 0, versus + " owner " + o + ": no valley network or arms");
+                assertTrue(sameValleys(a.base, b.base), versus + " owner " + o + ": plan0 valley network differs");
+                assertTrue(sameValleys(a.bound, b.bound), versus + " owner " + o + ": the physical network of the final build on the drowned coast differs");
+                assertTrue(sameArms(a.arms, b.arms), versus + " owner " + o + ": arm data differ");
+            }
+        }
+        if (lakeSite < 0) return;
+        var low = runs[0].owners.get(lakeSite);
+        var mid = runs[1].owners.get(lakeSite);
+        var high = runs[2].owners.get(lakeSite);
+        for (int i = 1; i < 3; i++) {
+            var other = runs[i].owners.get(lakeSite);
+            assertEquals(low.provisionalBasins, other.provisionalBasins, label + ": provisional basin count at River Count " + counts[i]);
+            assertTrue(java.util.Arrays.equals(low.provisionalSurface, other.provisionalSurface), label + ": provisional per-node lake surface differs at River Count " + counts[i]);
+            // Final lake placement is reported, not gated (D-11-22-1): lake resolution (resolveLakes) reads the rendered ground and flow of the drawn
+            // channels, so the final bodies move with River Count on some owners; whether lake banks must ignore drawn channels is the user's call on the
+            // RH5 D3 scope. The provisional (structural) basins above are the River-Count-independent lake placement.
+            int firstDifferent = -1;
+            for (int n = 0; n < low.finalFlooded.length && firstDifferent < 0; n++) if (low.finalFlooded[n] != other.finalFlooded[n]) firstDifferent = n;
+            System.out.println("RH10 " + label + " final lakes River Count " + counts[0] + " vs " + counts[i] + ": " + low.finalBasins + " vs " + other.finalBasins + " bodies, "
+                + low.flooded + " vs " + other.flooded + " flooded grid nodes, " + (firstDifferent < 0 ? "same flooded node set" : "flooded node sets differ (first node " + firstDifferent + ")"));
+        }
+        assertTrue(mid.finalAxis.containsAll(low.finalAxis) && high.finalAxis.containsAll(mid.finalAxis), label + ": the drawn axis does not nest across River Count 3, 7 and 30");
+        assertTrue(low.finalLength < .8 * mid.finalLength && high.finalLength >= mid.finalLength,
+            label + ": drawn channel length at River Count 3/7/30 is " + low.finalLength + "/" + mid.finalLength + "/" + high.finalLength);
+    }
+
+    /**
+     * Probe (11-22): the final lakes of one owner per River Count, by lake id: water level, flooded grid nodes and their mean position
+     * (lattice position of the node), for the server MOUTH owner and the ROCKIES FJORD_ARM_SITE owner. Written to
+     * build/rh10-gap/final-lakes.txt (lake resolution reads the drawn channels, so these may differ across River Count).
+     */
+    @Tag("probe")
+    @Test void finalLakesAcrossRiverCount() throws Exception {
+        var lines = new ArrayList<String>();
+        var fixtures = List.of(new Object[]{"server", (java.util.concurrent.Callable<Preset>) HighlandPlanformProbe::serverPreset, HighlandPlanformProbe.SERVER_SEED, MOUTH_X, MOUTH_Z},
+            new Object[]{"ROCKIES", (java.util.concurrent.Callable<Preset>) BiomeCensusProbe::rockies, HighlandPlanformProbe.USER_SEED, FJORD_ARM_SITE_X, FJORD_ARM_SITE_Z});
+        for (var fixture : fixtures) for (int count : new int[]{3, 7, 30}) {
+            try (var context = riverCountContext((java.util.concurrent.Callable<Preset>) fixture[1], (Long) fixture[2], count)) {
+                var continent = (RollingHighlandsContinent) context.heightmap.continent();
+                var owner = continent.coast().undrowned((Integer) fixture[3], (Integer) fixture[4]);
+                var plan = continent.planOf(owner.ownerX(), owner.ownerZ()).plan();
+                var nodes = new java.util.TreeMap<Integer, double[]>();
+                for (int i = 0; i < plan.gridNodes(); i++) {
+                    if (Double.isNaN(plan.basins().nodeSurface(i))) continue;
+                    double x = plan.originX() + (i % plan.width()) * plan.gridStep(), z = plan.originZ() + (i / plan.width()) * plan.gridStep();
+                    var sample = plan.basins().sample(x, z);
+                    var entry = nodes.computeIfAbsent(sample == null ? -1 : sample.lake(), k -> new double[]{0, 0, 0, 0});
+                    entry[0]++; entry[1] += x; entry[2] += z; entry[3] = sample == null ? Double.NaN : sample.water();
+                }
+                var text = new StringBuilder(fixture[0] + " owner " + owner.ownerX() + "," + owner.ownerZ() + " River Count " + count + ": " + plan.basins().count() + " final lakes;");
+                nodes.forEach((id, e) -> text.append(String.format(java.util.Locale.ROOT, " [lake %d water %.2f nodes %.0f at %.0f,%.0f]", id, e[3], e[0], e[1] / e[0], e[2] / e[0])));
+                lines.add(text.toString());
+            }
+        }
+        lines.forEach(System.out::println);
+        Files.createDirectories(Path.of("build/rh10-gap"));
+        Files.write(Path.of("build/rh10-gap/final-lakes.txt"), lines);
+    }
+
+    /** x, z of the first drowned coast point of the ring search of plansBuildOnFiveSeeds (a note: repeats its drowned half; second use, not extracted). */
+    private static int[] firstDrownedPoint(GeneratorContext context) {
+        var coast = coastOf(context);
+        double coastEdge = context.preset.world().controlPoints.coast;
+        for (int ring = 4096; ring <= 65536; ring += 4096) for (int a = 0; a < 128; a++) {
+            double angle = 2 * Math.PI * a / 128;
+            for (int d = -2048; d <= 2048; d += 64) {
+                double x = Math.cos(angle) * (ring + d), z = Math.sin(angle) * (ring + d);
+                var s = coast.sample(x, z);
+                if (s.drowned() >= HighlandDrownedProbe.DROWNED_WEIGHT && s.edge() > 0 && s.edge() < coastEdge + .1) return new int[]{(int) x, (int) z};
+            }
+        }
+        return null;
+    }
+
+    /**
+     * D-GC8 matrix (a) server preset: the owners of MOUTH and ARM_SITE (2000 columns), lake checks at the MOUTH owner; (b) ROCKIES: the owner
+     * of FJORD_ARM_SITE (500 columns), lake checks at that owner; (c) user preset on the five plan seeds: the owner of the first drowned coast
+     * point of each seed (500 columns), no lake checks.
+     */
+    @Test void riverCountKeepsValleysArmsCoastAndLakes() throws Exception {
+        assertRiverCountIndependent("server", HighlandPlanformProbe::serverPreset, HighlandPlanformProbe.SERVER_SEED,
+            new int[][]{{MOUTH_X, MOUTH_Z}, {ARM_SITE_X, ARM_SITE_Z}}, ARM_COLUMNS_PER_SITE, 0);
+        assertRiverCountIndependent("ROCKIES", BiomeCensusProbe::rockies, HighlandPlanformProbe.USER_SEED, new int[][]{{FJORD_ARM_SITE_X, FJORD_ARM_SITE_Z}}, 500, 0);
+        for (long seed : new long[]{HighlandPlanformProbe.USER_SEED, 1L, 42L, -314159L, 20261107L}) {
+            int[] point;
+            try (var context = WorldgenFixture.context(HighlandPlanformProbe.userPreset(), seed)) {
+                point = firstDrownedPoint(context);
+            }
+            assertTrue(point != null, "no drowned coast point near the origin for seed " + seed);
+            assertRiverCountIndependent("user seed " + seed, HighlandPlanformProbe::userPreset, seed, new int[][]{point}, 500, -1);
+        }
+    }
+
+    /**
+     * D-GC1, D-GC8: the plan behind the arm data is the RH9 planner's plan. On the server preset, the owner of 7453,3341 built by
+     * the base planner (a separate, never-bound coast) has the physical valley network (bit for bit, River Count independent), and the
+     * drawn node count, node positions and valley-axis positions, of the plan built on a fresh context whose drowned layer is unbound.
      */
     @Test void plan0IsUndrowned() throws Exception {
         var context = WorldgenFixture.shared(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED);
@@ -713,6 +890,8 @@ class HighlandDrownedTest {
             var reference = (RollingHighlandsContinent) inert.heightmap.continent();
             reference.coast().bindDrowned(null, null);
             var expected = reference.drainage().build(owner.ownerX(), owner.ownerZ());
+            assertTrue(expected.valleys().x().length > 1000, "no valley network at the owner: " + expected.valleys().x().length);
+            assertTrue(sameValleys(expected.valleys(), plan0.valleys()), "plan0 physical valley network differs from the RH9 plan's");
             assertEquals(expected.nodes().size(), plan0.nodes().size(), "plan0 node count differs from the RH9 plan");
             assertEquals(expected.axis().size(), plan0.axis().size(), "plan0 axis count differs from the RH9 plan");
             assertTrue(plan0.nodes().size() > 1000, "no river plan at the owner: " + plan0.nodes().size());
