@@ -154,9 +154,26 @@ final class HighlandDrowned {
     /** The base planner (plan0, never bound to a drowned layer) and the arm reach (edge units) of the bound land; arms of an owner, built once. */
     private volatile HighlandDrainage base;
     private volatile double armReach;
+    /** Arm data of the {@code MAX_ARM_OWNERS} most recently used owners (completed entries only are evicted, so a build in flight is never lost). */
+    static final int MAX_ARM_OWNERS = 16;
     private final java.util.concurrent.ConcurrentHashMap<Long, ArmEntry> armCache = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.concurrent.atomic.AtomicLong armClock = new java.util.concurrent.atomic.AtomicLong();
+    /** Bumped by every clear of the cache, so a per-thread memo from before it is never served. */
+    private volatile int armGeneration;
+    private final ThreadLocal<LastArms> lastArms = new ThreadLocal<>();
+    /**
+     * Set on a thread while it builds plan0 for the arm data; entering the arm lookup then is a programming error (D-GC1: plan0
+     * samples only the inert base coast). Test access: the one-way gate sets it directly.
+     */
+    static final ThreadLocal<Boolean> BUILDING_PLAN0 = new ThreadLocal<>();
     private static final class ArmEntry {
         final java.util.concurrent.CompletableFuture<HighlandArms> future = new java.util.concurrent.CompletableFuture<>();
+        volatile long lastUse;
+    }
+    private record LastArms(int generation, long key, HighlandArms arms) {}
+    /** The one-way guard tripped: never a data condition, so it is never cached as a failed build. */
+    private static final class Plan0Read extends IllegalStateException {
+        Plan0Read() { super("RH10 plan0 must not read the drowned coast"); }
     }
 
     HighlandDrowned(GeneratorContext context, HighlandCoast coast) {
@@ -187,7 +204,7 @@ final class HighlandDrowned {
         boolean ranges = land != null && land.rangeHeight() > 0;
         this.lowEdge = ranges ? Math.min(riaTarget, depthFloor) : riaTarget;
         this.armReach = ranges ? Math.max(reachEdge, longReachEdge) : reachEdge;
-        this.armCache.clear();
+        forgetArms();
         this.base = base;
         this.land = land;
     }
@@ -356,31 +373,78 @@ final class HighlandDrowned {
 
     /**
      * The arm data of an owner, built once: plan0 of the owner from the base planner (a separate coast whose drowned layer is
-     * never bound, so it never reads this layer), reduced to {@link HighlandArms} and discarded. Single flight: the first thread
-     * to ask builds on its own thread, others wait on its future; a failed build is never cached. Empty without a base planner.
+     * never bound, so it never reads this layer), reduced to {@link HighlandArms} and discarded. Lock-free lookups with a per-thread
+     * last-owner memo; single flight: the first thread to ask builds on its own thread, others wait on its future (plan0 samples
+     * only the base coast, so a waiting thread never holds another entry and no two threads wait on each other). The cache keeps the
+     * {@link #MAX_ARM_OWNERS} most recently used owners. Cancellation is never cached; any other failure of plan0 is logged once and
+     * caches {@link HighlandArms#EMPTY} for the owner (plan0 is a pure function of seed, preset and owner, so the failure repeats
+     * and the coast there is the RH9 one, never an invented network). Empty without a base planner.
+     * Throws IllegalStateException when entered on a thread that is building plan0.
      * // note: copies the owner-plan cache pattern of RollingHighlandsContinent.plan (second use, not extracted).
      */
     HighlandArms arms(int ownerX, int ownerZ) {
+        if (BUILDING_PLAN0.get() != null) throw new Plan0Read();
         var base = this.base;
         if (base == null) return HighlandArms.EMPTY;
         long key = PosUtil.pack(ownerX, ownerZ);
+        int generation = armGeneration;
+        var last = lastArms.get();
+        if (last != null && last.key == key && last.generation == generation) return last.arms;
         var entry = armCache.get(key);
         if (entry == null) {
             var created = new ArmEntry();
+            created.lastUse = armClock.incrementAndGet();
             entry = armCache.putIfAbsent(key, created);
             if (entry == null) {
                 entry = created;
-                try {
-                    created.future.complete(HighlandArms.of(base.build(ownerX, ownerZ), coast, coastEdge, armReach, this));
-                } catch (RuntimeException | Error failure) {
-                    created.future.completeExceptionally(failure);
-                    armCache.remove(key, created);
-                    throw failure;
-                }
+                buildArms(created, key, base, ownerX, ownerZ);
+                evictArms();
             }
         }
-        return entry.future.join();
+        entry.lastUse = armClock.incrementAndGet();
+        var arms = entry.future.join();
+        lastArms.set(new LastArms(generation, key, arms));
+        return arms;
     }
+
+    private void buildArms(ArmEntry entry, long key, HighlandDrainage base, int ownerX, int ownerZ) {
+        try {
+            HighlandDrainage.Plan plan0;
+            BUILDING_PLAN0.set(Boolean.TRUE);
+            try { plan0 = base.build(ownerX, ownerZ); } finally { BUILDING_PLAN0.remove(); }
+            entry.future.complete(HighlandArms.of(plan0, coast, coastEdge, armReach, this));
+        } catch (java.util.concurrent.CancellationException | Plan0Read | Error failure) {
+            entry.future.completeExceptionally(failure);
+            armCache.remove(key, entry);
+            throw failure;
+        } catch (RuntimeException failure) {
+            etcodehome.freeterraforged.FTFCommon.LOGGER.warn("Rolling Highlands: owner {},{} has no drowned arms ({}); its coast stays undrowned",
+                ownerX, ownerZ, failure.getMessage());
+            entry.future.complete(HighlandArms.EMPTY);
+        }
+    }
+
+    private void evictArms() {
+        while (armCache.size() > MAX_ARM_OWNERS) {
+            long oldest = Long.MAX_VALUE; Long victim = null;
+            for (var e : armCache.entrySet()) {
+                if (!e.getValue().future.isDone()) continue;
+                if (e.getValue().lastUse < oldest) { oldest = e.getValue().lastUse; victim = e.getKey(); }
+            }
+            if (victim == null) return;
+            armCache.remove(victim);
+        }
+    }
+
+    /** Test access: drops every cached arm entry and the calling thread's memo (other threads' memos are invalidated by generation). */
+    void forgetArms() {
+        armGeneration++;
+        armCache.clear();
+        lastArms.remove();
+    }
+
+    /** Test access: the packed owners (PosUtil.pack of owner x, z) that currently have an arm entry. */
+    java.util.Set<Long> cachedArmOwners() { return java.util.Set.copyOf(armCache.keySet()); }
 
     /**
      * The standalone edge with the island chains of the regions around raised in (see {@link #ISLAND_PEAK}): the largest result

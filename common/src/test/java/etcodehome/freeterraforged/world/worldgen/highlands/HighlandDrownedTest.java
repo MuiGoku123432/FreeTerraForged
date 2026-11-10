@@ -1,18 +1,26 @@
 package etcodehome.freeterraforged.world.worldgen.highlands;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import etcodehome.freeterraforged.world.worldgen.GeneratorContext;
 import etcodehome.freeterraforged.world.worldgen.biome.Continentalness;
 import etcodehome.freeterraforged.world.worldgen.cell.Cell;
 import etcodehome.freeterraforged.world.worldgen.cell.terrain.TerrainType;
 import etcodehome.freeterraforged.world.worldgen.densityfunction.CellSampler;
+import etcodehome.freeterraforged.world.worldgen.util.PosUtil;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Random;
+import java.util.Set;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -174,8 +182,22 @@ class HighlandDrownedTest {
      * lines cross a rim (the drowned weight leaves or reaches 0).
      */
     @Test void edgeIsContinuous() throws Exception {
-        var user = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
         var random = new Random(31);
+        var serverRandom = new Random(53); // its own sequence, so the lines of the other sites stay as before 11-10
+        // Server preset (D-GC1 arms along plan0 valleys): scan lines through its three sites, and 1-block lines across owner boundaries inside drowned regions.
+        var server = WorldgenFixture.shared(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED);
+        var serverStandalone = new HighlandCoast(server);
+        var serverResults = new double[4];
+        var serverWorst = new String[1];
+        for (int[] site : new int[][]{{MOUTH_X, MOUTH_Z}, {CROSSING_X, CROSSING_Z}, {ARM_SITE_X, ARM_SITE_Z}}) scanEdges(server, serverStandalone, site[0], site[1], 10, serverRandom, serverResults, serverWorst);
+        var seams = scanSeams(server, new int[][]{{MOUTH_X, MOUTH_Z}, {CROSSING_X, CROSSING_Z}, {ARM_SITE_X, ARM_SITE_Z}});
+        System.out.printf(java.util.Locale.ROOT, "RH10 edge continuity server lines=30 crossRim=%d maxStep=%.5f (%.1f blocks of slope) maxRimStep=%.5f (%.1f blocks of slope); owner seams in regions=%d maxSeamStep=%.5f%n",
+            (int) serverResults[0], serverResults[2], serverResults[2] / HighlandCoast.EDGE_PER_BLOCK, serverResults[3], serverResults[3] / HighlandCoast.EDGE_PER_BLOCK, (int) seams[0], seams[1]);
+        assertTrue(serverResults[0] >= 10, "too few server scan lines cross a drowned-region rim: " + (int) serverResults[0]);
+        assertTrue(serverResults[3] <= RIM_JUMP, "server transformed edge jumps across a region rim: " + serverResults[3] + ", limit " + RIM_JUMP);
+        assertTrue(seams[0] >= 12, "too few owner seams inside drowned regions to scan: " + (int) seams[0]);
+        assertTrue(seams[1] <= RIM_JUMP, "transformed edge jumps across an owner seam next to a drowned region: " + seams[1] + ", limit " + RIM_JUMP);
+        var user = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
         var results = new double[4];
         var worst = new String[1];
         scanEdges(user, new HighlandCoast(user), RIA_SITE_X, RIA_SITE_Z, 20, random, results, worst);
@@ -188,8 +210,42 @@ class HighlandDrownedTest {
             SCAN_LINES, (int) results[0], (long) results[1], results[2], EDGE_JUMP, results[2] / HighlandCoast.EDGE_PER_BLOCK, results[3], results[3] / HighlandCoast.EDGE_PER_BLOCK);
         System.out.println("RH10 edge continuity worst step " + worst[0]);
         assertTrue(results[0] >= 30, "too few scan lines cross a drowned-region rim: " + (int) results[0]);
-        assertTrue(results[2] <= EDGE_JUMP, "transformed edge jumps between neighbouring blocks: " + worst[0] + ", limit " + EDGE_JUMP);
         assertTrue(results[3] <= RIM_JUMP, "transformed edge jumps across a region rim: " + results[3] + ", limit " + RIM_JUMP);
+        // Steepness of valley walls last: the rim and seam checks above are about seams and do not depend on the arm shape.
+        assertTrue(serverResults[2] <= EDGE_JUMP, "server transformed edge jumps between neighbouring blocks: " + serverWorst[0] + ", limit " + EDGE_JUMP);
+        assertTrue(results[2] <= EDGE_JUMP, "transformed edge jumps between neighbouring blocks: " + worst[0] + ", limit " + EDGE_JUMP);
+    }
+
+    /**
+     * Owner seams inside drowned regions around the sites: up to 8 per site, found on a 64-block grid over 32 km (an owner change
+     * between grid neighbours with a region weight on either side, picked evenly), each scanned in 1-block steps over 256 blocks along x.
+     * Returns the number of owner changes scanned and the largest edge step at an owner change.
+     */
+    private static double[] scanSeams(GeneratorContext context, int[][] sites) {
+        var coast = coastOf(context);
+        double crossings = 0, maxStep = 0;
+        for (int[] site : sites) {
+            var found = new ArrayList<int[]>();
+            for (int dz = -16384; dz <= 16384; dz += 64) for (int dx = -16384; dx <= 16384; dx += 64) {
+                int x = site[0] + dx, z = site[1] + dz;
+                var a = coast.undrowned(x, z);
+                var b = coast.undrowned(x + 64, z);
+                if ((a.ownerX() != b.ownerX() || a.ownerZ() != b.ownerZ()) && Math.max(coast.drowned().weight(x, z), coast.drowned().weight(x + 64, z)) > 0) found.add(new int[]{x, z});
+            }
+            for (int k = 0; k < 8 && k < found.size(); k++) {
+                int[] at = found.get(k * found.size() / 8);
+                var previous = coast.sample(at[0] - 128, at[1]);
+                for (int x = at[0] - 127; x <= at[0] + 128; x++) {
+                    var sample = coast.sample(x, at[1]);
+                    if (sample.ownerX() != previous.ownerX() || sample.ownerZ() != previous.ownerZ()) {
+                        crossings++;
+                        maxStep = Math.max(maxStep, Math.abs(sample.edge() - previous.edge()));
+                    }
+                    previous = sample;
+                }
+            }
+        }
+        return new double[]{crossings, maxStep};
     }
 
     /** One batch of scan lines around a site (alternating east and south), asserting the step bound; results: lines crossing a rim, steps, max step. */
@@ -217,6 +273,216 @@ class HighlandDrownedTest {
                 previous = edge; previousStandalone = reference; previousWeight = sample.drowned();
             }
             if (rim) results[0]++;
+        }
+    }
+
+    /** Second server site of the arm gates (owner other than the mouth's), and the columns per site of armsArePathIndependent. */
+    static final int ARM_SITE_X = 4317, ARM_SITE_Z = 20060, ARM_COLUMNS_PER_SITE = 1000;
+
+    private static HighlandCoast coastOf(GeneratorContext context) { return ((RollingHighlandsContinent) context.heightmap.continent()).coast(); }
+
+    /**
+     * Drowned-region columns within 1500 blocks of the coast around the two arm sites (8 km boxes, seeded), chosen from position-only
+     * data (region weight and the undrowned edge), so selecting them reads no arm data and leaves the arm cache cold.
+     */
+    private static int[][] drownedColumns(GeneratorContext context) {
+        var coast = coastOf(context);
+        double band = 1500 * HighlandCoast.EDGE_PER_BLOCK, coastEdge = context.preset.world().controlPoints.coast;
+        var random = new Random(37);
+        var columns = new ArrayList<int[]>();
+        for (int[] site : new int[][]{{MOUTH_X, MOUTH_Z}, {ARM_SITE_X, ARM_SITE_Z}}) {
+            int found = 0;
+            for (int tries = 0; found < ARM_COLUMNS_PER_SITE && tries < 400_000; tries++) {
+                int x = site[0] + random.nextInt(2 * SITE_RADIUS + 1) - SITE_RADIUS, z = site[1] + random.nextInt(2 * SITE_RADIUS + 1) - SITE_RADIUS;
+                double edge = coast.undrowned(x, z).edge();
+                if (!(edge > 0) || Math.abs(edge - coastEdge) > band || coast.drowned().weight(x, z) <= 0) continue;
+                columns.add(new int[]{x, z});
+                found++;
+            }
+            assertEquals(ARM_COLUMNS_PER_SITE, found, "too few drowned-region columns near " + site[0] + "," + site[1]);
+        }
+        return columns.toArray(new int[0][]);
+    }
+
+    /** Samples the columns in the given order into per-column results. */
+    private static void sampleColumns(HighlandCoast coast, int[][] columns, Iterable<Integer> order, double[] edge, double[] drowned) {
+        for (int i : order) {
+            var sample = coast.sample(columns[i][0], columns[i][1]);
+            edge[i] = sample.edge();
+            drowned[i] = sample.drowned();
+        }
+    }
+
+    private static void assertSameBits(String label, int[][] columns, double[] expected, double[] actual) {
+        for (int i = 0; i < expected.length; i++)
+            assertEquals(Double.doubleToLongBits(expected[i]), Double.doubleToLongBits(actual[i]), label + " differs at " + columns[i][0] + "," + columns[i][1] + ": " + expected[i] + " vs " + actual[i]);
+    }
+
+    private static boolean sameArms(HighlandArms a, HighlandArms b) {
+        return java.util.Arrays.equals(a.ax, b.ax) && java.util.Arrays.equals(a.az, b.az) && java.util.Arrays.equals(a.bx, b.bx) && java.util.Arrays.equals(a.bz, b.bz)
+            && java.util.Arrays.equals(a.wa, b.wa) && java.util.Arrays.equals(a.wb, b.wb) && java.util.Arrays.equals(a.ua, b.ua) && java.util.Arrays.equals(a.ub, b.ub)
+            && java.util.Arrays.equals(a.radius, b.radius) && java.util.Arrays.equals(a.reach, b.reach) && java.util.Arrays.equals(a.down, b.down);
+    }
+
+    /**
+     * Arm path independence (T-11-11, D-GC1): on 2000 drowned-region columns around the two arm sites (two owners) the transformed edge
+     * and drowned weight are identical (bit for bit) whether arm data was built cold in ascending order, rebuilt after forgetArms() in
+     * descending order, or built cold from four threads in shuffled order; the lookup and precise paths still agree on terrain,
+     * height and edge on every column.
+     */
+    @Test void armsArePathIndependent() throws Exception {
+        int n = 2 * ARM_COLUMNS_PER_SITE;
+        double[] edgeA = new double[n], drownedA = new double[n], edgeB = new double[n], drownedB = new double[n], edgeC = new double[n], drownedC = new double[n];
+        int[][] columns;
+        int lowered = 0;
+        try (var a = WorldgenFixture.context(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED)) {
+            columns = drownedColumns(a);
+            var coast = coastOf(a);
+            var ascending = new ArrayList<Integer>();
+            for (int i = 0; i < n; i++) ascending.add(i);
+            ascending.sort(Comparator.<Integer>comparingInt(i -> columns[i][0]).thenComparingInt(i -> columns[i][1]));
+            sampleColumns(coast, columns, ascending, edgeA, drownedA);
+            for (int i = 0; i < n; i++) if (edgeA[i] != coast.undrowned(columns[i][0], columns[i][1]).edge()) lowered++;
+            int owners = coast.drowned().cachedArmOwners().size();
+            assertTrue(owners >= 2, "the columns did not read the arm data of two owners: " + owners);
+            coast.drowned().forgetArms();
+            assertTrue(coast.drowned().cachedArmOwners().isEmpty(), "forgetArms left entries");
+            var descending = new ArrayList<>(ascending);
+            java.util.Collections.reverse(descending);
+            sampleColumns(coast, columns, descending, edgeB, drownedB);
+        }
+        try (var c = WorldgenFixture.context(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED)) {
+            var coast = coastOf(c);
+            var shuffled = new ArrayList<Integer>();
+            for (int i = 0; i < n; i++) shuffled.add(i);
+            java.util.Collections.shuffle(shuffled, new Random(43));
+            var go = new CountDownLatch(1);
+            var pool = Executors.newFixedThreadPool(4);
+            try {
+                var futures = new ArrayList<java.util.concurrent.Future<?>>();
+                for (int t = 0; t < 4; t++) {
+                    var slice = new ArrayList<Integer>();
+                    for (int k = t; k < n; k += 4) slice.add(shuffled.get(k));
+                    futures.add(pool.submit(() -> { go.await(); sampleColumns(coast, columns, slice, edgeC, drownedC); return null; }));
+                }
+                go.countDown();
+                for (var future : futures) future.get();
+            } finally {
+                pool.shutdownNow();
+            }
+        }
+        assertTrue(lowered >= 500, "too few columns changed by the arms for the gate to mean anything: " + lowered);
+        assertSameBits("cold, forgotten and descending edge", columns, edgeA, edgeB);
+        assertSameBits("cold, forgotten and descending drowned weight", columns, drownedA, drownedB);
+        assertSameBits("four-thread edge", columns, edgeA, edgeC);
+        assertSameBits("four-thread drowned weight", columns, drownedA, drownedC);
+        var shared = WorldgenFixture.shared(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED);
+        var cellA = new Cell();
+        var cellB = new Cell();
+        int differ = 0;
+        String first = null;
+        for (int[] column : columns) {
+            shared.lookup.applyCell(cellA.reset(), column[0], column[1], false, true);
+            shared.heightmap.applyPrecise(cellB.reset(), column[0], column[1], true);
+            if (cellA.terrain != cellB.terrain || cellA.height != cellB.height || cellA.continentEdge != cellB.continentEdge) {
+                differ++;
+                if (first == null) first = column[0] + "," + column[1];
+            }
+        }
+        System.out.println("RH10 arm path independence columns=" + n + " changedByArms=" + lowered + " lookupVsPrecise differ=" + differ);
+        assertEquals(0, differ, differ + " of " + n + " columns differ between the lookup and the precise path, first at " + first);
+    }
+
+    /**
+     * Arm cache bound (T-11-14): after arm data was requested for MAX_ARM_OWNERS + 2 distinct owners (the mouth owner first, then
+     * owners whose centre lies in open sea, whose plan0 builds in a second or two) the cache holds at most MAX_ARM_OWNERS entries,
+     * the least recently used (the mouth owner) is gone, and the mouth owner rebuilt after forgetArms() has the arrays of its
+     * first build.
+     */
+    @Test void armCacheIsBounded() throws Exception {
+        try (var context = WorldgenFixture.context(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED)) {
+            var coast = coastOf(context);
+            var drowned = coast.drowned();
+            double coastEdge = context.preset.world().controlPoints.coast;
+            var mouth = coast.undrowned(MOUTH_X, MOUTH_Z);
+            long mouthKey = PosUtil.pack(mouth.ownerX(), mouth.ownerZ());
+            var owners = new java.util.LinkedHashSet<Long>();
+            for (int ring = 0; ring <= 8 && owners.size() < HighlandDrowned.MAX_ARM_OWNERS + 1; ring++) for (int oz = -ring; oz <= ring; oz++) for (int ox = -ring; ox <= ring; ox++) {
+                if (Math.max(Math.abs(ox), Math.abs(oz)) != ring) continue;
+                var centre = coast.undrowned((ox + .5) * coast.tectonicScale, (oz + .5) * coast.tectonicScale);
+                long key = PosUtil.pack(centre.ownerX(), centre.ownerZ());
+                if (centre.edge() > 0 && centre.edge() < coastEdge && key != mouthKey && owners.size() < HighlandDrowned.MAX_ARM_OWNERS + 1) owners.add(key);
+            }
+            assertEquals(HighlandDrowned.MAX_ARM_OWNERS + 1, owners.size(), "too few open-sea owners near the origin");
+            long started = System.nanoTime();
+            var first = drowned.arms(mouth.ownerX(), mouth.ownerZ());
+            assertTrue(first.segments() > 0, "the mouth owner has no arm segments");
+            for (long key : owners) drowned.arms(PosUtil.unpackLeft(key), PosUtil.unpackRight(key));
+            System.out.println("RH10 arm cache bound: " + (HighlandDrowned.MAX_ARM_OWNERS + 2) + " owners requested in " + (System.nanoTime() - started) / 1_000_000 + " ms, cached "
+                + drowned.cachedArmOwners().size() + "; sea owners " + owners.stream().map(k -> PosUtil.unpackLeft(k) + "," + PosUtil.unpackRight(k)).toList());
+            assertTrue(drowned.cachedArmOwners().size() <= HighlandDrowned.MAX_ARM_OWNERS, "the arm cache holds " + drowned.cachedArmOwners().size() + " owners");
+            assertTrue(!drowned.cachedArmOwners().contains(mouthKey), "the least recently used owner was not evicted");
+            drowned.forgetArms();
+            var rebuilt = drowned.arms(mouth.ownerX(), mouth.ownerZ());
+            assertTrue(rebuilt != first && sameArms(first, rebuilt), "an owner rebuilt after eviction differs from its first build");
+        }
+    }
+
+    /**
+     * Cancellation is never cached: with the current thread interrupted the first cold arm lookup throws CancellationException and
+     * leaves no entry (and no plan0 flag); the next lookup succeeds and equals a fresh context's arm data.
+     */
+    @Test void armsCancellationIsNotCached() throws Exception {
+        try (var context = WorldgenFixture.context(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED);
+             var fresh = WorldgenFixture.context(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED)) {
+            var drowned = coastOf(context).drowned();
+            var owner = coastOf(context).undrowned(MOUTH_X, MOUTH_Z);
+            Thread.currentThread().interrupt();
+            try {
+                assertThrows(CancellationException.class, () -> drowned.arms(owner.ownerX(), owner.ownerZ()));
+            } finally {
+                Thread.interrupted();
+            }
+            assertTrue(drowned.cachedArmOwners().isEmpty(), "a cancelled build was cached");
+            assertNull(HighlandDrowned.BUILDING_PLAN0.get(), "the plan0 flag survived a cancelled build");
+            var arms = drowned.arms(owner.ownerX(), owner.ownerZ());
+            assertTrue(arms.segments() > 0 && sameArms(arms, coastOf(fresh).drowned().arms(owner.ownerX(), owner.ownerZ())), "arms after a cancelled build differ from a fresh context's");
+        }
+    }
+
+    /**
+     * The one-way dependency is enforced (T-11-15, D-GC1): entering the arm lookup on a thread that is building plan0 throws
+     * IllegalStateException and caches nothing; building plan0 for the mouth owner through the cache raises nothing and clears the flag.
+     */
+    @Test void plan0NeverReadsTheDrownedCoast() throws Exception {
+        try (var context = WorldgenFixture.context(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED)) {
+            var drowned = coastOf(context).drowned();
+            var owner = coastOf(context).undrowned(MOUTH_X, MOUTH_Z);
+            HighlandDrowned.BUILDING_PLAN0.set(Boolean.TRUE);
+            try {
+                var thrown = assertThrows(IllegalStateException.class, () -> drowned.arms(owner.ownerX(), owner.ownerZ()));
+                assertEquals("RH10 plan0 must not read the drowned coast", thrown.getMessage());
+            } finally {
+                HighlandDrowned.BUILDING_PLAN0.remove();
+            }
+            assertTrue(drowned.cachedArmOwners().isEmpty(), "the guard left a cache entry");
+            assertTrue(drowned.arms(owner.ownerX(), owner.ownerZ()).segments() > 0, "plan0 through the cache gave no arms");
+            assertNull(HighlandDrowned.BUILDING_PLAN0.get(), "the plan0 flag survived the build");
+        }
+    }
+
+    /** A plan0 that fails is logged once and cached as no arms for that owner (the coast there stays RH9); the failure is not rebuilt. */
+    @Test void armsFailureIsCachedAsEmpty() throws Exception {
+        try (var context = WorldgenFixture.context(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED)) {
+            var coast = coastOf(context);
+            var drowned = coast.drowned();
+            // an upland spacing too small for the plan grid makes HighlandDrainage.build throw IllegalArgumentException
+            drowned.bind(drowned.land(), new HighlandDrainage(coast, drowned.land(), 1, context.preset.world().controlPoints));
+            var arms = drowned.arms(0, 0);
+            assertSame(HighlandArms.EMPTY, arms);
+            assertEquals(Set.of(PosUtil.pack(0, 0)), drowned.cachedArmOwners());
+            assertSame(arms, drowned.arms(0, 0));
+            assertNull(HighlandDrowned.BUILDING_PLAN0.get(), "the plan0 flag survived a failed build");
         }
     }
 
