@@ -487,6 +487,102 @@ class HighlandDrownedTest {
     }
 
     /**
+     * Seam owner (11-10, T-11-13): a server-preset owner whose cold final build asks the arm data (so the plan0) of neighbour owners.
+     * Found by seamOwnerScan (order in its javadoc): the first owner scanned, (-1,-1), whose cold final build asks owners (-1,0), (-2,-1)
+     * and (-2,0). The mechanism is not touchesSea as 11-09 assumed: the provisional drainage build alone asks none (it skips nodes of other
+     * owners), the neighbours are asked by HighlandRangeRelief.build, which samples the bound coast over the owner's bounding box
+     * (armBuildCost prints the entry counts after the provisional drainage build and after the relief build).
+     */
+    static final int[] SEAM_OWNER = {-1, -1};
+
+    /**
+     * Probe: the SEAM_OWNER scan. Server preset, owners in rings around owner (0,0) (ring 1 to 8, z outer and x inner within a ring;
+     * (0,0) and (2,-1) are measured anyway); each owner gets a fresh arm cache and a cold final build (planOf), and the first owner whose
+     * final build leaves arm entries of any other owner is the seam owner. Prints that owner and the owners it asked.
+     */
+    @Tag("probe")
+    @Test void seamOwnerScan() throws Exception {
+        try (var context = WorldgenFixture.context(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED)) {
+            var continent = (RollingHighlandsContinent) context.heightmap.continent();
+            var drowned = continent.coast().drowned();
+            int scanned = 0;
+            for (int ring = 1; ring <= 8; ring++) for (int oz = -ring; oz <= ring; oz++) for (int ox = -ring; ox <= ring; ox++) {
+                if (Math.max(Math.abs(ox), Math.abs(oz)) != ring || ox == 2 && oz == -1) continue;
+                drowned.forgetArms();
+                continent.planOf(ox, oz);
+                scanned++;
+                var asked = new java.util.HashSet<>(drowned.cachedArmOwners());
+                asked.remove(PosUtil.pack(ox, oz));
+                if (asked.isEmpty()) continue;
+                System.out.println("RH10 seam owner " + ox + "," + oz + " after " + scanned + " owners; its final build asked " + asked.stream().map(k -> PosUtil.unpackLeft(k) + "," + PosUtil.unpackRight(k)).sorted().toList());
+                return;
+            }
+            System.out.println("RH10 seam owner scan: none in " + scanned + " owners");
+        }
+    }
+
+    /**
+     * Probe (11-10): cold arm cost on the server preset, per owner (0,0), (2,-1) and SEAM_OWNER when there is one: plan0 build ms
+     * (basePlan), cold arm build ms (plan0 plus the reduction to arm data) and its estimated bytes, the cold final build wall ms
+     * (planOf on a fresh context, including the arm build it triggers) next to its buildNanos, and the neighbour arm builds that final
+     * build triggered (count, and their ms timed through a fresh context's arms call), and how many arm entries exist after the provisional
+     * drainage build and after the relief build alone (which stage asks the neighbours). Written to build/rh10-gap/cost-arms.txt.
+     */
+    @Tag("probe")
+    @Test void armBuildCost() throws Exception {
+        var owners = new ArrayList<int[]>(List.of(new int[]{0, 0}, new int[]{2, -1}));
+        if (SEAM_OWNER != null) owners.add(SEAM_OWNER);
+        var lines = new ArrayList<String>();
+        for (int[] owner : owners) {
+            long plan0Ms, armMs, armBytes, finalMs, finalNanos, neighbourMs = 0;
+            int segments, afterDrainage, afterRelief;
+            Set<Long> neighbours;
+            try (var context = WorldgenFixture.context(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED)) {
+                var continent = (RollingHighlandsContinent) context.heightmap.continent();
+                long t = System.nanoTime();
+                continent.basePlan(owner[0], owner[1]);
+                plan0Ms = (System.nanoTime() - t) / 1_000_000;
+                t = System.nanoTime();
+                var arms = continent.coast().drowned().arms(owner[0], owner[1]);
+                armMs = (System.nanoTime() - t) / 1_000_000;
+                armBytes = arms.estimatedBytes();
+                segments = arms.segments();
+            }
+            try (var context = WorldgenFixture.context(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED)) {
+                var continent = (RollingHighlandsContinent) context.heightmap.continent();
+                var drowned = continent.coast().drowned();
+                long t = System.nanoTime();
+                var plan = continent.planOf(owner[0], owner[1]);
+                finalMs = (System.nanoTime() - t) / 1_000_000;
+                finalNanos = plan.plan().buildNanos();
+                neighbours = new java.util.HashSet<>(drowned.cachedArmOwners());
+                neighbours.remove(PosUtil.pack(owner[0], owner[1]));
+            }
+            try (var context = WorldgenFixture.context(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED)) { // which stage of the final build asks the neighbours
+                var continent = (RollingHighlandsContinent) context.heightmap.continent();
+                var drowned = continent.coast().drowned();
+                continent.drainage().build(owner[0], owner[1]);
+                afterDrainage = drowned.cachedArmOwners().size();
+                HighlandRangeRelief.build(drowned.land(), continent.coast(), owner[0], owner[1]);
+                afterRelief = drowned.cachedArmOwners().size();
+            }
+            for (long key : neighbours) {
+                try (var context = WorldgenFixture.context(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED)) {
+                    long t = System.nanoTime();
+                    ((RollingHighlandsContinent) context.heightmap.continent()).coast().drowned().arms(PosUtil.unpackLeft(key), PosUtil.unpackRight(key));
+                    neighbourMs += (System.nanoTime() - t) / 1_000_000;
+                }
+            }
+            lines.add(String.format(java.util.Locale.ROOT, "owner %d,%d: plan0 %d ms, cold arm build %d ms (%d segments, %d bytes), cold final build %d ms (buildNanos %d ms), neighbour plan0 builds %d (%d ms); arm entries after the provisional drainage build %d, after the relief build %d",
+                owner[0], owner[1], plan0Ms, armMs, segments, armBytes, finalMs, finalNanos / 1_000_000, neighbours.size(), neighbourMs, afterDrainage, afterRelief));
+        }
+        lines.add(SEAM_OWNER == null ? "SEAM_OWNER: none exists on the server preset (see seamOwnerScan)" : "SEAM_OWNER " + SEAM_OWNER[0] + "," + SEAM_OWNER[1]);
+        lines.forEach(System.out::println);
+        Files.createDirectories(Path.of("build/rh10-gap"));
+        Files.write(Path.of("build/rh10-gap/cost-arms.txt"), lines);
+    }
+
+    /**
      * D-01: fjord weight exists only under FJORD regions, whose anchors are PNW coast with a range core nearby. In the ROCKIES
      * fjord site box at least one region is a fjord, and every point with fjord weight has such an anchor.
      */

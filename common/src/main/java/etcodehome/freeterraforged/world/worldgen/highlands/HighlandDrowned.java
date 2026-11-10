@@ -13,15 +13,22 @@ import etcodehome.freeterraforged.world.worldgen.util.PosUtil;
  *
  * <p>Regions are jittered discs (one candidate per {@link #REGION_SIZE} cell, active with chance
  * {@link #REGION_CHANCE}); each has a weight 1 at its core falling to 0 at its rim. Inside a region the edge is
- * pulled down toward {@link #riaTarget} along the coastal valleys of the column's owner (D-GC1): the valley axes of its plan0, the
- * RH9 planner's plan on a coast whose drowned layer is never bound ({@link HighlandArms}, built once per owner, see {@link #arms}),
- * each with a half width from its drainage area, fading out inland of the coast point so arms shoal toward their heads. Apart from the island chains
- * (11-06, on the shelf seaward of the coast point, away from owner borders) the transform only lowers
- * the edge (it is monotone in it in fjord regions and in ria regions away from the mouth and basin terms), so land never goes below sea
+ * pulled down toward {@link #riaTarget} along the coastal valleys of the column's owner (D-GC1, the only source of arms; there
+ * is no noise network and no fallback to one): the valley axes of its plan0, the RH9 planner's plan on a coast whose drowned
+ * layer is never bound ({@link HighlandArms}), each with a half width from its drainage area, fading out inland of the coast
+ * point so arms shoal toward their heads.
+ *
+ * <p>Arm data dependency is one-way (D-GC1). seed + preset + undrowned coast + land give plan0; plan0 is reduced to
+ * {@link HighlandArms} and discarded; the arm data give this layer; the final plan and the renderer read this layer. plan0 never
+ * reads this layer: it samples the inert base coast, and {@link #arms} throws IllegalStateException if it is entered on a thread
+ * that is building plan0. The arm data of an owner are built once per owner ({@link #arms}: single flight, the
+ * {@link #MAX_ARM_OWNERS} most recently used owners kept, cancellation never cached, any other failure of plan0 logged once and
+ * cached as no arms), so a column's edge never depends on cache state, sample order or threads.
+ *
+ * <p>Apart from the island chains (11-06, on the shelf seaward of the coast point, away from owner borders) the transform only
+ * lowers the edge (it is monotone in it in fjord regions and in ria regions away from the mouth), so land never goes below sea
  * level, skipped owners (edge 0) are untouched and the coast is bit-for-bit the RH9 coast wherever the weight or the
- * valley factor is 0 and no island stands. The ria mouth band and basin shift (11-05) make a ria's result non-monotone in the edge near the
- * mouth: a sill, shallower at the entrance than inside, which is what the bay shape needs and changes nothing about
- * which columns are land. The land binding is inert until {@link #bind}: an unbound instance is the identity.
+ * valley factor is 0 and no island stands. The land binding is inert until {@link #bind}: an unbound instance is the identity.
  *
  * <p>Each region is typed once, at its anchor (memoized with its orientation): FJORD where the land has ranges, the
  * regional climate at the region centre is PNW and a range core stands within {@link #REGION_SIZE}/2 of the centre
@@ -31,8 +38,6 @@ import etcodehome.freeterraforged.world.worldgen.util.PosUtil;
 final class HighlandDrowned {
     /** Region cell size and chance, disc radius (fraction of the cell size, plus its jitter) and the share of it that is full weight. */
     static final double REGION_SIZE = 5500, REGION_CHANCE = .32, REGION_RADIUS = .4, REGION_RADIUS_JITTER = .2, REGION_CORE = .8;
-    /** Valley network: stretch along the inland direction, trunk and branch wavelengths (blocks), branch weight, valley thresholds. */
-    static final double ANISO = 2.5, TRUNK_SCALE = 2000, BRANCH_SCALE = 700, BRANCH_WEIGHT = .8, VALLEY_LOW = .45, VALLEY_HIGH = .85;
     /** Blocks inland of the coast point over which arms shoal, and how far below the beach point arm water sits (fraction of beach to shallow ocean). */
     static final double ARM_REACH = 2500, DROWN_MARGIN = .3;
     /**
@@ -45,15 +50,11 @@ final class HighlandDrowned {
     /** Range core (0..1) a region needs within half a region of its centre to be a fjord region. */
     static final double FJORD_RANGE_CORE = .25;
     /**
-     * Fjord regions (D-05, D-06), tuned in 11-04 Task 2 against the pooled arm census of the fjord boxes (see the test's
-     * FJORD_BOXES): ramp steepening factor and the blocks inland it acts over; the valley network is stretched
-     * {@code FJORD_ANISO} along the inland direction (trunk scale as for rias), trunks (low thresholds, wide) and side arms
-     * (branch ridges, higher thresholds, narrow) have their own thresholds; arms fade out over {@code FJORD_REACH} blocks
-     * inland and {@code LONG_CHANCE} of fjord regions fade over {@code LONG_FACTOR} times that (the occasional long arm).
+     * Fjord regions (D-05, D-06), tuned in 11-04 Task 2: ramp steepening factor and the blocks inland it acts over; arms fade out
+     * over {@code FJORD_REACH} blocks inland and {@code LONG_CHANCE} of fjord regions fade over {@code LONG_FACTOR} times that
+     * (the occasional long arm).
      */
-    static final double FJORD_STEEP = 4, FJORD_WALL = 500, FJORD_ANISO = 5, FJORD_TRUNK_LOW = .6, FJORD_TRUNK_HIGH = .95,
-        FJORD_VALLEY_LOW = .58, FJORD_VALLEY_HIGH = .95, FJORD_BRANCH_WEIGHT = 1, FJORD_BRANCH_SCALE = 1100,
-        FJORD_REACH = 6000, LONG_CHANCE = .15, LONG_FACTOR = 2.5;
+    static final double FJORD_STEEP = 4, FJORD_WALL = 500, FJORD_REACH = 6000, LONG_CHANCE = .15, LONG_FACTOR = 2.5;
     /**
      * Fjord depth (D-06, D-17): the flooded part of the edge, its distance below the coast point, is stretched by
      * {@code 1 + (FJORD_DEPTH - 1) f}, so arm water falls below the shallow-ocean point where the legacy ocean populators
@@ -61,24 +62,15 @@ final class HighlandDrowned {
      * keeps the sign of {@code edge - coast}); the edge never falls below {@link #depthFloor}.
      */
     static final double FJORD_DEPTH = 2;
+    /** Sounds (D-07): {@code SOUND_CHANCE} of fjord regions get a sound basin around the region's coast point (the tuning of its radius and widening is 11-11's). */
+    static final double SOUND_CHANCE = .3;
     /**
-     * Sounds (D-07): {@code SOUND_CHANCE} of fjord regions get a sound basin of radius {@code SOUND_RADIUS} blocks around the
-     * region's coast point, where the valley thresholds drop by up to {@code SOUND_DROP}: arms widen into 1-3 km of open water
-     * and only the crests of the valley noise survive as islands.
+     * Ria bays (D-13, D-14; the terms below are not read by the arm transform yet, 11-11 reuses them): mouth narrowing over
+     * {@code MOUTH_LEN} blocks inland of the coast point by {@code MOUTH_NARROW}; basin widening by up to {@code BAY_WIDEN} over the
+     * middle of the arm reach (from {@code WIDEN_FROM} to half of it full, falling to 0 at {@code WIDEN_TO}). Ria arms keep full
+     * strength out to {@code BAY_PLATEAU} of the reach and shoal over the rest (fjords shoal from the coast point).
      */
-    static final double SOUND_CHANCE = .3, SOUND_RADIUS = 1500, SOUND_DROP = .5;
-    /**
-     * Ria bays (D-13, D-14, tuned in 11-05 against the bay census of the RIA_BOXES and a ROCKIES ria box). Mouth: over
-     * {@code MOUTH_LEN} blocks inland of the standalone coastline the valley factor is multiplied by {@code 1 - MOUTH_NARROW (1 -
-     * band)}, where {@code band} keeps only the width {@code BAND_LO..BAND_HI} (|2n - 1| of the first trunk octave) about that
-     * octave's contour. The contour is one connected line and the ridge value on it is at least 2/3, so the entrance narrows to
-     * a channel but never closes (shifting the valley thresholds up instead closed the mouth wherever the ridge crest sagged,
-     * leaving lagoons behind a bar: 99.6% of the flooded area in a ROCKIES box). Basin: over the middle of the arm reach (from
-     * {@code WIDEN_FROM} to half of it full, falling to 0 at {@code WIDEN_TO}) the thresholds drop by up to {@code BAY_WIDEN}, so
-     * the water spreads into a basin. Ria arms keep full strength out to {@code BAY_PLATEAU} of the reach and shoal over the
-     * rest (fjords shoal from the coast point as before); without the plateau the arm fade kills the valley by about 1 km inland.
-     */
-    static final double MOUTH_LEN = 400, MOUTH_NARROW = 1, BAND_LO = 0, BAND_HI = .03, BAY_WIDEN = .4, WIDEN_FROM = .15, WIDEN_TO = .9, BAY_PLATEAU = .6;
+    static final double MOUTH_LEN = 400, MOUTH_NARROW = 1, BAY_WIDEN = .4, WIDEN_FROM = .15, WIDEN_TO = .9, BAY_PLATEAU = .6;
     /**
      * Island chains (D-08, D-09, D-11): on the shelf seaward of the coast point of a region, flooded ridge tops are the land the
      * drowning left standing. Blocks seaward of the coast point where islands may stand ({@code ISLAND_GAP} to the shelf edge, with
@@ -334,7 +326,7 @@ final class HighlandDrowned {
             double w = discWeight(m.cx[n], m.cz[n], m.radius[n], rawX, rawZ);
             if (w <= 0) continue;
             var region = region(m.h[n], m.ci[n], m.cj[n], m.cx[n], m.cz[n]);
-            double k = w * sea * valley(region, hits);
+            double k = w * sea * armValley(region, hits);
             lowering = Math.min(lowering, k * (region.target - steep));
         }
         double result = steep + lowering;
@@ -347,7 +339,7 @@ final class HighlandDrowned {
      * profile (full inside {@link #ARM_CORE} of the half width, 0 at it) times the arm fade at the segment's own u (today's fade, so
      * ria arms keep full strength out to BAY_PLATEAU of the reach and shoal over the rest, fjord arms shoal from the coast point).
      */
-    private static double valley(Region region, HighlandArms.Hits hits) {
+    private static double armValley(Region region, HighlandArms.Hits hits) {
         double core = region.fjord ? FJORD_ARM_CORE : ARM_CORE, ref = region.fjord ? FJORD_HW_REF : HW_REF, best = 0;
         for (int h = 0; h < hits.count; h++) {
             double hw = Math.max(HW_MIN, Math.min(MAX_HALF_WIDTH, ref * hits.width[h])), u = hits.u[h];
@@ -546,31 +538,6 @@ final class HighlandDrowned {
             if (w > 0) best = Math.max(best, w * island(region(m.h[n], m.ci[n], m.cj[n], m.cx[n], m.cz[n]), x, z));
         }
         return best;
-    }
-
-    /**
-     * Valley factor 0..1 of one region at a position: a trunk network with branches, rotated rigidly about the region
-     * centre. Ria regions use one pair of thresholds on the stronger of trunk and branch; fjord regions stretch the network
-     * further and give trunks and side arms their own thresholds, so trunks stay wider than side arms.
-     */
-    private static double valley(Region region, double x, double z, double shift, double narrow) {
-        double dx = x - region.cx, dz = z - region.cz;
-        double along = dx * region.gx + dz * region.gz, across = -dx * region.gz + dz * region.gx;
-        if (region.fjord) {
-            double u = across + region.ox, v = along / FJORD_ANISO + region.oz, drop = 0;
-            if (!Double.isNaN(region.soundX)) { // a sound basin: the thresholds drop toward its centre
-                double sx = x - region.soundX, sz = z - region.soundZ;
-                drop = SOUND_DROP * (1 - smooth(.5 * SOUND_RADIUS, SOUND_RADIUS, Math.sqrt(sx * sx + sz * sz)));
-            }
-            return Math.max(smooth(FJORD_TRUNK_LOW - drop, FJORD_TRUNK_HIGH - drop, ridge(0x5248313045L, u, v, TRUNK_SCALE, 2)),
-                smooth(FJORD_VALLEY_LOW - drop, FJORD_VALLEY_HIGH - drop, FJORD_BRANCH_WEIGHT * ridge(0x5248313046L, u, v, FJORD_BRANCH_SCALE, 2)));
-        }
-        double u = across + region.ox, v = along / ANISO + region.oz;
-        double valley = smooth(VALLEY_LOW + shift, VALLEY_HIGH + shift, Math.max(ridge(0x5248313045L, u, v, TRUNK_SCALE, 2), BRANCH_WEIGHT * ridge(0x5248313046L, u, v, BRANCH_SCALE, 2)));
-        if (narrow <= 0 || valley <= 0) return valley;
-        // Mouth: keep only a band about the first trunk octave's contour (|2n - 1| small), which is one connected line, so the entrance narrows without ever closing.
-        double band = 1 - smooth(BAND_LO, BAND_HI, Math.abs(2 * noise(0x5248313045L, u, v, TRUNK_SCALE) - 1));
-        return valley * (1 - narrow * (1 - band));
     }
 
     /** Threshold shift of a ria region at inland coordinate {@code u} (edge units above the coast point): negative widens the basin; 0 in fjord regions. */
