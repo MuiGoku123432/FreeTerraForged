@@ -12,7 +12,10 @@ import etcodehome.freeterraforged.world.worldgen.util.PosUtil;
  * position only so the drainage plan and the renderer share it (D-17).
  *
  * <p>Regions are jittered discs (one candidate per {@link #REGION_SIZE} cell, active with chance
- * {@link #REGION_CHANCE}); each has a weight 1 at its core falling to 0 at its rim. Inside a region the edge is
+ * {@link #REGION_CHANCE}); each has a weight 1 at its core falling to 0 at its rim, the rim warped by the bearing ({@link #RIM_WARP}) so no
+ * outline is a circle. An arm takes the region weight at its own axis point, not at the column, so it fades along its valley and is never cut by
+ * the disc contour; every column an arm lowered, or lies beside one ({@link #ARM_INFLUENCE}), has the arm's weight as its effective region weight
+ * ({@link #compute}), the one number {@code Sample.drowned()}, {@link #weight}, {@link #fjord} and {@link #ria} report. Inside a region the edge is
  * pulled down toward {@link #riaTarget} along the coastal valleys of the column's owner (D-GC1, the only source of arms; there
  * is no noise network and no fallback to one): the valley axes of its plan0, the RH9 planner's plan on a coast whose drowned
  * layer is never bound ({@link HighlandArms}), each with a half width from its drainage area, fading out inland of the coast
@@ -64,6 +67,24 @@ final class HighlandDrowned {
      * (the occasional long arm).
      */
     static final double FJORD_STEEP = 4, FJORD_WALL = 500, FJORD_REACH = 6000, LONG_CHANCE = .15, LONG_FACTOR = 2.5;
+    /**
+     * Blocks beyond the half width of an arm over which the arm's region weight fades to 0 (11-13): a column an arm lowered, or lies within
+     * its half width or this band of one, is treated as drowned by every column-facing reader (shores, water tags, marsh, steepening), also
+     * beyond the disc rim. The plan started at {@link #FJORD_WALL} (500); that took the weight, hence the RH9 coast gates' "drowned" skip, over
+     * the cliff coast beside the arms (user box: cliff share 8%, no sea stacks left to measure), so the band is the 80 blocks a shore column
+     * can lie from arm water (tested at 64) and the weight inside the half width is what carries the shores.
+     */
+    static final double ARM_INFLUENCE = 80;
+    /**
+     * Rim warp (11-13): the radius of a region disc is scaled by {@code 1 + RIM_WARP n(bearing)}, n a zero-mean angular noise of the
+     * bearing from the centre (3 and 5 lobes per circle, phases from the region hash, |n| at most 1), so no flood ends on a circle.
+     * The static check below keeps the widest warped disc plus its arm reach inside the 3x3 cells every lookup reads.
+     */
+    static final double RIM_WARP = .15;
+    static {
+        if (REGION_SIZE * (REGION_RADIUS + REGION_RADIUS_JITTER) * (1 + RIM_WARP) + MAX_HALF_WIDTH + ARM_INFLUENCE > REGION_SIZE)
+            throw new ExceptionInInitializerError("RH10 region reach exceeds the 3x3 cells of a lookup");
+    }
     /**
      * Fjord depth (D-06, D-17): the flooded part of the edge, its distance below the coast point, is stretched by
      * {@code 1 + (FJORD_DEPTH - 1) f}, so arm water falls below the shallow-ocean point where the legacy ocean populators
@@ -128,8 +149,12 @@ final class HighlandDrowned {
 
     /** Transformed edge value and the drowned-region weight (0..1) at the position. */
     record At(double edge, double drowned) {}
-    /** A region anchor: centre, disc radius, inland direction (unit), noise offsets, type (fjord, else ria), arm reach and target, sound basin centre (NaN: none). */
-    record Region(int i, int j, double cx, double cz, double radius, double gx, double gz, double ox, double oz, boolean fjord, double reach, double target, double soundX, double soundZ) {}
+    /**
+     * A region anchor: centre, disc radius, inland direction (unit), noise offsets, type (fjord, else ria), arm reach and target, sound basin centre (NaN: none),
+     * the rim warp phases as (cos, sin) pairs of the 3-lobe and the 5-lobe term.
+     */
+    record Region(int i, int j, double cx, double cz, double radius, double gx, double gz, double ox, double oz, boolean fjord, double reach, double target, double soundX, double soundZ,
+        double ca, double sa, double cb, double sb) {}
     /**
      * Per-thread memos: the orientation of recently used regions, and the active discs of the 3x3 cells around the last
      * cell looked up (consecutive samples almost always share a cell, so the neighbour hashing is done once).
@@ -141,12 +166,27 @@ final class HighlandDrowned {
         boolean valid;
         final long[] h = new long[9];
         final int[] ci = new int[9], cj = new int[9];
-        final double[] cx = new double[9], cz = new double[9], radius = new double[9];
+        final double[] cx = new double[9], cz = new double[9], radius = new double[9], ca = new double[9], sa = new double[9], cb = new double[9], sb = new double[9];
+        /** Effective region weights of the last columns looked up (round robin), see {@link #compute}. */
+        final Eff[] eff = {new Eff(), new Eff(), new Eff(), new Eff()};
+        int nextEff;
         /** The open-sea island candidates of the 3x3 cells around (oi, oj): centre, radius and the hash that shapes them. */
         int oi, oj, ocount;
         boolean ovalid;
         final double[] ox = new double[9], oz = new double[9], oradius = new double[9];
         final long[] oh = new long[9];
+    }
+
+    /**
+     * Effective region weights at one column (11-13): per active disc of the column's 3x3 cells (same order as {@link Memo}), the weight
+     * {@code w} (the disc weight, or the larger weight an arm of the region gives the column) and the arm lowering strength {@code k}
+     * (sea fade included); {@code all} is their largest weight. Valid for the exact (x, z) and arm generation it was computed for.
+     */
+    private static final class Eff {
+        double x, z, all;
+        int generation, count;
+        boolean valid;
+        final double[] w = new double[9], k = new double[9], term = new double[2];
     }
 
     private final HighlandCoast coast;
@@ -227,67 +267,131 @@ final class HighlandDrowned {
             int n = m.count++;
             m.h[n] = h; m.ci[n] = i; m.cj[n] = j;
             m.cx[n] = centreX(h, i); m.cz[n] = centreZ(h, j); m.radius[n] = radius(h);
+            double a = 2 * Math.PI * unit(mix(h + 13)), b = 2 * Math.PI * unit(mix(h + 14));
+            m.ca[n] = Math.cos(a); m.sa[n] = Math.sin(a); m.cb[n] = Math.cos(b); m.sb[n] = Math.sin(b);
         }
         m.gi = gi; m.gj = gj; m.valid = true;
         return m;
     }
 
-    /** Position-only region weight (0..1): the largest weight over the regions near the position. */
-    double weight(double x, double z) {
+    /**
+     * Position-only effective region weight (0..1): the largest over the regions near the position of the weight the transform used
+     * there, which is the disc weight or, beside a lowered arm (also beyond the disc rim), the weight the arm gives its neighbourhood
+     * ({@link #ARM_INFLUENCE}); {@code Sample.drowned()} is the same number. Memoized per thread per column.
+     */
+    double weight(double x, double z) { return effective(x, z).all; }
+
+    /** Test access: the largest warped disc weight at the column alone (the pre-11-13 meaning of {@link #weight}), no arm term. */
+    double columnWeight(double x, double z) {
         var m = discs((int) Math.floor(x / REGION_SIZE), (int) Math.floor(z / REGION_SIZE));
         double best = 0;
-        for (int n = 0; n < m.count; n++) best = Math.max(best, discWeight(m.cx[n], m.cz[n], m.radius[n], x, z));
+        for (int n = 0; n < m.count; n++) best = Math.max(best, discWeight(m, n, x, z));
         return best;
     }
 
     /**
-     * Position-only fjord weight (0..1): the largest weight over the FJORD regions near the position; 0 when unbound or
-     * when the land has no ranges.
+     * Position-only effective fjord weight (0..1): the largest {@link #weight} term over the FJORD regions near the position; 0 when
+     * unbound or when the land has no ranges.
      */
     double fjord(double x, double z) {
         var land = this.land;
         if (land == null || land.rangeHeight() <= 0) return 0;
-        var m = discs((int) Math.floor(x / REGION_SIZE), (int) Math.floor(z / REGION_SIZE));
-        double best = 0;
-        for (int n = 0; n < m.count; n++) {
-            double w = discWeight(m.cx[n], m.cz[n], m.radius[n], x, z);
-            if (w > best && region(m.h[n], m.ci[n], m.cj[n], m.cx[n], m.cz[n]).fjord) best = w;
-        }
-        return best;
+        return kindWeight(effective(x, z), x, z, true);
     }
 
     /**
-     * Position-only ria weight (0..1): the largest weight over the RIA (non-fjord) regions near the position; 0 when unbound.
-     * Used by the shore profile and the marsh tagging (D-16), which want the bay character, not the fjord one.
+     * Position-only effective ria weight (0..1): the largest {@link #weight} term over the RIA (non-fjord) regions near the position; 0
+     * when unbound. Used by the shore profile and the marsh tagging (D-16), which want the bay character, not the fjord one.
      */
     double ria(double x, double z) {
-        var land = this.land;
         if (land == null) return 0;
+        return kindWeight(effective(x, z), x, z, false);
+    }
+
+    /** The largest weight of {@code e} over the regions of one kind (FJORD or RIA); {@code e} was computed for the column (x, z). */
+    private double kindWeight(Eff e, double x, double z, boolean fjord) {
         var m = discs((int) Math.floor(x / REGION_SIZE), (int) Math.floor(z / REGION_SIZE));
         double best = 0;
-        for (int n = 0; n < m.count; n++) {
-            double w = discWeight(m.cx[n], m.cz[n], m.radius[n], x, z);
-            if (w > best && !region(m.h[n], m.ci[n], m.cj[n], m.cx[n], m.cz[n]).fjord) best = w;
+        for (int n = 0; n < e.count; n++) {
+            double w = e.w[n];
+            if (w > best && region(m.h[n], m.ci[n], m.cj[n], m.cx[n], m.cz[n]).fjord == fjord) best = w;
         }
         return best;
     }
 
     /**
-     * The region with the largest weight at the position (among FJORD regions only when {@code fjordOnly}); null when
+     * The region with the largest effective weight at the position (among FJORD regions only when {@code fjordOnly}); null when
      * there is none.
      */
     Region dominant(double x, double z, boolean fjordOnly) {
+        var e = effective(x, z);
         var m = discs((int) Math.floor(x / REGION_SIZE), (int) Math.floor(z / REGION_SIZE));
         Region best = null;
         double bestWeight = 0;
-        for (int n = 0; n < m.count; n++) {
-            double w = discWeight(m.cx[n], m.cz[n], m.radius[n], x, z);
+        for (int n = 0; n < e.count; n++) {
+            double w = e.w[n];
             if (w <= bestWeight) continue;
             var region = region(m.h[n], m.ci[n], m.cj[n], m.cx[n], m.cz[n]);
             if (fjordOnly && !region.fjord) continue;
             best = region; bestWeight = w;
         }
         return best;
+    }
+
+    /** The effective region weights at a column (readers without the owner and base edge): the memoized entry, else computed with the owning coast's undrowned sample. */
+    private Eff effective(double x, double z) {
+        var m = memo.get();
+        int generation = armGeneration;
+        for (var e : m.eff) if (e.valid && e.x == x && e.z == z && e.generation == generation) return e;
+        return compute(x, z, Double.NaN, 0, 0);
+    }
+
+    /**
+     * The one routine behind {@code Sample.drowned()}, {@link #weight}, {@link #fjord}, {@link #ria} and the arm lowering of {@link #at}.
+     * Per active disc n: {@code W_n = max(w_n(column), sea x max over arm segments s of w_n(axis point of s) x fade_n(u_s) x
+     * (1 - smooth(hw_s, hw_s + ARM_INFLUENCE, d_s)))}, so an arm's whole cross-section, and the band beside it, carries the region
+     * weight at its own axis whatever the disc rim does at the column, and {@code k_n = sea x max over s of w_n(axis) x fade x
+     * profile(d_s / hw_s)} (see {@link #armTerms}). {@code edge} and the owner are the column's undrowned sample (NaN edge: looked up here,
+     * only when a disc is near enough for an arm to matter). The arms are read exactly where the old lowering read them (sea above 0 and
+     * the edge inside the arm reach), so a base coast (no land, no arms) never reaches the arm lookup and plan0 stays one-way.
+     */
+    private Eff compute(double x, double z, double edge, int ownerX, int ownerZ) {
+        var mem = memo.get();
+        int gi = (int) Math.floor(x / REGION_SIZE), gj = (int) Math.floor(z / REGION_SIZE);
+        var m = discs(gi, gj);
+        var e = mem.eff[mem.nextEff];
+        mem.nextEff = (mem.nextEff + 1) % mem.eff.length;
+        e.valid = false;
+        e.count = m.count;
+        e.all = 0;
+        boolean near = false;
+        for (int n = 0; n < m.count; n++) {
+            double dx = x - m.cx[n], dz = z - m.cz[n], reach = m.radius[n] * (1 + RIM_WARP) + MAX_HALF_WIDTH + ARM_INFLUENCE;
+            near |= dx * dx + dz * dz < reach * reach;
+            double w = discWeight(m, n, x, z);
+            e.w[n] = w; e.k[n] = 0;
+            e.all = Math.max(e.all, w);
+        }
+        if (near && this.land != null) {
+            if (Double.isNaN(edge)) {
+                var base = coast.undrowned(x, z);
+                edge = base.edge(); ownerX = base.ownerX(); ownerZ = base.ownerZ();
+            }
+            double sea = smooth(coastEdge - ARM_SEA_BAND * HighlandCoast.EDGE_PER_BLOCK, coastEdge, edge);
+            if (sea > 0 && edge < coastEdge + armReach) {
+                var arms = arms(ownerX, ownerZ);
+                m = discs(gi, gj); // building the arms read other discs and replaced the memoized cell
+                var hits = arms.query(x, z);
+                if (hits.count > 0) for (int n = 0; n < m.count; n++) {
+                    armTerms(region(m.h[n], m.ci[n], m.cj[n], m.cx[n], m.cz[n]), hits, x, z, e.term);
+                    e.k[n] = sea * e.term[0];
+                    e.w[n] = Math.max(e.w[n], sea * e.term[1]);
+                    e.all = Math.max(e.all, e.w[n]);
+                }
+            }
+        }
+        e.x = x; e.z = z; e.generation = armGeneration; e.valid = true;
+        return e;
     }
 
     /** True where the transform can change an edge value: above the (lowest) arm target and inside the longest inland reach. */
@@ -311,63 +415,54 @@ final class HighlandDrowned {
     }
 
     /**
-     * The edge value at a raw position given the standalone (pre-drowning) edge there, the owner of the position and the region
-     * weight: steepened by the fjord weight, then lowered toward each overlapping region's target by weight times the valley
-     * factor of the owner's plan0 arms (the smallest result wins, which is continuous where regions of different type overlap).
+     * The edge value at a raw position given the standalone (pre-drowning) edge there and the owner of the position: steepened by the
+     * effective fjord weight, then lowered toward each region's target by the arm strength {@link #compute} found for it (the smallest
+     * result wins, which is continuous where regions of different type overlap). The drowned weight is the effective region weight, 0 where
+     * the edge is the RH9 one (every lowered, steepened or raised column has an effective weight above 0).
      */
     At at(double rawX, double rawZ, double edge, int ownerX, int ownerZ) {
         if (!inBand(edge)) return new At(edge, 0);
         double open = openRaise(rawX, rawZ, edge);
+        var e = compute(rawX, rawZ, edge, ownerX, ownerZ);
+        if (e.all <= 0) return new At(open, 0);
         var m = discs((int) Math.floor(rawX / REGION_SIZE), (int) Math.floor(rawZ / REGION_SIZE));
-        double weight = 0, fjord = 0;
-        for (int n = 0; n < m.count; n++) {
-            double w = discWeight(m.cx[n], m.cz[n], m.radius[n], rawX, rawZ);
-            if (w <= 0) continue;
-            weight = Math.max(weight, w);
-            if (w > fjord && region(m.h[n], m.ci[n], m.cj[n], m.cx[n], m.cz[n]).fjord) fjord = w;
-        }
-        if (weight <= 0) return new At(open, 0);
-        double sea = smooth(coastEdge - ARM_SEA_BAND * HighlandCoast.EDGE_PER_BLOCK, coastEdge, edge);
-        HighlandArms arms = HighlandArms.EMPTY;
-        if (sea > 0 && edge < coastEdge + armReach) {
-            arms = arms(ownerX, ownerZ);
-            m = discs((int) Math.floor(rawX / REGION_SIZE), (int) Math.floor(rawZ / REGION_SIZE)); // building the arms read other discs and replaced the memoized cell
-        }
+        double fjord = kindWeight(e, rawX, rawZ, true);
         double raised = Math.max(open, raise(m, rawX, rawZ, edge)); // the chains read the standalone edge, not the open-sea raise: stacked windows made a step
         double steep = steepen(raised, fjord), lowering = 0;
-        var hits = arms.query(rawX, rawZ);
-        if (hits.count > 0) for (int n = 0; n < m.count; n++) {
-            double w = discWeight(m.cx[n], m.cz[n], m.radius[n], rawX, rawZ);
-            if (w <= 0) continue;
-            var region = region(m.h[n], m.ci[n], m.cj[n], m.cx[n], m.cz[n]);
-            double k = w * sea * armValley(region, hits, rawX, rawZ);
-            lowering = Math.min(lowering, k * (region.target - steep));
+        for (int n = 0; n < e.count; n++) {
+            if (e.k[n] <= 0) continue;
+            lowering = Math.min(lowering, e.k[n] * (region(m.h[n], m.ci[n], m.cj[n], m.cx[n], m.cz[n]).target - steep));
         }
         double result = steep + lowering;
         if (fjord > 0 && result < coastEdge) result = Math.max(Math.min(result, depthFloor), coastEdge - (1 + (FJORD_DEPTH - 1) * fjord) * (coastEdge - result));
-        return new At(result, weight);
+        return new At(result, e.all);
     }
 
     /**
-     * Valley factor 0..1 of one region from the arm segments near the position: the largest over the segments of the valley
-     * profile (full inside {@link #ARM_CORE} of the half width, 0 at it) times the arm fade at the segment's own u (today's fade, so
-     * ria arms keep full strength out to BAY_PLATEAU of the reach and shoal over the rest, fjord arms shoal from the coast point). The half
-     * width is the area law times {@link #shape}, so an arm stays centred on its plan0 valley. The region weight at the segment's own axis point
-     * ({@code anchor}) scales the ria basin widening and, in a fjord region, the whole arm: a wide arm whose axis lies beyond a region's rim (such
-     * segments are kept for connectivity, see {@link #armKinds}) must not spill basin water into the disc beside it, which put the water hundreds of
-     * blocks off its valley (11-12, D-GC2 fidelity screen).
+     * The arm terms of one region at a position, from the arm segments near it: {@code out[0]} the lowering strength, the largest over the
+     * segments of the region weight at the segment's own axis point ({@code anchor}, so an arm's cross-section is never cut by a disc
+     * contour and the arm fades along its valley) times the arm fade at the segment's own u (ria arms keep full strength out to BAY_PLATEAU of
+     * the reach and shoal over the rest, fjord arms shoal from the coast point) times the valley profile (full inside {@link #ARM_CORE} of the
+     * half width, 0 at it); {@code out[1]} the influence, the same without the profile and with a band of {@link #ARM_INFLUENCE} blocks beyond the
+     * half width over which it falls to 0 (the weight the arm gives the columns beside it). The half width is the area law times {@link #shape},
+     * so an arm stays centred on its plan0 valley. A segment whose axis lies beyond the region's rim (kept for connectivity, see
+     * {@link #armKinds}) has anchor 0 and adds nothing, and the anchor scales the ria basin widening, so a wide arm never spills basin water
+     * into the disc beside it (11-12, D-GC2 fidelity screen).
      */
-    private static double armValley(Region region, HighlandArms.Hits hits, double x, double z) {
-        double core = region.fjord ? FJORD_ARM_CORE : ARM_CORE, ref = region.fjord ? FJORD_HW_REF : HW_REF, sound = soundFactor(region, x, z), best = 0;
+    private static void armTerms(Region region, HighlandArms.Hits hits, double x, double z, double[] out) {
+        double core = region.fjord ? FJORD_ARM_CORE : ARM_CORE, ref = region.fjord ? FJORD_HW_REF : HW_REF, sound = soundFactor(region, x, z), strength = 0, influence = 0;
         for (int h = 0; h < hits.count; h++) {
-            double anchor = discWeight(region.cx, region.cz, region.radius, hits.x[h], hits.z[h]); // the region weight at the axis point
-            double hw = Math.max(HW_MIN, Math.min(MAX_HALF_WIDTH, ref * hits.width[h] * shape(region, hits.u[h], sound, anchor))), u = hits.u[h];
-            if (hits.distance[h] >= hw || (region.fjord && anchor <= 0)) continue;
-            double fade = (region.fjord ? anchor : 1) * (u <= 0 ? 1 : 1 - smooth(region.fjord ? 0 : BAY_PLATEAU * region.reach, region.reach, u));
-            double inner = Math.min(core, 1 - ARM_WALL_MIN / hw);
-            if (fade > 0) best = Math.max(best, fade * (1 - smooth(inner, 1, hits.distance[h] / hw)));
+            double anchor = regionWeight(region, hits.x[h], hits.z[h]); // the region weight at the axis point
+            if (anchor <= 0) continue;
+            double u = hits.u[h], d = hits.distance[h];
+            double hw = Math.max(HW_MIN, Math.min(MAX_HALF_WIDTH, ref * hits.width[h] * shape(region, u, sound, anchor)));
+            if (d >= hw + ARM_INFLUENCE) continue;
+            double w = anchor * (u <= 0 ? 1 : 1 - smooth(region.fjord ? 0 : BAY_PLATEAU * region.reach, region.reach, u));
+            if (w <= 0) continue;
+            influence = Math.max(influence, w * (1 - smooth(hw, hw + ARM_INFLUENCE, d)));
+            if (d < hw) strength = Math.max(strength, w * (1 - smooth(Math.min(core, 1 - ARM_WALL_MIN / hw), 1, d / hw)));
         }
-        return best;
+        out[0] = strength; out[1] = influence;
     }
 
     /** Half width factor of an arm at inland coordinate {@code u}: the ria mouth and basin, or the sound factor of a fjord region. */
@@ -384,15 +479,25 @@ final class HighlandDrowned {
     }
 
     /** The arm eligibility area (fraction of uplandSpacing squared) at a position: {@link #FJORD_ARM_AREA} inside a fjord region, else {@link #ARM_AREA}. */
-    double armArea(double x, double z) { return fjord(x, z) > 0 ? FJORD_ARM_AREA : ARM_AREA; }
+    double armArea(double x, double z) { return columnFjord(x, z) > 0 ? FJORD_ARM_AREA : ARM_AREA; }
+
+    /** The fjord disc weight at the column alone (no arm term: the arm data filter reads it while the arms are being built); 0 when unbound or the land has no ranges. */
+    private double columnFjord(double x, double z) {
+        var land = this.land;
+        if (land == null || land.rangeHeight() <= 0) return 0;
+        var m = discs((int) Math.floor(x / REGION_SIZE), (int) Math.floor(z / REGION_SIZE));
+        double best = 0;
+        for (int n = 0; n < m.count; n++) {
+            double w = discWeight(m, n, x, z);
+            if (w > best && region(m.h[n], m.ci[n], m.cj[n], m.cx[n], m.cz[n]).fjord) best = w;
+        }
+        return best;
+    }
 
     /** Width factor of an arm from its drainage area (blocks^2): {@code (area / 1 km^2)^HW_EXP}; the half width is HW_REF times it. */
     static double armWidth(double area) { return Math.pow(Math.max(area, 0) / 1e6, HW_EXP); }
 
-    /**
-     * The widest half width (blocks) an arm of this width factor can have in the region kinds ({@link #armKinds}) near it, basin or sound
-     * widening included; also its index radius.
-     */
+    /** The widest half width (blocks) an arm of this width factor can have in the region kinds ({@link #armKinds}) near it, basin or sound widening included. */
     static double armRadius(double width, int kinds) {
         double factor = 0;
         if ((kinds & RIA) != 0) factor = HW_REF * (1 + BAY_WIDEN_FACTOR);
@@ -401,18 +506,24 @@ final class HighlandDrowned {
         return Math.max(HW_MIN, Math.min(MAX_HALF_WIDTH, factor * width));
     }
 
+    /** Index radius of an arm segment (blocks): its widest half width plus {@link #ARM_INFLUENCE}, so a query finds every segment whose influence band holds the position. */
+    static double queryRadius(double width, int kinds) { return armRadius(width, kinds) + ARM_INFLUENCE; }
+
     /** Region kinds of {@link #armKinds}: bay regions, fjord regions, fjord regions with a sound. */
     static final int RIA = 1, FJORD = 2, FJORD_SOUND = 4;
 
     /**
-     * The kinds of region ({@link #RIA}, {@link #FJORD}, {@link #FJORD_SOUND} bits) whose disc grown by {@link #MAX_HALF_WIDTH} holds a
+     * The kinds of region ({@link #RIA}, {@link #FJORD}, {@link #FJORD_SOUND} bits) whose warped disc grown by {@link #MAX_HALF_WIDTH} holds a
      * position; 0 where none does (the arm data filter, and what sets the index radius of a segment there).
      */
     int armKinds(double x, double z) {
         var m = discs((int) Math.floor(x / REGION_SIZE), (int) Math.floor(z / REGION_SIZE));
         int kinds = 0;
         for (int n = 0; n < m.count; n++) {
-            if (discWeight(m.cx[n], m.cz[n], m.radius[n] + MAX_HALF_WIDTH, x, z) <= 0) continue;
+            double dx = x - m.cx[n], dz = z - m.cz[n], d2 = dx * dx + dz * dz, outer = m.radius[n] * (1 + RIM_WARP) + MAX_HALF_WIDTH;
+            if (d2 >= outer * outer) continue;
+            double d = Math.sqrt(d2);
+            if (d > 0 && d >= rimRadius(m.radius[n], m.ca[n], m.sa[n], m.cb[n], m.sb[n], dx / d, dz / d) + MAX_HALF_WIDTH) continue;
             var region = region(m.h[n], m.ci[n], m.cj[n], m.cx[n], m.cz[n]);
             kinds |= !region.fjord ? RIA : Double.isNaN(region.soundX) ? FJORD : FJORD_SOUND;
         }
@@ -504,7 +615,7 @@ final class HighlandDrowned {
         if (window <= 0) return edge;
         double best = edge;
         for (int n = 0; n < m.count; n++) {
-            double w = discWeight(m.cx[n], m.cz[n], m.radius[n], x, z);
+            double w = discWeight(m, n, x, z);
             if (w <= 0) continue;
             var region = region(m.h[n], m.ci[n], m.cj[n], m.cx[n], m.cz[n]);
             double s = w * window * island(region, x, z);
@@ -590,7 +701,7 @@ final class HighlandDrowned {
         var m = discs((int) Math.floor(x / REGION_SIZE), (int) Math.floor(z / REGION_SIZE));
         double best = 0;
         for (int n = 0; n < m.count; n++) {
-            double w = discWeight(m.cx[n], m.cz[n], m.radius[n], x, z);
+            double w = discWeight(m, n, x, z);
             if (w > 0) best = Math.max(best, w * island(region(m.h[n], m.ci[n], m.cj[n], m.cx[n], m.cz[n]), x, z));
         }
         return best;
@@ -601,11 +712,34 @@ final class HighlandDrowned {
         return smooth(WIDEN_FROM * region.reach, .5 * region.reach, u) * (1 - smooth(.5 * region.reach, WIDEN_TO * region.reach, u));
     }
 
-    /** Disc weight at a position: 1 inside the core, falling smoothly to 0 at the rim (squared distances until needed; hypot is slow). */
-    private static double discWeight(double cx, double cz, double radius, double x, double z) {
-        double dx = x - cx, dz = z - cz, d2 = dx * dx + dz * dz, core = REGION_CORE * radius;
-        if (d2 >= radius * radius) return 0;
-        return d2 <= core * core ? 1 : 1 - smooth(core, radius, Math.sqrt(d2));
+    /** Disc weight of active disc n of the memoized cell at a position, see {@link #discWeight(double, double, double, double, double, double, double, double, double)}. */
+    private static double discWeight(Memo m, int n, double x, double z) {
+        return discWeight(m.cx[n], m.cz[n], m.radius[n], m.ca[n], m.sa[n], m.cb[n], m.sb[n], x, z);
+    }
+
+    /** Disc weight of a region at a position (test access: the region as {@link #dominant} returns it). */
+    static double regionWeight(Region r, double x, double z) { return discWeight(r.cx, r.cz, r.radius, r.ca, r.sa, r.cb, r.sb, x, z); }
+
+    /**
+     * Disc weight at a position: 1 inside the core, falling smoothly to 0 at the rim, both scaled by the warped radius of the bearing
+     * ({@link #rimRadius}); squared distances until needed (hypot is slow), and no bearing at all inside the narrowest core or outside the widest rim.
+     */
+    private static double discWeight(double cx, double cz, double radius, double ca, double sa, double cb, double sb, double x, double z) {
+        double dx = x - cx, dz = z - cz, d2 = dx * dx + dz * dz, outer = radius * (1 + RIM_WARP), inner = REGION_CORE * radius * (1 - RIM_WARP);
+        if (d2 >= outer * outer) return 0;
+        if (d2 <= inner * inner) return 1;
+        double d = Math.sqrt(d2), rim = rimRadius(radius, ca, sa, cb, sb, dx / d, dz / d), core = REGION_CORE * rim;
+        if (d >= rim) return 0;
+        return d <= core ? 1 : 1 - smooth(core, rim, d);
+    }
+
+    /**
+     * Warped disc radius toward the unit bearing (ux, uz) from the centre: {@code radius (1 + RIM_WARP n)}, {@code n = (cos(3 t + a) + cos(5 t + b)) / 2}
+     * for the bearing angle t, evaluated by multiplying the unit vector (no trigonometry). Periodic, so the rim closes, and continuous.
+     */
+    private static double rimRadius(double radius, double ca, double sa, double cb, double sb, double ux, double uz) {
+        double c2 = ux * ux - uz * uz, s2 = 2 * ux * uz, c3 = c2 * ux - s2 * uz, s3 = s2 * ux + c2 * uz, c5 = c3 * c2 - s3 * s2, s5 = s3 * c2 + c3 * s2;
+        return radius * (1 + RIM_WARP * .5 * (c3 * ca - s3 * sa + c5 * cb - s5 * sb));
     }
 
     private Region region(long h, int i, int j, double cx, double cz) {
@@ -621,8 +755,9 @@ final class HighlandDrowned {
         boolean fjord = fjordAnchor(cx, cz);
         double reach = !fjord ? reachEdge : (unit(mix(h + 8)) < LONG_CHANCE ? longReachEdge : FJORD_REACH * HighlandCoast.EDGE_PER_BLOCK);
         double[] sound = fjord && unit(mix(h + 9)) < SOUND_CHANCE ? coastPoint(cx, cz, gx, gz) : null;
+        double a = 2 * Math.PI * unit(mix(h + 13)), b = 2 * Math.PI * unit(mix(h + 14));
         var region = new Region(i, j, cx, cz, radius(h), gx, gz, 1e4 * unit(mix(h + 6)), 1e4 * unit(mix(h + 7)), fjord, reach, fjord ? fjordTarget : riaTarget,
-            sound == null ? Double.NaN : sound[0], sound == null ? Double.NaN : sound[1]);
+            sound == null ? Double.NaN : sound[0], sound == null ? Double.NaN : sound[1], Math.cos(a), Math.sin(a), Math.cos(b), Math.sin(b));
         m.slots[m.next] = region;
         m.next = (m.next + 1) % MEMO;
         return region;

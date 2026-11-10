@@ -97,8 +97,17 @@ class HighlandDrownedTest {
         var standalone = new HighlandCoast(context);
         var random = new Random(17);
         int outside = 0, inside = 0, lowered = 0;
-        for (int i = 0; i < 100_000; i++) {
+        // The same 100,000 points, visited owner by owner: a random order evicts the 16 cached arm owners all the time and rebuilds plan0 for
+        // each (11-13 made every owner near a region need its arms, which tripled this gate's run time to 30 minutes).
+        var points = new double[100_000][];
+        for (int i = 0; i < points.length; i++) {
             double x = SITE_X + (random.nextDouble() * 2 - 1) * 40_000, z = SITE_Z + (random.nextDouble() * 2 - 1) * 40_000;
+            var owner = bound.undrowned(x, z);
+            points[i] = new double[] {x, z, PosUtil.pack(owner.ownerX(), owner.ownerZ())};
+        }
+        java.util.Arrays.sort(points, Comparator.comparingDouble(point -> point[2]));
+        for (double[] point : points) {
+            double x = point[0], z = point[1];
             var sample = bound.sample(x, z);
             double reference = standalone.sample(x, z).edge();
             if (sample.drowned() == 0) {
@@ -851,7 +860,7 @@ class HighlandDrownedTest {
         for (int i = 0; i < 100_000; i++) {
             double x = SITE_X + (random.nextDouble() * 2 - 1) * 40_000, z = SITE_Z + (random.nextDouble() * 2 - 1) * 40_000;
             assertEquals(0, drowned.fjord(x, z), "fjord weight in the low world at " + x + "," + z);
-            if (drowned.weight(x, z) > 0) rias++;
+            if (drowned.columnWeight(x, z) > 0) rias++; // the disc alone: weight() would read the owner's arms at each of the random points (11-13)
         }
         assertTrue(rias > 0, "no drowned regions in the low world");
     }
@@ -2197,6 +2206,45 @@ class HighlandDrownedTest {
         return widest >= 1000 && widest <= 5000 && wide >= 3
             && bays.narrowMouth() >= .7 * bays.count() && bays.branching() >= .5 * bays.count() && bays.singleOwner() == bays.count()
             && bays.connected() == bays.count() && bays.closedShare() <= MAX_CLOSED;
+    }
+
+    /** Rim census (11-13): the least standard deviation (in region radii) of the outermost flooded-land radius, and the rays a region needs to be judged. */
+    static final double MIN_RIM_SD = .05;
+    static final int MIN_RIM_RAYS = 16;
+
+    /**
+     * 11-13 (G-11-2 a, D-GC3): no bay or arm outline is a circle of the region disc. For every flooding region (the server preset window of
+     * the diagnosis, the user RIA_BOXES and the ROCKIES FJORD_BOXES) with flooded land on at least MIN_RIM_RAYS of 80 rays from its centre, the
+     * outermost flooded-land radius over those rays varies by a standard deviation of at least .05 region radii (the diagnosis measured .011
+     * and .014 on the circular bays of the server preset). A flooded column counts for the region with the largest effective weight there, so
+     * overlapping neighbours are not counted twice; with that attribution the most any region reaches is 29 rays (the plan asked for 40, which
+     * the 8-block census meets only without attribution), so the threshold is 16 (a fifth of the rays). Every region is printed.
+     */
+    @Test void noCircularOutlines() throws Exception {
+        var lines = new ArrayList<String>();
+        var failures = new ArrayList<String>();
+        int judged = rimCensus("server", WorldgenFixture.shared(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED), new int[][] {{18000, 6000}}, 32000, lines, failures);
+        judged += rimCensus("user", WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED), RIA_BOXES, SITE_RADIUS, lines, failures);
+        try (var rockies = WorldgenFixture.context(BiomeCensusProbe.rockies(), HighlandPlanformProbe.USER_SEED)) {
+            judged += rimCensus("rockies", rockies, FJORD_BOXES, SITE_RADIUS, lines, failures);
+        }
+        lines.forEach(line -> System.out.println("RH10 rim " + line));
+        assertTrue(judged >= 3, "too few regions judged: " + judged);
+        assertTrue(failures.isEmpty(), "circular outlines (sd below " + MIN_RIM_SD + "): " + failures);
+    }
+
+    /** Rim census of the flooding regions around the boxes (server window: one wide box); returns the number of regions judged. */
+    private static int rimCensus(String label, GeneratorContext context, int[][] boxes, int radius, List<String> lines, List<String> failures) {
+        int judged = 0;
+        for (var region : HighlandDrownedProbe.floodingRegions(context, boxes, radius, 3000, 48)) {
+            var rim = HighlandDrownedProbe.rim(context, region);
+            String line = String.format(java.util.Locale.ROOT, "%s %s (%d,%d) R=%.0f rays=%d rim/R mean=%.3f sd=%.3f", label, region.fjord() ? "FJORD" : "RIA", region.i(), region.j(), region.radius(), rim.rays(), rim.mean(), rim.sd());
+            lines.add(line);
+            if (rim.rays() < MIN_RIM_RAYS) continue;
+            judged++;
+            if (rim.sd() < MIN_RIM_SD) failures.add(line);
+        }
+        return judged;
     }
 
     /**

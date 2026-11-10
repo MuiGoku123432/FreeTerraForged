@@ -1002,7 +1002,9 @@ final class HighlandDrownedProbe {
      * pixels maps to the physical branches ("reaches", owner/branch id) of the axes its passing medial pixels lie on; a fringe (a
      * component with no medial pixel, thinner than four pixels, a shoreline sliver) has no medial axis and maps to the reach of the nearest axis
      * whose arm reach (its index radius, the widest half width the arm can have) holds one of its local maxima; a component with no usable
-     * pixel (all clipped by the border) is {@code clippedComponents}, exempt. {@code mapping} has one line per component, {@code unmapped} counts those without a reach.
+     * pixel (all clipped by the border), or with a clipped medial pixel and no mapped one (11-13: a wide basin cut by the border leaves only its
+     * narrow tongue inside, whose medial pixels cannot stand for the body outside), is {@code clippedComponents}, exempt: its pixels count neither
+     * as medial nor as within. {@code mapping} has one line per component, {@code unmapped} counts those without a reach.
      */
     record Fidelity(int boxX, int boxZ, int medial, int within, int clipped, int components, int unmapped, int clippedComponents,
                     List<Outlier> outliers, List<String> mapping, java.util.Set<String> reaches) {
@@ -1030,7 +1032,9 @@ final class HighlandDrownedProbe {
         });
         float[] d = distanceToLand(dry, w);
         var parts = label(flooded, w);
-        boolean[] big = new boolean[parts.area.length], hasMedial = new boolean[parts.area.length], usable = new boolean[parts.area.length], mapped = new boolean[parts.area.length];
+        boolean[] big = new boolean[parts.area.length], hasMedial = new boolean[parts.area.length], usable = new boolean[parts.area.length], mapped = new boolean[parts.area.length], cut = new boolean[parts.area.length];
+        int[] medialOf = new int[parts.area.length], withinOf = new int[parts.area.length];
+        var outlierIds = new ArrayList<Integer>();
         int components = 0;
         for (int id = 1; id < big.length; id++) if (parts.area[id] >= FIDELITY_MIN_COMPONENT) { big[id] = true; components++; }
         boolean[] localMax = new boolean[w * w];
@@ -1048,7 +1052,7 @@ final class HighlandDrownedProbe {
             int id = parts.id[at], i = at % w, j = at / w;
             boolean isMedial = d[at] >= FIDELITY_MIN_DISTANCE;
             if (!isMedial && hasMedial[id]) continue;
-            if (Math.min(Math.min(i, j), Math.min(w - 1 - i, w - 1 - j)) < d[at] + 1) { if (isMedial) clipped++; continue; }
+            if (Math.min(Math.min(i, j), Math.min(w - 1 - i, w - 1 - j)) < d[at] + 1) { if (isMedial) { clipped++; cut[id] = true; } continue; }
             double x = x0 + i * p, z = z0 + j * p, halfWidth = d[at] * p, nearest = Double.POSITIVE_INFINITY;
             var site = coast.undrowned(x, z);
             var arms = drowned.arms(site.ownerX(), site.ownerZ());
@@ -1058,8 +1062,8 @@ final class HighlandDrownedProbe {
             boolean pass = isMedial ? nearest <= halfWidth : nearest < Double.POSITIVE_INFINITY;
             usable[id] = true;
             if (isMedial) {
-                medial++;
-                if (pass) within++; else outliers.add(new Outlier((int) x, (int) z, nearest, halfWidth));
+                medial++; medialOf[id]++;
+                if (pass) { within++; withinOf[id]++; } else { outliers.add(new Outlier((int) x, (int) z, nearest, halfWidth)); outlierIds.add(id); }
             }
             if (pass) {
                 mapped[id] = true;
@@ -1075,7 +1079,12 @@ final class HighlandDrownedProbe {
         for (int id = 1; id < big.length; id++) {
             if (!big[id]) continue;
             String where = String.format(Locale.ROOT, "%d,%d pixels=%d", x0 + (int) (sumX[id] / parts.area[id]) * p, z0 + (int) (sumZ[id] / parts.area[id]) * p, parts.area[id]);
-            if (!usable[id]) { clippedComponents++; mapping.add("component at " + where + " clipped by the box border (exempt)"); continue; }
+            if (!usable[id] || (!mapped[id] && cut[id])) {
+                clippedComponents++; medial -= medialOf[id]; within -= withinOf[id]; // judged by nobody: its pixels count neither for nor against
+                for (int k = outlierIds.size() - 1; k >= 0; k--) if (outlierIds.get(k) == id) { outliers.remove(k); outlierIds.remove(k); }
+                mapping.add("component at " + where + " clipped by the box border (exempt)");
+                continue;
+            }
             if (!mapped[id]) unmapped++;
             mapping.add("component at " + where + " reaches " + reachOf.getOrDefault(id, new java.util.TreeSet<>()) + (mapped[id] ? "" : " UNMAPPED"));
         }
@@ -1112,8 +1121,13 @@ final class HighlandDrownedProbe {
      * region on a 500-block lattice. (Copied from the untracked DrownedShapeProbe, which scans the whole server window.)
      */
     static List<HighlandDrowned.Region> floodingRegions(GeneratorContext context, int[][] boxes, int radius, int minFlooded) {
+        return floodingRegions(context, boxes, radius, minFlooded, 16);
+    }
+
+    /** As above, counting the flooded pixels of a region on a {@code step}-block lattice (scaled to 16-block pixels), for wide windows. */
+    static List<HighlandDrowned.Region> floodingRegions(GeneratorContext context, int[][] boxes, int radius, int minFlooded, int step) {
         var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
-        double coastEdge = context.preset.world().controlPoints.coast;
+        double coastEdge = context.preset.world().controlPoints.coast, scale = (step / 16.) * (step / 16.);
         var set = new java.util.LinkedHashSet<HighlandDrowned.Region>();
         for (int[] box : boxes) for (double z = box[1] - radius; z <= box[1] + radius; z += 500) for (double x = box[0] - radius; x <= box[0] + radius; x += 500) {
             var r = coast.drowned().dominant(x, z, false);
@@ -1122,21 +1136,47 @@ final class HighlandDrownedProbe {
         var out = new ArrayList<HighlandDrowned.Region>();
         for (var r : set) {
             int n = 0;
-            for (double z = r.cz() - r.radius(); z <= r.cz() + r.radius(); z += 16) for (double x = r.cx() - r.radius(); x <= r.cx() + r.radius(); x += 16) {
+            for (double z = r.cz() - r.radius(); z <= r.cz() + r.radius(); z += step) for (double x = r.cx() - r.radius(); x <= r.cx() + r.radius(); x += step) {
                 if (Math.hypot(x - r.cx(), z - r.cz()) > r.radius()) continue;
                 if (coast.sample(x, z).edge() <= coastEdge && coast.undrowned(x, z).edge() > coastEdge) n++;
             }
-            if (n >= minFlooded) out.add(r);
+            if (n * scale >= minFlooded) out.add(r);
         }
         return out;
     }
 
-    /** Region disc weight: 1 inside the core, falling smoothly to 0 at the radius (copy of the private HighlandDrowned.discWeight). */
-    private static double regionWeight(HighlandDrowned.Region r, double x, double z) {
-        double dx = x - r.cx(), dz = z - r.cz(), d2 = dx * dx + dz * dz, core = HighlandDrowned.REGION_CORE * r.radius();
-        if (d2 >= r.radius() * r.radius()) return 0;
-        return d2 <= core * core ? 1 : 1 - HighlandMath.smooth(core, r.radius(), Math.sqrt(d2));
+    /** Rim census (11-13): rays from a region's centre, the step along a ray, and how far out (in region radii) the outermost flooded land is looked for; a ray counts when it has flooded land beyond half a radius. */
+    static final int RIM_RAYS = 80, RIM_STEP = 8;
+    static final double RIM_FAR = 1.4;
+
+    /**
+     * {@code rays}: rays with flooded land beyond half a radius; {@code mean}, {@code sd}: the outermost flooded-land radius over those
+     * rays, in radii of the region. A flooded column (land on the standalone coast, sea on the bound one) counts for the region with the
+     * largest effective weight there, so a neighbouring region's flood is not taken for this region's rim.
+     */
+    record Rim(int rays, double mean, double sd) {}
+
+    static Rim rim(GeneratorContext context, HighlandDrowned.Region r) {
+        var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+        double coastEdge = context.preset.world().controlPoints.coast;
+        double[] reach = new double[RIM_RAYS];
+        IntStream.range(0, RIM_RAYS).parallel().forEach(k -> {
+            double angle = 2 * Math.PI * k / RIM_RAYS, cos = Math.cos(angle), sin = Math.sin(angle), best = -1;
+            for (double d = .3 * r.radius(); d <= RIM_FAR * r.radius(); d += RIM_STEP) {
+                double x = r.cx() + d * cos, z = r.cz() + d * sin;
+                if (!(coast.sample(x, z).edge() <= coastEdge && coast.undrowned(x, z).edge() > coastEdge)) continue;
+                var owner = coast.drowned().dominant(x, z, false);
+                if (owner != null && owner.i() == r.i() && owner.j() == r.j()) best = d;
+            }
+            reach[k] = best > .5 * r.radius() ? best / r.radius() : Double.NaN;
+        });
+        double[] found = Arrays.stream(reach).filter(v -> !Double.isNaN(v)).toArray();
+        double mean = Arrays.stream(found).average().orElse(0), sd = Math.sqrt(Arrays.stream(found).map(v -> (v - mean) * (v - mean)).average().orElse(0));
+        return new Rim(found.length, mean, sd);
     }
+
+    /** Region disc weight (the warped disc, see HighlandDrowned.regionWeight). */
+    private static double regionWeight(HighlandDrowned.Region r, double x, double z) { return HighlandDrowned.regionWeight(r, x, z); }
 
     /**
      * The two diagnosis measures of the rejected UAT, printed for comparison (not gated: plan0 valleys also run toward the sea, so an

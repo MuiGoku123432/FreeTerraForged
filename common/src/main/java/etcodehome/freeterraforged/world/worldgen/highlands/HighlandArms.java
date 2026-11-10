@@ -21,7 +21,7 @@ import java.util.Map;
  * {@link HighlandDrowned#MAX_HALF_WIDTH}, only samples draining at least {@link HighlandDrowned#ARM_AREA} ({@link HighlandDrowned#FJORD_ARM_AREA} in a fjord region), and only branches whose
  * downstream chain of kept branches ends at a sea root.
  *
- * <p>Segments are indexed in a uniform bucket grid, each over its box grown by its own largest half width, so a query reads one
+ * <p>Segments are indexed in a uniform bucket grid, each over its box grown by its own query radius, so a query reads one
  * bucket.
  */
 final class HighlandArms {
@@ -29,13 +29,13 @@ final class HighlandArms {
     private static final int BUCKET = 256;
     static final HighlandArms EMPTY = new HighlandArms(new ArrayList<>());
 
-    /** Segment endpoints, width factor and u at both ends, largest half width, physical branch and downstream branch (-1 at a sea root). */
+    /** Segment endpoints, width factor and u at both ends, query radius (largest half width plus the influence band), physical branch and downstream branch (-1 at a sea root). */
     final double[] ax, az, bx, bz, wa, wb, ua, ub, radius;
     final int[] reach, down;
     private final Map<Long, int[]> buckets;
     private final long entries;
 
-    /** Reusable per-thread query result: values at index i describe one segment within its half-width reach of the position ({@code x}, {@code z}: its axis point nearest the position). */
+    /** Reusable per-thread query result: values at index i describe one segment within its query radius of the position (its half width plus {@link HighlandDrowned#ARM_INFLUENCE}, at most) ({@code x}, {@code z}: its axis point nearest the position). */
     static final class Hits {
         int count;
         int[] segment = new int[64];
@@ -63,7 +63,7 @@ final class HighlandArms {
             var f = found.get(s);
             ax[s] = f[0]; az[s] = f[1]; bx[s] = f[2]; bz[s] = f[3]; wa[s] = f[4]; wb[s] = f[5]; ua[s] = f[6]; ub[s] = f[7];
             reach[s] = (int) f[8]; down[s] = (int) f[9];
-            radius[s] = HighlandDrowned.armRadius(Math.max(wa[s], wb[s]), (int) f[10]);
+            radius[s] = HighlandDrowned.queryRadius(Math.max(wa[s], wb[s]), (int) f[10]);
             // note: bucket grid over grown boxes copies HighlandPlanIndex's bucket keys (second use, not extracted).
             for (int z = bucket(Math.min(az[s], bz[s]) - radius[s]); z <= bucket(Math.max(az[s], bz[s]) + radius[s]); z++)
                 for (int x = bucket(Math.min(ax[s], bx[s]) - radius[s]); x <= bucket(Math.max(ax[s], bx[s]) + radius[s]); x++) {
@@ -114,7 +114,7 @@ final class HighlandArms {
     long estimatedBytes() { return segments() * (9 * 8L + 2 * 4L) + entries * 4 + buckets.size() * 96L; }
 
     /**
-     * The segments within their own half-width reach of a position, with their perpendicular distance (clamped to the
+     * The segments within their own query radius of a position, with their perpendicular distance (clamped to the
      * segment) and the width factor and u interpolated at the projection. The result is per thread and reused: read it before the
      * next query on this thread.
      */
