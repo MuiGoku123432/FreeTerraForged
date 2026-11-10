@@ -637,6 +637,185 @@ class HighlandDrownedTest {
         Files.write(Path.of("build/rh10-gap/cost-arms.txt"), lines);
     }
 
+    /** D-GC2 fidelity boxes on the server preset (11-12): the 8 km boxes around these UAT sites, next to the ROCKIES FJORD_BOXES and RIA_BOXES[0..1] of the user world. */
+    static final int[][] FIDELITY_SERVER_BOXES = {{9373, 2111}, {7453, 3341}, {4317, 20060}, {17716, 21956}, {12660, 16042}, {34272, -12747}};
+    static final double FIDELITY_TARGET = .95;
+    static final int FIDELITY_MIN_MEDIAL = 300;
+
+    /** One census per box (8 km, 8-block pixels): its summary, every outlier and every component's reach mapping go to {@code lines}. */
+    private static void fidelityBoxes(String world, GeneratorContext context, int[][] boxes, List<HighlandDrownedProbe.Fidelity> parts, List<String> lines) {
+        for (int[] box : boxes) {
+            var part = HighlandDrownedProbe.fidelity(context, box[0], box[1], SITE_RADIUS);
+            parts.add(part);
+            lines.add(part.summary(world));
+            for (var o : part.outliers())
+                lines.add(String.format(java.util.Locale.ROOT, "  outlier %s box %d,%d at %d,%d: nearest plan0 axis %.0f blocks, local half width %.0f", world, box[0], box[1], o.x(), o.z(), o.distance(), o.halfWidth()));
+            part.mapping().forEach(line -> lines.add("  " + world + " box " + box[0] + "," + box[1] + " " + line));
+            System.out.println(part.summary(world));
+        }
+    }
+
+    /**
+     * D-GC2 screen (11-12): flooded land follows the plan0 valleys. Over the 8 km boxes of FIDELITY_SERVER_BOXES (server preset), FJORD_BOXES
+     * (ROCKIES) and RIA_BOXES[0..1] (user world), the pooled medial-axis length of flooded land (standalone land, bound sea) that lies within
+     * its local half width of a plan0 coastal axis (the physical valley axes of HighlandArms) is at least FIDELITY_TARGET, and every flooded
+     * component of at least four 8-block pixels maps to at least one plan0 reach. Per-box shares, every outlier (position, distance, half
+     * width), the component-to-reach mapping and the diagnosis comparison (orientation share, arm spacing) go to build/rh10-gap/fidelity.txt.
+     * This is the quantitative half of D-GC2; the zero wrong-branch / zero dry-gap half needs the mouth fix (11-19).
+     */
+    @Test void armsFollowPlan0Valleys() throws Exception {
+        var parts = new ArrayList<HighlandDrownedProbe.Fidelity>();
+        var lines = new ArrayList<String>();
+        try (var server = WorldgenFixture.context(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED)) {
+            fidelityBoxes("server", server, FIDELITY_SERVER_BOXES, parts, lines);
+            lines.addAll(HighlandDrownedProbe.diagnosisMeasures(server, HighlandDrownedProbe.floodingRegions(server, FIDELITY_SERVER_BOXES, SITE_RADIUS, 3000)));
+        }
+        try (var rockies = WorldgenFixture.context(BiomeCensusProbe.rockies(), HighlandPlanformProbe.USER_SEED)) {
+            fidelityBoxes("rockies", rockies, FJORD_BOXES, parts, lines);
+        }
+        try (var user = WorldgenFixture.context(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED)) {
+            fidelityBoxes("user", user, java.util.Arrays.copyOf(RIA_BOXES, 2), parts, lines);
+        }
+        var pooled = HighlandDrownedProbe.poolFidelity(parts);
+        lines.add(0, pooled.summary("pooled"));
+        lines.add(1, String.format(java.util.Locale.ROOT, "pooled share %.4f (target %.2f), unmapped components %d of %d", pooled.share(), FIDELITY_TARGET, pooled.unmapped(), pooled.components()));
+        Files.createDirectories(Path.of("build/rh10-gap"));
+        Files.write(Path.of("build/rh10-gap/fidelity.txt"), lines);
+        System.out.println(lines.get(0) + "\n" + lines.get(1));
+        assertTrue(pooled.medial() >= FIDELITY_MIN_MEDIAL, "too little flooded land for the screen to mean anything: " + pooled.summary("pooled"));
+        assertTrue(pooled.unmapped() == 0, pooled.unmapped() + " flooded components map to no plan0 reach: " + pooled.mapping().stream().filter(l -> l.endsWith("UNMAPPED")).toList());
+        assertTrue(pooled.share() >= FIDELITY_TARGET, "only " + pooled.share() + " of the medial axis lies within its half width of a plan0 axis (" + pooled.outliers().size() + " outliers, see build/rh10-gap/fidelity.txt): " + pooled.summary("pooled"));
+    }
+
+    /**
+     * Probe (11-12): the diagnosis comparison on the whole server window of the rejected-UAT diagnosis (x -14000 to 50000, z -26000 to 38000, every
+     * region that floods at least 3000 sixteen-block pixels), so the numbers are comparable with it: flooded-boundary orientation against the region
+     * inland axis (fjord 51% within 15 degrees, isotropic 16.7%) and arm spacing (median 630 fjord / 651 ria, cv .64 / .71). Written to
+     * build/rh10-gap/fidelity-diagnosis.txt; recorded, not gated.
+     */
+    @Tag("probe")
+    @Test void diagnosisComparison() throws Exception {
+        try (var server = WorldgenFixture.context(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED)) {
+            var lines = HighlandDrownedProbe.diagnosisMeasures(server, HighlandDrownedProbe.floodingRegions(server, new int[][]{{18000, 6000}}, 32000, 3000));
+            lines.forEach(System.out::println);
+            Files.createDirectories(Path.of("build/rh10-gap"));
+            Files.write(Path.of("build/rh10-gap/fidelity-diagnosis.txt"), lines);
+        }
+    }
+
+    /** UAT sites of the G-11 review (server preset); 11-19 and 11-20 render and review these. */
+    static final int[][] UAT_SITES = {{7453, 3341}, {9373, 2111}, {9957, 2245}, {4317, 20060}, {17716, 21956}, {12660, 16042}, {7231, 19462}, {34272, -12747}, {32976, -11851},
+        {33570, -12422}, {35583, -12022}, {35569, -12505}, {36342, -11609}, {3036, 486}, {-2989, 8825}, {11441, 6793}, {11577, 7644}, {11534, 7349}};
+    static final int UAT_BOX = 2048, UAT_PIXEL = 4;
+
+    /** The file stem of a UAT render: world, then the site as x and z (negative values keep their sign). */
+    static String uatName(String world, int x, int z) { return "uat-" + world + "-x" + x + "-z" + z; }
+
+    private static void renderUatSite(Path dir, String world, GeneratorContext context, int x, int z, List<String> lines) throws Exception {
+        var census = HighlandDrownedProbe.fidelity(context, x, z, UAT_BOX);
+        String name = uatName(world, x, z);
+        HighlandPlanformProbe.render(context, x, z, UAT_BOX, UAT_PIXEL, dir.resolve(name + ".png"));
+        HighlandDrownedProbe.uatMask(context, x, z, UAT_BOX, UAT_PIXEL, census.outliers(), dir.resolve(name + "-mask.png"));
+        lines.add(census.summary(world + " " + x + "," + z));
+        System.out.println(lines.get(lines.size() - 1));
+    }
+
+    /**
+     * Probe (11-12): the human review set. For every UAT site (server preset), the ROCKIES FJORD_ARM_SITE and the current ROCKIES ria box
+     * ROCKIES_RIA_SITE (11-23): a hillshade ({@code uat-<world>-x<x>-z<z>.png}, 2 km box, 4-block pixels, HighlandPlanformProbe.render) and a
+     * flooded-mask ({@code ...-mask.png}: land, open sea, flooded land, plan0 axes, fidelity outliers in red) in build/rh10-gap, plus
+     * build/rh10-gap/uat-renders.txt with the fidelity census of each (4 km box around the site). 11-20 reuses this probe.
+     */
+    @Tag("probe")
+    @Test void rendersUatSites() throws Exception {
+        var dir = Path.of("build/rh10-gap");
+        Files.createDirectories(dir);
+        var lines = new ArrayList<String>();
+        try (var server = WorldgenFixture.context(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED)) {
+            for (int[] site : UAT_SITES) renderUatSite(dir, "server", server, site[0], site[1], lines);
+        }
+        try (var rockies = WorldgenFixture.context(BiomeCensusProbe.rockies(), HighlandPlanformProbe.USER_SEED)) {
+            renderUatSite(dir, "rockies", rockies, FJORD_ARM_SITE_X, FJORD_ARM_SITE_Z, lines);
+            renderUatSite(dir, "rockies", rockies, ROCKIES_RIA_SITE_X, ROCKIES_RIA_SITE_Z, lines);
+        }
+        Files.write(dir.resolve("uat-renders.txt"), lines);
+        for (int[] site : UAT_SITES) {
+            assertTrue(Files.exists(dir.resolve(uatName("server", site[0], site[1]) + ".png")) && Files.exists(dir.resolve(uatName("server", site[0], site[1]) + "-mask.png")), "no render for " + site[0] + "," + site[1]);
+        }
+    }
+
+    /** The land column of an owner nearest its centre (256-block lattice, spiral by rings): a column whose standalone edge is land and whose owner is the given one. */
+    private static int[] ownerLandColumn(GeneratorContext context, int ownerX, int ownerZ) {
+        var coast = coastOf(context);
+        double coastEdge = context.preset.world().controlPoints.coast, cx = (ownerX + .5) * coast.tectonicScale, cz = (ownerZ + .5) * coast.tectonicScale;
+        for (int ring = 0; ring <= 64; ring++) for (int oz = -ring; oz <= ring; oz++) for (int ox = -ring; ox <= ring; ox++) {
+            if (Math.max(Math.abs(ox), Math.abs(oz)) != ring) continue;
+            int x = (int) cx + 256 * ox, z = (int) cz + 256 * oz;
+            var site = coast.undrowned(x, z);
+            if (site.ownerX() == ownerX && site.ownerZ() == ownerZ && site.edge() > coastEdge) return new int[]{x, z};
+        }
+        throw new IllegalStateException("no land column in owner " + ownerX + "," + ownerZ);
+    }
+
+    /** Wall ms of the first heightmap.apply on a column of a fresh context (nothing built), drowning bound or inert. */
+    private static long firstApplyMs(int[] column, boolean inert, Set<Long>[] arms) throws Exception {
+        try (var context = WorldgenFixture.context(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED)) {
+            if (inert) coastOf(context).bindDrowned(null, null);
+            long t = System.nanoTime();
+            context.heightmap.apply(new Cell(), column[0], column[1], false);
+            long ms = (System.nanoTime() - t) / 1_000_000;
+            if (arms != null) arms[0] = coastOf(context).drowned().cachedArmOwners();
+            return ms;
+        }
+    }
+
+    /**
+     * Probe (11-12): the first inclusive cost record, server preset, owners (0,0), (2,-1) and SEAM_OWNER (11-10), twice each (the lower of a
+     * pair is the number; the first run of a JVM is the coldest). Per owner, on a land column nearest the owner centre: the wall ms of the first
+     * heightmap.apply on a fresh context with the drowned coast bound (the plan0 build of the owner and the neighbours' plan0 builds the final
+     * build asks are inside it), the same on a fresh context with the drowned layer inert (bindDrowned(null, null)), the plan0 build ms of the owner
+     * on a separate fresh context (basePlan, as armBuildCost), and the neighbour plan0 builds the bound first apply left in the arm cache (count, and
+     * their ms timed one by one through arms() on fresh contexts). Written to build/rh10-gap/cost-first.txt with the ratio line of
+     * drownedCostWithinBudget (build/rh10-cost.txt) when that test ran before. Nothing is gated: 11-20 proposes the budget.
+     */
+    @Tag("probe")
+    @Test void firstCostRecord() throws Exception {
+        var owners = new ArrayList<int[]>(List.of(new int[]{0, 0}, new int[]{2, -1}));
+        if (SEAM_OWNER != null) owners.add(SEAM_OWNER);
+        var lines = new ArrayList<String>();
+        for (int[] owner : owners) {
+            int[] column;
+            try (var context = WorldgenFixture.context(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED)) { column = ownerLandColumn(context, owner[0], owner[1]); }
+            for (int pass = 1; pass <= 2; pass++) {
+                @SuppressWarnings("unchecked") Set<Long>[] arms = new Set[1];
+                long bound = firstApplyMs(column, false, arms), inert = firstApplyMs(column, true, null), plan0Ms, neighbourMs = 0;
+                try (var context = WorldgenFixture.context(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED)) {
+                    long t = System.nanoTime();
+                    ((RollingHighlandsContinent) context.heightmap.continent()).basePlan(owner[0], owner[1]);
+                    plan0Ms = (System.nanoTime() - t) / 1_000_000;
+                }
+                var neighbours = new java.util.TreeSet<Long>(arms[0]);
+                neighbours.remove(PosUtil.pack(owner[0], owner[1]));
+                for (long key : neighbours) {
+                    try (var context = WorldgenFixture.context(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED)) {
+                        long t = System.nanoTime();
+                        coastOf(context).drowned().arms(PosUtil.unpackLeft(key), PosUtil.unpackRight(key));
+                        neighbourMs += (System.nanoTime() - t) / 1_000_000;
+                    }
+                }
+                lines.add(String.format(java.util.Locale.ROOT, "owner %d,%d column %d,%d run %d: first apply %d ms drowned bound vs %d ms inert (x%.2f), plan0 build of the owner %d ms (separate cold build), neighbour plan0 builds %d (%d ms) %s",
+                    owner[0], owner[1], column[0], column[1], pass, bound, inert, bound / (double) Math.max(1, inert), plan0Ms, neighbours.size(), neighbourMs,
+                    neighbours.stream().map(k -> PosUtil.unpackLeft(k) + "," + PosUtil.unpackRight(k)).toList()));
+                System.out.println(lines.get(lines.size() - 1));
+            }
+        }
+        lines.add(SEAM_OWNER == null ? "SEAM_OWNER: none" : "SEAM_OWNER " + SEAM_OWNER[0] + "," + SEAM_OWNER[1] + " (its neighbour plan0 builds are the ones counted above)");
+        Path ratios = Path.of("build/rh10-cost.txt");
+        lines.add(Files.exists(ratios) ? "drownedCostWithinBudget: " + Files.readString(ratios).strip() : "drownedCostWithinBudget: build/rh10-cost.txt not present (run that test first)");
+        Files.createDirectories(Path.of("build/rh10-gap"));
+        Files.write(Path.of("build/rh10-gap/cost-first.txt"), lines);
+    }
+
     /**
      * D-01: fjord weight exists only under FJORD regions, whose anchors are PNW coast with a range core nearby. In the ROCKIES
      * fjord site box at least one region is a fjord, and every point with fjord weight has such an anchor.
@@ -1389,6 +1568,13 @@ class HighlandDrownedTest {
     /** Boxes (leading RIA_BOXES) whose bays are probed through full column lookups (marsh, path independence): each lookup builds the owner's plan, the cost of those gates. */
     static final int MARSH_BOXES = 4;
 
+    /**
+     * Boxes of innerShoresArePathIndependent (leading RIA_BOXES). 11-12: the repair of armValley (basin widening scaled by the region weight at the
+     * axis point) took the shore columns of the first four boxes from 200 to 198, under the gate's sample floor of 200 (11-23 had left exactly
+     * 200); the fifth box is one more sampled box, so the floor measures the same thing with more columns (the tag check itself is unchanged).
+     */
+    static final int PATH_BOXES = 5;
+
     /** Most of the flooded area (share) that may lie in water bodies with no column touching the standalone sea (the RH9-era tracer already has small ponds, 2.7% in the ria boxes). */
     static final double MAX_CLOSED = .05;
 
@@ -1420,7 +1606,7 @@ class HighlandDrownedTest {
         var a = new Cell();
         var b = new Cell();
         int shoreColumns = 0, checked = 0, differ = 0, beaches = 0, marsh = 0;
-        for (int[] box : java.util.Arrays.copyOf(RIA_BOXES, MARSH_BOXES)) {
+        for (int[] box : java.util.Arrays.copyOf(RIA_BOXES, PATH_BOXES)) {
             var shore = HighlandDrownedProbe.armShore(context, box, SITE_RADIUS, false);
             int stride = Math.max(1, shore.size() / 60);
             for (int k = 0; k < shore.size(); k += stride) {

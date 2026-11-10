@@ -35,18 +35,18 @@ final class HighlandArms {
     private final Map<Long, int[]> buckets;
     private final long entries;
 
-    /** Reusable per-thread query result: values at index i describe one segment within its half-width reach of the position. */
+    /** Reusable per-thread query result: values at index i describe one segment within its half-width reach of the position ({@code x}, {@code z}: its axis point nearest the position). */
     static final class Hits {
         int count;
         int[] segment = new int[64];
-        double[] distance = new double[64], width = new double[64], u = new double[64];
-        void add(int s, double d, double w, double uAt) {
+        double[] distance = new double[64], width = new double[64], u = new double[64], x = new double[64], z = new double[64];
+        void add(int s, double d, double w, double uAt, double axisX, double axisZ) {
             if (count == segment.length) {
                 int n = 2 * count;
                 segment = Arrays.copyOf(segment, n); distance = Arrays.copyOf(distance, n);
-                width = Arrays.copyOf(width, n); u = Arrays.copyOf(u, n);
+                width = Arrays.copyOf(width, n); u = Arrays.copyOf(u, n); x = Arrays.copyOf(x, n); z = Arrays.copyOf(z, n);
             }
-            segment[count] = s; distance[count] = d; width[count] = w; u[count] = uAt;
+            segment[count] = s; distance[count] = d; width[count] = w; u[count] = uAt; x[count] = axisX; z[count] = axisZ;
             count++;
         }
     }
@@ -126,8 +126,8 @@ final class HighlandArms {
         for (int s : candidates) {
             double dx = bx[s] - ax[s], dz = bz[s] - az[s], length2 = dx * dx + dz * dz;
             double t = length2 > 0 ? clamp(((x - ax[s]) * dx + (z - az[s]) * dz) / length2, 0, 1) : 0;
-            double ex = ax[s] + t * dx - x, ez = az[s] + t * dz - z, d2 = ex * ex + ez * ez;
-            if (d2 <= radius[s] * radius[s]) hits.add(s, Math.sqrt(d2), lerp(wa[s], wb[s], t), lerp(ua[s], ub[s], t));
+            double px = ax[s] + t * dx, pz = az[s] + t * dz, ex = px - x, ez = pz - z, d2 = ex * ex + ez * ez;
+            if (d2 <= radius[s] * radius[s]) hits.add(s, Math.sqrt(d2), lerp(wa[s], wb[s], t), lerp(ua[s], ub[s], t), px, pz);
         }
         return hits;
     }

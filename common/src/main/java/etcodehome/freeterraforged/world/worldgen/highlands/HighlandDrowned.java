@@ -352,14 +352,18 @@ final class HighlandDrowned {
      * Valley factor 0..1 of one region from the arm segments near the position: the largest over the segments of the valley
      * profile (full inside {@link #ARM_CORE} of the half width, 0 at it) times the arm fade at the segment's own u (today's fade, so
      * ria arms keep full strength out to BAY_PLATEAU of the reach and shoal over the rest, fjord arms shoal from the coast point). The half
-     * width is the area law times {@link #shape}, so an arm stays centred on its plan0 valley.
+     * width is the area law times {@link #shape}, so an arm stays centred on its plan0 valley. The region weight at the segment's own axis point
+     * ({@code anchor}) scales the ria basin widening and, in a fjord region, the whole arm: a wide arm whose axis lies beyond a region's rim (such
+     * segments are kept for connectivity, see {@link #armKinds}) must not spill basin water into the disc beside it, which put the water hundreds of
+     * blocks off its valley (11-12, D-GC2 fidelity screen).
      */
     private static double armValley(Region region, HighlandArms.Hits hits, double x, double z) {
         double core = region.fjord ? FJORD_ARM_CORE : ARM_CORE, ref = region.fjord ? FJORD_HW_REF : HW_REF, sound = soundFactor(region, x, z), best = 0;
         for (int h = 0; h < hits.count; h++) {
-            double hw = Math.max(HW_MIN, Math.min(MAX_HALF_WIDTH, ref * hits.width[h] * shape(region, hits.u[h], sound))), u = hits.u[h];
-            if (hits.distance[h] >= hw) continue;
-            double fade = u <= 0 ? 1 : 1 - smooth(region.fjord ? 0 : BAY_PLATEAU * region.reach, region.reach, u);
+            double anchor = discWeight(region.cx, region.cz, region.radius, hits.x[h], hits.z[h]); // the region weight at the axis point
+            double hw = Math.max(HW_MIN, Math.min(MAX_HALF_WIDTH, ref * hits.width[h] * shape(region, hits.u[h], sound, anchor))), u = hits.u[h];
+            if (hits.distance[h] >= hw || (region.fjord && anchor <= 0)) continue;
+            double fade = (region.fjord ? anchor : 1) * (u <= 0 ? 1 : 1 - smooth(region.fjord ? 0 : BAY_PLATEAU * region.reach, region.reach, u));
             double inner = Math.min(core, 1 - ARM_WALL_MIN / hw);
             if (fade > 0) best = Math.max(best, fade * (1 - smooth(inner, 1, hits.distance[h] / hw)));
         }
@@ -367,10 +371,10 @@ final class HighlandDrowned {
     }
 
     /** Half width factor of an arm at inland coordinate {@code u}: the ria mouth and basin, or the sound factor of a fjord region. */
-    private static double shape(Region region, double u, double sound) {
+    private static double shape(Region region, double u, double sound, double anchor) {
         if (region.fjord) return sound;
         double narrow = MOUTH_NARROW_MIN + (1 - MOUTH_NARROW_MIN) * smooth(0, MOUTH_LEN * HighlandCoast.EDGE_PER_BLOCK, u);
-        return narrow * (1 + BAY_WIDEN_FACTOR * bayWiden(region, u));
+        return narrow * (1 + BAY_WIDEN_FACTOR * bayWiden(region, u) * anchor);
     }
 
     /** Sound factor (1 to 1 + SOUND_WIDEN) of a fjord region at a position: full within half of SOUND_RADIUS of its sound centre, 1 from SOUND_RADIUS; 1 without a sound. */
