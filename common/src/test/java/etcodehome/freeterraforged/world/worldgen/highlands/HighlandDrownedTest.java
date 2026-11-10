@@ -2247,6 +2247,102 @@ class HighlandDrownedTest {
         return judged;
     }
 
+    /** rimArmsAreDrowned: server preset boxes where arms cross a warped rim (diagnosis sites), on an 8-block grid. */
+    static final int[][] RIM_SERVER_BOXES = {{9373, 2111}, {4317, 20060}, {17716, 21956}, {12660, 16042}, {34272, -12747}};
+    static final int RIM_GRID = 8, RIM_MIN_COLUMNS = 50, RIM_SHORE_REACH = 8;
+
+    /** Counts of one box: columns lowered by the bound coast, of those outside every warped disc (rim zone) and of those the sea (rim-zone water), tagged rim-zone water (fjord, bay), rim-zone shore columns. */
+    private record RimCounts(int lowered, int rim, int rimSea, int fjordTags, int bayTags, int shore) {
+        RimCounts plus(RimCounts o) { return new RimCounts(lowered + o.lowered, rim + o.rim, rimSea + o.rimSea, fjordTags + o.fjordTags, bayTags + o.bayTags, shore + o.shore); }
+    }
+
+    /**
+     * 11-13 (G-11-2 c, T-11-27): a column an arm lowered is drowned for every column-facing reader, also beyond the disc rim. Over the boxes
+     * (server preset diagnosis sites, ROCKIES FJORD_BOXES, user RIA_BOXES[0..1]) on an 8-block grid, for every column whose bound edge is below
+     * its unbound edge: Sample.drowned() is above 0, weight(x, z) equals it exactly, fjord(x, z) and ria(x, z) are each at most it and their
+     * maximum equals it. Lowered columns outside every warped disc (columnWeight 0, the rim zone) number at least 50 in total; every rim-zone column
+     * that is land on the unbound coast and sea on the bound one (rim-zone water) carries a tag, FJORD exactly where fjord(x, z) is above 0 and at
+     * least ria(x, z), else a BAY tag (lookup.applyCell); every rim-zone shore column (land outside every warped disc within COAST_BAND of the coast and
+     * within 64 blocks of rim-zone water of drowned weight at least DROWNED_WEIGHT) has fjord(x, z) or ria(x, z) above 0. (Where an arm's weight dies out at
+     * its far end, a column right at the coastline can be tipped into the sea by a lowering of 1e-8 at a weight of 1e-6; it is tagged like any other, but it
+     * does not make its neighbours shore: the weight falls by about .1 over 64 blocks along the axis there, so water below that weight can lie beside a
+     * column whose nearest axis point is past the rim.)
+     */
+    @Test void rimArmsAreDrowned() throws Exception {
+        var total = new RimCounts(0, 0, 0, 0, 0, 0);
+        var failures = new ArrayList<String>();
+        var server = WorldgenFixture.shared(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED);
+        for (int[] box : RIM_SERVER_BOXES) total = total.plus(rimBox("server", server, box, failures));
+        try (var rockies = WorldgenFixture.context(BiomeCensusProbe.rockies(), HighlandPlanformProbe.USER_SEED)) {
+            for (int[] box : FJORD_BOXES) total = total.plus(rimBox("rockies", rockies, box, failures));
+        }
+        var user = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
+        for (int i = 0; i < 2; i++) total = total.plus(rimBox("user", user, RIA_BOXES[i], failures));
+        System.out.println("RH10 rim zone total: lowered " + total.lowered() + " rim-zone " + total.rim() + " of which sea " + total.rimSea() + " tags fjord " + total.fjordTags() + " bay " + total.bayTags() + " shore " + total.shore());
+        assertTrue(failures.isEmpty(), failures.size() + " columns break the effective weight: " + failures.stream().limit(10).toList());
+        assertTrue(total.rim() >= RIM_MIN_COLUMNS, "too few rim-zone columns: " + total.rim());
+    }
+
+    private static RimCounts rimBox(String label, GeneratorContext context, int[] box, List<String> failures) {
+        var coast = coastOf(context);
+        var drowned = coast.drowned();
+        double coastEdge = context.preset.world().controlPoints.coast;
+        int n = 2 * SITE_RADIUS / RIM_GRID + 1, x0 = box[0] - SITE_RADIUS, z0 = box[1] - SITE_RADIUS;
+        boolean[] water = new boolean[n * n], shore = new boolean[n * n];
+        var found = new java.util.concurrent.ConcurrentLinkedQueue<String>();
+        var tagged = new java.util.concurrent.ConcurrentLinkedQueue<int[]>();
+        var lowered = new java.util.concurrent.atomic.AtomicInteger();
+        var rimZone = new java.util.concurrent.atomic.AtomicInteger();
+        java.util.stream.IntStream.range(0, n).parallel().forEach(j -> {
+            for (int i = 0; i < n; i++) {
+                int x = x0 + i * RIM_GRID, z = z0 + j * RIM_GRID;
+                var bound = coast.sample(x, z);
+                double base = coast.undrowned(x, z).edge();
+                if (bound.edge() < base) {
+                    lowered.incrementAndGet();
+                    double w = drowned.weight(x, z), f = drowned.fjord(x, z), r = drowned.ria(x, z);
+                    if (!(bound.drowned() > 0) || Double.doubleToLongBits(w) != Double.doubleToLongBits(bound.drowned()) || f > w || r > w || Math.max(f, r) != w)
+                        found.add(label + " " + x + "," + z + ": drowned " + bound.drowned() + " weight " + w + " fjord " + f + " ria " + r);
+                    if (drowned.columnWeight(x, z) > 0) continue;
+                    rimZone.incrementAndGet();
+                    if (bound.edge() > coastEdge) continue;
+                    if (bound.drowned() >= HighlandDrownedProbe.DROWNED_WEIGHT) water[j * n + i] = true;
+                    if (base > coastEdge) tagged.add(new int[] {x, z});
+                } else if (bound.edge() > coastEdge && bound.edge() - coastEdge < HighlandDrainage.COAST_BAND && drowned.columnWeight(x, z) <= 0) {
+                    shore[j * n + i] = true;
+                }
+            }
+        });
+        failures.addAll(found);
+        int rimSea = 0, shores = 0, fjordTags = 0, bayTags = 0;
+        for (boolean b : water) if (b) rimSea++;
+        for (int j = 0; j < n; j++) for (int i = 0; i < n; i++) {
+            if (!shore[j * n + i] || !nearWater(water, n, i, j)) continue;
+            shores++;
+            int x = x0 + i * RIM_GRID, z = z0 + j * RIM_GRID;
+            if (!(drowned.fjord(x, z) > 0 || drowned.ria(x, z) > 0)) failures.add(label + " " + x + "," + z + ": rim-zone shore with no region weight");
+        }
+        var cell = new Cell();
+        for (int[] at : tagged) {
+            context.lookup.applyCell(cell.reset(), at[0], at[1], false, true);
+            double f = drowned.fjord(at[0], at[1]), r = drowned.ria(at[0], at[1]);
+            byte expected = f > 0 && f >= r ? HighlandWater.FJORD : HighlandWater.BAY;
+            if (cell.highlandWater != expected) failures.add(label + " " + at[0] + "," + at[1] + ": rim-zone water tag " + cell.highlandWater + ", expected " + expected);
+            if (expected == HighlandWater.FJORD) fjordTags++; else bayTags++;
+        }
+        var counts = new RimCounts(lowered.get(), rimZone.get(), rimSea, fjordTags, bayTags, shores);
+        System.out.println("RH10 rim zone " + label + " box " + box[0] + "," + box[1] + ": lowered " + counts.lowered() + " rim-zone " + counts.rim() + " of which sea " + counts.rimSea() + " tags fjord " + fjordTags + " bay " + bayTags + " shore " + shores);
+        return counts;
+    }
+
+    private static boolean nearWater(boolean[] water, int n, int i, int j) {
+        for (int dj = -RIM_SHORE_REACH; dj <= RIM_SHORE_REACH; dj++) for (int di = -RIM_SHORE_REACH; di <= RIM_SHORE_REACH; di++) {
+            int a = i + di, b = j + dj;
+            if (di * di + dj * dj <= RIM_SHORE_REACH * RIM_SHORE_REACH && a >= 0 && a < n && b >= 0 && b < n && water[b * n + a]) return true;
+        }
+        return false;
+    }
+
     /**
      * Drowned-water tags (locate "fjord" / "bay"): fjord water in the ROCKIES fjord boxes and bay water in the user-world ria
      * boxes; every tagged cell is sea that the RH9 coast has as land, and a FJORD tag only where a fjord region outweighs
