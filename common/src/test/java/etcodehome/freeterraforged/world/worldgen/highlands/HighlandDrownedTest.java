@@ -527,26 +527,35 @@ class HighlandDrownedTest {
         }
     }
 
+    /** Physical valley network size of a plan0: branches, samples, estimated bytes and the headroom against VALLEY_SAMPLE_BUDGET. */
+    private static String valleyCost(HighlandDrainage.Valleys valleys) {
+        return String.format(java.util.Locale.ROOT, "valleys %d branches, %d samples, %d bytes, headroom %.1f%% of VALLEY_SAMPLE_BUDGET (%d)", valleys.branches(), valleys.x().length, valleys.estimatedBytes(),
+            100.0 * (HighlandDrainage.VALLEY_SAMPLE_BUDGET - valleys.x().length) / HighlandDrainage.VALLEY_SAMPLE_BUDGET, HighlandDrainage.VALLEY_SAMPLE_BUDGET);
+    }
+
     /**
      * Probe (11-10): cold arm cost on the server preset, per owner (0,0), (2,-1) and SEAM_OWNER when there is one: plan0 build ms
      * (basePlan), cold arm build ms (plan0 plus the reduction to arm data) and its estimated bytes, the cold final build wall ms
      * (planOf on a fresh context, including the arm build it triggers) next to its buildNanos, and the neighbour arm builds that final
      * build triggered (count, and their ms timed through a fresh context's arms call), and how many arm entries exist after the provisional
-     * drainage build and after the relief build alone (which stage asks the neighbours). Written to build/rh10-gap/cost-arms.txt.
+     * drainage build and after the relief build alone (which stage asks the neighbours). 11-22 adds the physical valley network of plan0 per owner (branches,
+     * samples, bytes, headroom against VALLEY_SAMPLE_BUDGET) and the same for the ROCKIES owner (2,-1) and the first drowned owner of each plan seed. Written to build/rh10-gap/cost-arms.txt.
      */
     @Tag("probe")
     @Test void armBuildCost() throws Exception {
         var owners = new ArrayList<int[]>(List.of(new int[]{0, 0}, new int[]{2, -1}));
         if (SEAM_OWNER != null) owners.add(SEAM_OWNER);
         var lines = new ArrayList<String>();
+        int largest = 0;
         for (int[] owner : owners) {
             long plan0Ms, armMs, armBytes, finalMs, finalNanos, neighbourMs = 0;
             int segments, afterDrainage, afterRelief;
+            HighlandDrainage.Valleys valleys;
             Set<Long> neighbours;
             try (var context = WorldgenFixture.context(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED)) {
                 var continent = (RollingHighlandsContinent) context.heightmap.continent();
                 long t = System.nanoTime();
-                continent.basePlan(owner[0], owner[1]);
+                valleys = continent.basePlan(owner[0], owner[1]).valleys();
                 plan0Ms = (System.nanoTime() - t) / 1_000_000;
                 t = System.nanoTime();
                 var arms = continent.coast().drowned().arms(owner[0], owner[1]);
@@ -579,9 +588,27 @@ class HighlandDrownedTest {
                     neighbourMs += (System.nanoTime() - t) / 1_000_000;
                 }
             }
-            lines.add(String.format(java.util.Locale.ROOT, "owner %d,%d: plan0 %d ms, cold arm build %d ms (%d segments, %d bytes), cold final build %d ms (buildNanos %d ms), neighbour plan0 builds %d (%d ms); arm entries after the provisional drainage build %d, after the relief build %d",
-                owner[0], owner[1], plan0Ms, armMs, segments, armBytes, finalMs, finalNanos / 1_000_000, neighbours.size(), neighbourMs, afterDrainage, afterRelief));
+            largest = Math.max(largest, valleys.x().length);
+            lines.add(String.format(java.util.Locale.ROOT, "owner %d,%d: plan0 %d ms, cold arm build %d ms (%d segments, %d bytes), cold final build %d ms (buildNanos %d ms), neighbour plan0 builds %d (%d ms); arm entries after the provisional drainage build %d, after the relief build %d; %s",
+                owner[0], owner[1], plan0Ms, armMs, segments, armBytes, finalMs, finalNanos / 1_000_000, neighbours.size(), neighbourMs, afterDrainage, afterRelief, valleyCost(valleys)));
         }
+        // Valley network size on the other fixtures of the River Count matrix (ROCKIES owner and the first drowned owner of each plan seed).
+        try (var context = WorldgenFixture.context(BiomeCensusProbe.rockies(), HighlandPlanformProbe.USER_SEED)) {
+            var valleys = ((RollingHighlandsContinent) context.heightmap.continent()).basePlan(2, -1).valleys();
+            largest = Math.max(largest, valleys.x().length);
+            lines.add("ROCKIES owner 2,-1: " + valleyCost(valleys));
+        }
+        for (long seed : new long[]{HighlandPlanformProbe.USER_SEED, 1L, 42L, -314159L, 20261107L}) {
+            try (var context = WorldgenFixture.context(HighlandPlanformProbe.userPreset(), seed)) {
+                var continent = (RollingHighlandsContinent) context.heightmap.continent();
+                int[] point = firstDrownedPoint(context);
+                var owner = continent.coast().undrowned(point[0], point[1]);
+                var valleys = continent.basePlan(owner.ownerX(), owner.ownerZ()).valleys();
+                largest = Math.max(largest, valleys.x().length);
+                lines.add("user seed " + seed + " owner " + owner.ownerX() + "," + owner.ownerZ() + ": " + valleyCost(valleys));
+            }
+        }
+        lines.add(String.format(java.util.Locale.ROOT, "largest valley sample count of the server, ROCKIES and plan-seed owners %d (%.1f%% of VALLEY_SAMPLE_BUDGET %d)", largest, 100.0 * largest / HighlandDrainage.VALLEY_SAMPLE_BUDGET, HighlandDrainage.VALLEY_SAMPLE_BUDGET));
         lines.add(SEAM_OWNER == null ? "SEAM_OWNER: none exists on the server preset (see seamOwnerScan)" : "SEAM_OWNER " + SEAM_OWNER[0] + "," + SEAM_OWNER[1]);
         lines.forEach(System.out::println);
         Files.createDirectories(Path.of("build/rh10-gap"));
@@ -1839,6 +1866,8 @@ class HighlandDrownedTest {
         Path dir = Path.of("build/rh10-gap");
         Files.createDirectories(dir);
         var lines = new ArrayList<String>();
+        var arms = new java.util.HashMap<String, Integer>(); // arm segments of each final plan's owner
+        String render = null;
         for (var fixture : DUMP_FIXTURES) {
             try (var context = WorldgenFixture.context(dumpPreset(fixture.kind), fixture.seed)) {
                 var continent = (RollingHighlandsContinent) context.heightmap.continent();
@@ -1849,11 +1878,97 @@ class HighlandDrownedTest {
                 var continent = (RollingHighlandsContinent) context.heightmap.continent();
                 var plan = continent.planOf(fixture.ownerX, fixture.ownerZ).plan();
                 lines.add(dumpPlan(fixture.label + "-final", plan, dir));
-                if (fixture.kind == 0 && fixture.ownerX == 0 && fixture.ownerZ == 0) dumpRender(context, plan, dir.resolve("drawn-render.csv"));
+                arms.put(fixture.label + "-final", continent.coast().drowned().arms(fixture.ownerX, fixture.ownerZ).segments());
+                if (fixture.kind == 0 && fixture.ownerX == 0 && fixture.ownerZ == 0) render = dumpRender(context, plan, dir.resolve("drawn-render.csv"));
             }
         }
         lines.forEach(System.out::println);
         Files.write(dir.resolve("drawn-network.txt"), lines);
+        if (Files.exists(dir.resolve("drawn-network-d08ec417.txt"))) {
+            var report = compareToBaseline(dir, lines, arms, render);
+            report.forEach(System.out::println);
+            Files.write(dir.resolve("rc-independence.txt"), report);
+            assertTrue(report.stream().noneMatch(line -> line.startsWith("verdict unjustified")), report.get(report.size() - 1));
+        }
+    }
+
+    /** The "key=value" fields of a dump line, plus the label. */
+    private static java.util.Map<String, String> dumpFields(String line) {
+        var fields = new java.util.LinkedHashMap<String, String>();
+        String[] parts = line.split(" ");
+        fields.put("label", parts[0]);
+        for (int i = 1; i < parts.length; i++) fields.put(parts[i].substring(0, parts[i].indexOf('=')), parts[i].substring(parts[i].indexOf('=') + 1));
+        return fields;
+    }
+
+    private static List<double[]> readAxis(Path file) throws Exception {
+        var points = new ArrayList<double[]>();
+        for (String line : Files.readAllLines(file)) { String[] xz = line.split(","); points.add(new double[]{Double.parseDouble(xz[0]), Double.parseDouble(xz[1])}); }
+        return points;
+    }
+
+    /** Distance from each point of {@code from} to the nearest point of {@code to} (a 32-block bucket grid, rings searched outward). */
+    private static double[] nearestDistances(List<double[]> from, List<double[]> to) {
+        var grid = new java.util.HashMap<Long, List<double[]>>();
+        for (var p : to) grid.computeIfAbsent(PosUtil.pack((int) Math.floor(p[0] / 32), (int) Math.floor(p[1] / 32)), k -> new ArrayList<>()).add(p);
+        double[] result = new double[from.size()];
+        for (int i = 0; i < result.length; i++) {
+            var p = from.get(i);
+            int cx = (int) Math.floor(p[0] / 32), cz = (int) Math.floor(p[1] / 32);
+            double best = Double.POSITIVE_INFINITY;
+            for (int r = 0; r <= 400 && !(best <= (r - 1) * 32.0); r++) for (int dz = -r; dz <= r; dz++) for (int dx = -r; dx <= r; dx++) {
+                if (Math.max(Math.abs(dx), Math.abs(dz)) != r) continue;
+                var cellPoints = grid.get(PosUtil.pack(cx + dx, cz + dz));
+                if (cellPoints != null) for (var q : cellPoints) best = Math.min(best, Math.hypot(p[0] - q[0], p[1] - q[1]));
+            }
+            result[i] = best;
+        }
+        return result;
+    }
+
+    private static String displacement(String direction, double[] d) {
+        double[] sorted = d.clone();
+        java.util.Arrays.sort(sorted);
+        long zero = java.util.Arrays.stream(d).filter(v -> v == 0).count(), one = java.util.Arrays.stream(d).filter(v -> v <= 1).count(), four = java.util.Arrays.stream(d).filter(v -> v <= 4).count();
+        return String.format(java.util.Locale.ROOT, "%s: at 0 %.4f, within 1 block %.4f, within 4 blocks %.4f, p95 %.2f, max %.2f", direction,
+            (double) zero / d.length, (double) one / d.length, (double) four / d.length, sorted.length == 0 ? 0 : sorted[(int) (.95 * (sorted.length - 1))], sorted.length == 0 ? 0 : sorted[sorted.length - 1]);
+    }
+
+    /**
+     * Compares the current dump with the d08ec417 baseline (D-GC8: River Count independent valleys change the default River Count output only
+     * through the valley tangent and clearance rule and, in final plans, through the arms). Per plan: equal, or the count deltas and the axis
+     * displacement both ways; the render box columns; then one verdict line: bit-for-bit (all eight hashes equal), justified-different (the
+     * split alone is neutral per the Step A dump, every inert plan keeps its grid and land nodes, and final land nodes change only on owners with
+     * arms) or unjustified (the probe fails).
+     */
+    private static List<String> compareToBaseline(Path dir, List<String> now, java.util.Map<String, Integer> arms, String render) throws Exception {
+        var report = new ArrayList<String>();
+        var baseline = Files.readAllLines(dir.resolve("drawn-network-d08ec417.txt"));
+        var stepA = Files.exists(dir.resolve("drawn-network-stepA.txt")) ? Files.readAllLines(dir.resolve("drawn-network-stepA.txt")) : List.<String>of();
+        boolean equal = true, neutral = stepA.equals(baseline);
+        String offending = neutral ? null : "the Step A dump (drawn-network-stepA.txt) is missing or differs from the d08ec417 baseline";
+        for (int i = 0; i < now.size(); i++) {
+            var current = dumpFields(now.get(i));
+            var before = dumpFields(baseline.get(i));
+            String label = current.get("label");
+            if (current.get("sha256").equals(before.get("sha256"))) { report.add(label + " equal"); continue; }
+            equal = false;
+            var delta = new StringBuilder(label + " different:");
+            for (String key : List.of("gridNodes", "landNodes", "nodes", "reaches", "axis", "oxbows", "basins"))
+                delta.append(' ').append(key).append(' ').append(before.get(key)).append("->").append(current.get(key));
+            report.add(delta.toString());
+            boolean inert = label.endsWith("-inert");
+            if (!current.get("gridNodes").equals(before.get("gridNodes"))) offending = label + " changed its grid nodes";
+            else if (!current.get("landNodes").equals(before.get("landNodes")) && (inert || arms.getOrDefault(label, 0) == 0)) offending = label + " changed its land nodes" + (inert ? " (inert plan)" : " without arms");
+            if (inert && !current.get("reaches").equals(before.get("reaches")))
+                report.add(label + " reach count changed (cause: HighlandMeanders splits stems by geometry; the drawn mask, tributaries and main children are unchanged by construction)");
+            var oldAxis = readAxis(dir.resolve("drawn-axis-" + label + "-d08ec417.csv"));
+            var newAxis = readAxis(dir.resolve("drawn-axis-" + label + ".csv"));
+            report.add(label + " axis displacement " + displacement("new to old", nearestDistances(newAxis, oldAxis)) + "; " + displacement("old to new", nearestDistances(oldAxis, newAxis)));
+        }
+        report.add(render == null ? "render box: none" : render);
+        report.add(equal ? "verdict bit-for-bit" : offending == null ? "verdict justified-different" : "verdict unjustified: " + offending);
+        return report;
     }
 
     private record DumpFixture(String label, int kind, long seed, int ownerX, int ownerZ) {}
@@ -1902,7 +2017,7 @@ class HighlandDrownedTest {
      * drowned weight 0 and that holds drawn river water. A box already recorded in the d08ec417 file (first line "# box X Z") is reused so
      * later runs compare the same columns.
      */
-    private static void dumpRender(GeneratorContext context, HighlandDrainage.Plan plan, Path file) throws Exception {
+    private static String dumpRender(GeneratorContext context, HighlandDrainage.Plan plan, Path file) throws Exception {
         var coast = coastOf(context);
         var cell = new Cell();
         var seen = new java.util.HashSet<Long>();
@@ -1929,9 +2044,23 @@ class HighlandDrownedTest {
                 water |= cell.hasRiverWater;
                 rows.add(x + "," + z + "," + Float.floatToIntBits(cell.height) + "," + (cell.hasRiverWater ? Float.floatToIntBits(cell.riverWaterLevel) : "none"));
             }
-            if (!water) continue;
+            if (!water && !Files.exists(baseline)) continue;
             Files.write(file, rows);
-            return;
+            if (!Files.exists(baseline)) return "render box " + box[0] + "," + box[1] + " recorded";
+            var before = Files.readAllLines(baseline);
+            int changed = 0, large = 0, appear = 0, disappear = 0;
+            double largest = 0;
+            for (int i = 1; i < rows.size(); i++) {
+                String[] a = before.get(i).split(","), b = rows.get(i).split(",");
+                double delta = Math.abs(Float.intBitsToFloat(Integer.parseInt(b[2])) - Float.intBitsToFloat(Integer.parseInt(a[2]))) * context.levels.terrainScaleFactor;
+                if (!a[2].equals(b[2])) changed++;
+                if (delta > 1) large++;
+                largest = Math.max(largest, delta);
+                if (a[3].equals("none") && !b[3].equals("none")) appear++;
+                if (!a[3].equals("none") && b[3].equals("none")) disappear++;
+            }
+            return String.format(java.util.Locale.ROOT, "render box %d,%d (%d columns, step %d): height changed in %d, by more than 1 block in %d, largest change %.2f blocks; river water appears in %d columns, disappears in %d",
+                box[0], box[1], rows.size() - 1, RENDER_STEP, changed, large, largest, appear, disappear);
         }
         throw new AssertionError("no render box without drowned weight and with drawn river water");
     }
