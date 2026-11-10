@@ -60,6 +60,13 @@ public final class HighlandDrainage {
     static final double CREEK_AREA = .065, RIVER_AREA = .36, STRUCTURAL_AREA = .043;
     /** River Count that maps to CREEK_AREA, and the range of the resulting area scale. */
     static final double REFERENCE_RIVER_COUNT = 7, MIN_DENSITY_SCALE = .4, MAX_DENSITY_SCALE = 3;
+    /**
+     * Drainage area (fraction of uplandSpacing²) at which the physical valley network starts (D-GC8): the finest network any
+     * River Count draws (River Count 30 and every count from 18 on draw exactly this), so the drawn network is always a subset of it.
+     */
+    static final double VALLEY_AREA = CREEK_AREA * MIN_DENSITY_SCALE;
+    /** Bound on the samples of the physical valley network of one plan (twice the drawn refinement budget). */
+    static final int VALLEY_SAMPLE_BUDGET = 2 * MAX_REFINED_NODES;
     /** Half width (blocks) of a channel at its head: 2-4 block creeks once the valley texture's width noise applies. */
     static final double CREEK_HALF_WIDTH = 1.4;
     /** Established rivers: half width 16 (A/spacing²)^0.35 within these bounds (the RH4 law, unchanged). */
@@ -67,7 +74,7 @@ public final class HighlandDrainage {
     /** Head taper: the first HEAD_TAPER blocks below a channel head narrow to this share of the width. */
     static final double HEAD_WIDTH = .85;
     /** Drawn creek-head area, established-river area and structural (capture/lake) area, in blocks². */
-    private final double creekArea, riverArea, structuralArea, creekExponent;
+    private final double creekArea, riverArea, structuralArea, valleyArea, creekExponent;
     /** D8 neighbours; diagonals cost sqrt(2) in the flat-resolution distance and may not cross each other. */
     private static final int[] DX = {0, -1, 1, 0, -1, 1, -1, 1};
     private static final int[] DZ = {-1, 0, 0, 1, -1, 1, 1, -1};
@@ -132,6 +139,7 @@ public final class HighlandDrainage {
         this.structuralArea = STRUCTURAL_AREA * area2;
         double scale = clamp(REFERENCE_RIVER_COUNT / Math.max(1, riverCount), MIN_DENSITY_SCALE, MAX_DENSITY_SCALE);
         this.creekArea = Math.min(CREEK_AREA * area2 * scale, riverArea / 1.5);
+        this.valleyArea = Math.min(VALLEY_AREA * area2, riverArea / 1.5);
         // Creeks widen as a power of drainage area from CREEK_HALF_WIDTH at their head to the river law at riverArea.
         this.creekExponent = Math.log(riverHalfWidth(riverArea) / CREEK_HALF_WIDTH) / Math.log(riverArea / creekArea);
         this.coastEdge = controls.coast; this.inlandEdge = controls.coast + Math.max(controls.inland - controls.coast, COASTAL_RISE * Math.max(1, 16000.0 / coast.tectonicScale));
@@ -210,7 +218,29 @@ public final class HighlandDrainage {
      * height (incised planning surface, low-passed over about two grid steps) that RH climate reads (RH5 C).
      */
     public record Plan(int ownerX, int ownerZ, int gridStep, int gridNodes, int landNodes, List<Node> nodes, List<Reach> reaches, List<AxisNode> axis, List<Oxbow> oxbows,
-                       HighlandBasins basins, long buildNanos, int originX, int originZ, int width, double[] incision, double[] water, double[] climate) {}
+                       HighlandBasins basins, long buildNanos, int originX, int originZ, int width, double[] incision, double[] water, double[] climate, Valleys valleys) {
+        /**
+         * A plan without a physical valley network: only {@link #build} fills {@code valleys}; plans derived from a built plan
+         * (resolved lakes) and the river-less plan carry {@link Valleys#EMPTY}, so the owner plan cache never retains the network.
+         */
+        public Plan(int ownerX, int ownerZ, int gridStep, int gridNodes, int landNodes, List<Node> nodes, List<Reach> reaches, List<AxisNode> axis, List<Oxbow> oxbows,
+                    HighlandBasins basins, long buildNanos, int originX, int originZ, int width, double[] incision, double[] water, double[] climate) {
+            this(ownerX, ownerZ, gridStep, gridNodes, landNodes, nodes, reaches, axis, oxbows, basins, buildNanos, originX, originZ, width, incision, water, climate, Valleys.EMPTY);
+        }
+    }
+    /**
+     * Physical valley network (D-GC8): the valley axes of every link draining at least {@link #VALLEY_AREA}, a function of seed,
+     * preset, coast and land only (never River Count). Branches are chains of links along the largest-area physical child; a branch
+     * is {@code id} (grid index of its downstream-most land node) and owns the samples {@code first[b] .. first[b+1]-1}, ordered
+     * downstream to upstream, the first being the junction point (the root node for a sea root), so consecutive samples form connected
+     * 16-block segments. {@code down[b]} is the index of the downstream branch (always earlier in the list) or -1 at a sea root;
+     * {@code area} is the drainage area (blocks²) at each sample and {@code area2} the spacing squared.
+     */
+    record Valleys(double[] x, double[] z, double[] area, int[] first, int[] id, int[] down, double area2) {
+        static final Valleys EMPTY = new Valleys(new double[0], new double[0], new double[0], new int[]{0}, new int[0], new int[0], 1);
+        int branches() { return id.length; }
+        long estimatedBytes() { return x.length * 24L + first.length * 4L + id.length * 8L; }
+    }
     private record QueueNode(int index, double level, double distance) {}
     /** Lake id of axis samples in the sea (river mouths). */
     static final int OCEAN = -2;
@@ -545,6 +575,41 @@ public final class HighlandDrainage {
         return best;
     }
 
+    /**
+     * The physical valley network of the plan from the per-link samples: branches in flood order (a branch after its downstream branch),
+     * each a chain of links along the physical main child, each starting with its junction sample (see {@link Valleys}).
+     */
+    private static Valleys valleys(int n, int count, int[] order, boolean[] valley, int[] parent, int[] valleyChild, double[] area, double area2,
+                                   double[] pathX, double[] pathZ, int[] linkStart, int[] linkPieces, double[] linkX, double[] linkZ) {
+        int branches = 0, samples = 0;
+        for (int i = 0; i < n; i++) {
+            if (!valley[i] || parent[i] < 0) continue;
+            samples += linkPieces[i];
+            if (parent[parent[i]] < 0 || valleyChild[parent[i]] != i) { branches++; samples++; }
+        }
+        double[] x = new double[samples], z = new double[samples], a = new double[samples];
+        int[] first = new int[branches + 1], id = new int[branches], down = new int[branches], branchOf = new int[n];
+        int b = 0, s = 0;
+        for (int k = 0; k < count; k++) {
+            int i = order[k], p = parent[i];
+            if (!valley[i] || p < 0 || parent[p] >= 0 && valleyChild[p] == i) continue; // a main child continues its downstream link's branch
+            id[b] = i; first[b] = s; down[b] = parent[p] < 0 ? -1 : branchOf[p];
+            if (parent[p] < 0) { x[s] = pathX[p]; z[s] = pathZ[p]; } // the junction: the sea root node, or the end of the downstream link
+            else { int last = linkStart[p] + linkPieces[p] - 1; x[s] = linkX[last]; z[s] = linkZ[last]; }
+            a[s++] = area[p];
+            for (int v = i; v >= 0; v = valleyChild[v]) {
+                branchOf[v] = b;
+                for (int piece = 1; piece <= linkPieces[v]; piece++, s++) {
+                    x[s] = linkX[linkStart[v] + piece - 1]; z[s] = linkZ[linkStart[v] + piece - 1];
+                    a[s] = lerp(area[parent[v]], area[v], piece / (double) linkPieces[v]);
+                }
+            }
+            b++;
+        }
+        first[b] = s;
+        return new Valleys(x, z, a, first, id, down, area2);
+    }
+
     /** Deterministic river-less plan used when an owner's drainage cannot be built. */
     public Plan emptyPlan(int ownerX, int ownerZ) {
         var basins = new HighlandBasins(surface.seed(), 0, 0, 1, 1, 64, new double[1], new double[1], new boolean[1], new boolean[1], new double[1], new double[1]);
@@ -847,7 +912,8 @@ public final class HighlandDrainage {
             }
             if (!breached || round == 3) break;
         }
-        double structural = Math.max(3.0 * step * step, structuralArea), threshold = Math.max(3.0 * step * step, creekArea);
+        double structural = Math.max(3.0 * step * step, structuralArea), threshold = Math.max(3.0 * step * step, creekArea),
+            valleyThreshold = Math.max(3.0 * step * step, valleyArea);
         boolean[] lakeNode = keep.clone();
         damLakes(ownerX, ownerZ, width, depth, step, n, count, order, parent, land, area, run, ground, incised, water, structural, lakeNode);
         for (int i = 0; i < n; i++) lakeNode[i] &= land[i] && water[i] > incised[i];
@@ -858,14 +924,21 @@ public final class HighlandDrainage {
         boolean[] lakeChannel = new boolean[n], channel = new boolean[n];
         for (int i = 0; i < n; i++) lakeChannel[i] = land[i] && area[i] >= structural;
         boolean[] lakeMask = hollows(width, depth, n, step, land, lakeChannel, keep, incised, water);
+        // The physical network (D-GC8) is every link at or above the finest drawn threshold plus the same lake outlets; the drawn
+        // network (this River Count's creek threshold) is chosen from it and can never leave it.
+        boolean[] valley = new boolean[n];
         for (int i = 0; i < n; i++) {
-            channel[i] = land[i] && (area[i] >= threshold || lakeChannel[i] && water[i] - incised[i] > .5);
+            boolean lakeOutlet = lakeChannel[i] && water[i] - incised[i] > .5;
+            valley[i] = land[i] && (area[i] >= valleyThreshold || lakeOutlet);
+            channel[i] = land[i] && (area[i] >= threshold || lakeOutlet);
         }
         for (int k = count - 1; k >= 0; k--) {
             int i = order[k];
             if (lakeChannel[i] && parent[i] >= 0) lakeChannel[parent[i]] = true;
+            if (valley[i] && parent[i] >= 0) valley[parent[i]] = true;
             if (channel[i] && parent[i] >= 0) channel[parent[i]] = true;
         }
+        for (int i = 0; i < n; i++) if (channel[i] && !valley[i]) throw new IllegalStateException("RH drawn channel outside the physical network");
         double[] incision = new double[n];
         // Positive: incision; negative only at lake dams (a natural barrier raised above the land, like a moraine).
         for (int i = 0; i < n; i++) incision[i] = land[i] ? ground[i] - incised[i] : 0;
@@ -888,6 +961,15 @@ public final class HighlandDrainage {
             tributaries[p]++;
             if (mainChild[p] < 0 || area[i] > area[mainChild[p]] || area[i] == area[mainChild[p]] && i < mainChild[p]) mainChild[p] = i;
         }
+        // Main child over the physical network (largest drainage area, ties to the lower index): the tangent source of every valley link.
+        // The drawn mainChild above stays the drawn reach structure's input.
+        int[] valleyChild = new int[n];
+        Arrays.fill(valleyChild, -1);
+        for (int i = 0; i < n; i++) {
+            if (!valley[i] || parent[i] < 0) continue;
+            int p = parent[i];
+            if (valleyChild[p] < 0 || area[i] > area[valleyChild[p]] || area[i] == area[valleyChild[p]] && i < valleyChild[p]) valleyChild[p] = i;
+        }
         HighlandBasins basins = new HighlandBasins(surface.seed() + 52361, originX, originZ, width, depth, step, incised, water, land, lakeMask, nodeX, nodeZ);
         // RH6 L2: one lake level. Flooded nodes carry the lake surface (spill minus freeboard), not the spill level, so
         // channels in a lake's backwater meet the lake at its own level instead of stepping down one block.
@@ -897,20 +979,20 @@ public final class HighlandDrainage {
         }
         // Channels run through the routing nodes' own (jittered) positions.
         double[] pathX = nodeX, pathZ = nodeZ;
-        // Valley axis (RH3 centreline): tangent-continuous Hermite per grid link, 16-block samples.
-        AxisSamples axis = new AxisSamples();
-        int[] endpoint = new int[n], linkFirst = new int[n];
-        Arrays.fill(endpoint, -1); Arrays.fill(linkFirst, -1);
+        // Valley axis (RH3 centreline, D-GC8): tangent-continuous Hermite per physical link, 16-block samples, kept per link; the
+        // drawn network below takes its samples from here.
+        int[] linkStart = new int[n], linkPieces = new int[n];
+        double[] linkLength = new double[n], linkX = new double[1024], linkZ = new double[1024];
+        int linkSamples = 0;
         double[] curveX = new double[17], curveZ = new double[17];
         for (int k = 0; k < count; k++) {
             int i = order[k];
-            if (!channel[i]) continue;
+            if (!valley[i] || parent[i] < 0) continue;
             double x = pathX[i], z = pathZ[i];
             int p = parent[i];
-            if (p < 0) { endpoint[i] = axis.add(x, z, 0, 0, area[i], -1, 1, OCEAN, i); continue; }
             double px = pathX[p], pz = pathZ[p];
             // Hermite curve from the downstream node to this node, tangent-continuous along each main stem.
-            int beyond = parent[p], upstream = mainChild[i];
+            int beyond = parent[p], upstream = valleyChild[i];
             double qx = beyond >= 0 ? pathX[beyond] : 2 * px - x, qz = beyond >= 0 ? pathZ[beyond] : 2 * pz - z;
             double rx = upstream >= 0 ? pathX[upstream] : 2 * x - px, rz = upstream >= 0 ? pathZ[upstream] : 2 * z - pz;
             double chord = Math.max(1e-6, Math.hypot(x - px, z - pz));
@@ -931,9 +1013,6 @@ public final class HighlandDrainage {
                 if (c > 0) length += Math.hypot(curveX[c] - curveX[c - 1], curveZ[c] - curveZ[c - 1]);
             }
             int pieces = Math.max(1, (int) Math.ceil(length / 16.0));
-            boolean headReach = tributaries[i] == 0;
-            int previous = endpoint[p];
-            linkFirst[i] = axis.size;
             // RH6 F2: thalweg refinement. Samples move across the link toward the low ground (smoothed, tapered to
             // zero at both end nodes, clear of other links).
             double[] sxs = new double[pieces + 1], szs = new double[pieces + 1], move = new double[pieces + 1];
@@ -953,17 +1032,36 @@ public final class HighlandDrainage {
             for (int piece = 1; piece <= pieces; piece++) {
                 double t = piece / (double) pieces, fromEnds = Math.min(t, 1 - t) * length;
                 double shift = move[piece] * smooth(0, THALWEG_TAPER, fromEnds);
-                // Clearance: never more than a share of the distance to any other drawn link, so channels drawn into
+                // Clearance: never more than a share of the distance to any other physical link, so channels drawn into
                 // the same valley bottom cannot meet or cross.
-                double room = THALWEG_CLEARANCE * Math.max(0, otherLinkDistance(sxs[piece], szs[piece], i, pathX, pathZ, parent, channel,
+                double room = THALWEG_CLEARANCE * Math.max(0, otherLinkDistance(sxs[piece], szs[piece], i, pathX, pathZ, parent, valley,
                     width, depth, originX, originZ, step) - THALWEG_MARGIN);
                 shift = clamp(shift, -room, room);
                 sxs[piece] += nx * shift; szs[piece] += nz * shift;
             }
+            if (linkSamples + pieces > VALLEY_SAMPLE_BUDGET) throw new IllegalStateException("RH valley network budget exceeded");
+            while (linkSamples + pieces > linkX.length) { linkX = Arrays.copyOf(linkX, linkX.length * 2); linkZ = Arrays.copyOf(linkZ, linkZ.length * 2); }
+            linkStart[i] = linkSamples; linkPieces[i] = pieces; linkLength[i] = length;
+            for (int piece = 1; piece <= pieces; piece++, linkSamples++) { linkX[linkSamples] = sxs[piece]; linkZ[linkSamples] = szs[piece]; }
+        }
+        // Drawn valley axis: the physical samples of the drawn links, with the planning surface, water level and flags of each.
+        AxisSamples axis = new AxisSamples();
+        int[] endpoint = new int[n], linkFirst = new int[n];
+        Arrays.fill(endpoint, -1); Arrays.fill(linkFirst, -1);
+        for (int k = 0; k < count; k++) {
+            int i = order[k];
+            if (!channel[i]) continue;
+            int p = parent[i];
+            if (p < 0) { endpoint[i] = axis.add(pathX[i], pathZ[i], 0, 0, area[i], -1, 1, OCEAN, i); continue; }
+            int pieces = linkPieces[i];
+            double length = linkLength[i];
+            boolean headReach = tributaries[i] == 0;
+            int previous = endpoint[p];
+            linkFirst[i] = axis.size;
             for (int piece = 1; piece <= pieces; piece++) {
                 if (axis.size >= MAX_REFINED_NODES) throw new IllegalStateException("RH profile refinement budget exceeded");
                 double t = piece / (double) pieces;
-                double sx = sxs[piece], sz = szs[piece];
+                double sx = linkX[linkStart[i] + piece - 1], sz = linkZ[linkStart[i] + piece - 1];
                 var location = coast.sample(sx, sz);
                 double h = planningHeight(sx, sz, location.edge());
                 double level = lerp(water[p], water[i], t);
@@ -1020,6 +1118,7 @@ public final class HighlandDrainage {
             var point = samples.get(j);
             nodes.add(new Node(point.x(), point.z(), point.ground(), profile[j], point.area(), point.parent(), point.head()));
         }
-        return new Plan(ownerX, ownerZ, step, n, landCount, List.copyOf(nodes), List.copyOf(reaches), List.copyOf(channels.axis()), List.copyOf(oxbows), basins, System.nanoTime() - started, originX, originZ, width, incision, waterGrid, climate);
+        return new Plan(ownerX, ownerZ, step, n, landCount, List.copyOf(nodes), List.copyOf(reaches), List.copyOf(channels.axis()), List.copyOf(oxbows), basins, System.nanoTime() - started, originX, originZ, width, incision, waterGrid, climate,
+            valleys(n, count, order, valley, parent, valleyChild, area, spacing * spacing, pathX, pathZ, linkStart, linkPieces, linkX, linkZ));
     }
 }

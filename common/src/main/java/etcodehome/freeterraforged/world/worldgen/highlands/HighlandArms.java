@@ -9,16 +9,16 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * RH10 drowned arms (D-GC1): the compact coastal valley data of one owner, derived from its undrowned plan0 (the RH9
- * planner's plan on a coast whose drowned layer is never bound) and discarded with it. Arms are drowned along these valleys
- * only, so they follow the valleys the planner draws.
+ * RH10 drowned arms (D-GC1, D-GC8): the compact coastal valley data of one owner, derived from the physical valley network of its
+ * undrowned plan0 (the RH9 planner's plan on a coast whose drowned layer is never bound) and discarded with it. Arms are drowned along
+ * these valleys only. The network is independent of River Count ({@link HighlandDrainage.Valleys}), so the arms are too.
  *
- * <p>Data are 16-block segments of plan0's valley axis (not the meandering refined channel), per segment the endpoints, a width
- * factor (drainage area to the power {@link HighlandDrowned#HW_EXP}, from the nearest refined node of the same plan0 reach)
- * and {@code u}, the undrowned edge above the coast point, at both ends, the plan0 reach and its downstream reach (the ancestry
- * the arm gates read). Only the connected coastal subtree is kept: from each reach's downstream end up to and including the
- * first sample beyond the arm reach, only segments within a region disc grown by {@link HighlandDrowned#MAX_HALF_WIDTH}, and
- * only reaches whose downstream chain of kept reaches ends at a plan0 root.
+ * <p>Data are 16-block segments of the valley axis (not the meandering refined channel), per segment the endpoints, a width
+ * factor (drainage area to the power {@link HighlandDrowned#HW_EXP}, interpolated along the link) and {@code u}, the undrowned edge
+ * above the coast point, at both ends, the physical branch (its id, the grid index of its downstream-most land node; "plan0 reach"
+ * below means this branch) and its downstream branch (the ancestry the arm gates read). Only the connected coastal subtree is kept:
+ * from each branch's junction up to and including the first sample beyond the arm reach, only segments within a region disc grown by
+ * {@link HighlandDrowned#MAX_HALF_WIDTH}, and only branches whose downstream chain of kept branches ends at a sea root.
  *
  * <p>Segments are indexed in a uniform bucket grid, each over its box grown by its own largest half width, so a query reads one
  * bucket.
@@ -28,7 +28,7 @@ final class HighlandArms {
     private static final int BUCKET = 256;
     static final HighlandArms EMPTY = new HighlandArms(new ArrayList<>());
 
-    /** Segment endpoints, width factor and u at both ends, largest half width, plan0 reach and downstream plan0 reach (-1 at a root). */
+    /** Segment endpoints, width factor and u at both ends, largest half width, physical branch and downstream branch (-1 at a sea root). */
     final double[] ax, az, bx, bz, wa, wb, ua, ub, radius;
     final int[] reach, down;
     private final Map<Long, int[]> buckets;
@@ -81,48 +81,28 @@ final class HighlandArms {
      * discs and width law.
      */
     static HighlandArms of(HighlandDrainage.Plan plan0, HighlandCoast coast, double coastEdge, double maxReachEdge, HighlandDrowned drowned) {
-        var reaches = plan0.reaches();
-        var nodes = plan0.nodes();
-        var axis = plan0.axis();
-        int[] nodeReach = new int[nodes.size()];
-        Arrays.fill(nodeReach, -1);
-        for (int r = 0; r < reaches.size(); r++) for (int v = reaches.get(r).first(); v <= reaches.get(r).last(); v++) nodeReach[v] = r;
-        boolean[] kept = new boolean[reaches.size()], used = new boolean[axis.size()];
+        var valleys = plan0.valleys();
+        boolean[] kept = new boolean[valleys.branches()];
         List<double[]> found = new ArrayList<>();
-        // Reaches are listed downstream first (parent stems before tributaries, upstream along each stem).
-        for (int r = 0; r < reaches.size(); r++) {
-            var reach = reaches.get(r);
-            int down = nodeReach[reach.downstream()];
+        // Branches are listed downstream first (a branch follows its downstream branch).
+        for (int b = 0; b < kept.length; b++) {
+            int down = valleys.down()[b];
             if (down >= 0 && !kept[down]) continue;
             boolean any = false;
             double px = 0, pz = 0, pu = 0, pw = 0;
-            for (int s = reach.axisFrom(); s <= reach.axisTo(); s++) {
-                var a = axis.get(s);
-                double u = coast.undrowned(a.x(), a.z()).edge() - coastEdge, w = HighlandDrowned.armWidth(nearestArea(nodes, reach, a));
-                if (s > reach.axisFrom() && (drowned.nearRegion(px, pz) || drowned.nearRegion(a.x(), a.z()))) {
-                    any = true; // a segment shared with the previous reach still keeps this reach (and its upstream subtree) connected
-                    if (!used[s - 1]) {
-                        found.add(new double[]{px, pz, a.x(), a.z(), pw, w, pu, u, r, down});
-                        used[s - 1] = true;
-                    }
+            for (int s = valleys.first()[b]; s < valleys.first()[b + 1]; s++) {
+                double x = valleys.x()[s], z = valleys.z()[s];
+                double u = coast.undrowned(x, z).edge() - coastEdge, w = HighlandDrowned.armWidth(valleys.area()[s]);
+                if (s > valleys.first()[b] && (drowned.nearRegion(px, pz) || drowned.nearRegion(x, z))) {
+                    any = true;
+                    found.add(new double[]{px, pz, x, z, pw, w, pu, u, valleys.id()[b], down < 0 ? -1 : valleys.id()[down]});
                 }
                 if (u > maxReachEdge) break;
-                px = a.x(); pz = a.z(); pu = u; pw = w;
+                px = x; pz = z; pu = u; pw = w;
             }
-            kept[r] = any;
+            kept[b] = any;
         }
         return new HighlandArms(found);
-    }
-
-    /** Drainage area of the refined node of the reach nearest to an axis sample. */
-    private static double nearestArea(List<HighlandDrainage.Node> nodes, HighlandDrainage.Reach reach, HighlandDrainage.AxisNode a) {
-        double best = Double.POSITIVE_INFINITY, area = 0;
-        for (int v = reach.first(); v <= reach.last(); v++) {
-            var node = nodes.get(v);
-            double d = (node.x() - a.x()) * (node.x() - a.x()) + (node.z() - a.z()) * (node.z() - a.z());
-            if (d < best) { best = d; area = node.area(); }
-        }
-        return area;
     }
 
     int segments() { return ax.length; }

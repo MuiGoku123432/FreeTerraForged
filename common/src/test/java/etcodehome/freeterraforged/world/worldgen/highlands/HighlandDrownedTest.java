@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import etcodehome.freeterraforged.data.worldgen.preset.settings.Preset;
 import etcodehome.freeterraforged.world.worldgen.GeneratorContext;
 import etcodehome.freeterraforged.world.worldgen.biome.Continentalness;
 import etcodehome.freeterraforged.world.worldgen.cell.Cell;
@@ -286,20 +287,25 @@ class HighlandDrownedTest {
      * data (region weight and the undrowned edge), so selecting them reads no arm data and leaves the arm cache cold.
      */
     private static int[][] drownedColumns(GeneratorContext context) {
+        return drownedColumns(context, new int[][]{{MOUTH_X, MOUTH_Z}, {ARM_SITE_X, ARM_SITE_Z}}, ARM_COLUMNS_PER_SITE);
+    }
+
+    /** {@code perSite} such columns around each of the 8 km box centres. */
+    private static int[][] drownedColumns(GeneratorContext context, int[][] sites, int perSite) {
         var coast = coastOf(context);
         double band = 1500 * HighlandCoast.EDGE_PER_BLOCK, coastEdge = context.preset.world().controlPoints.coast;
         var random = new Random(37);
         var columns = new ArrayList<int[]>();
-        for (int[] site : new int[][]{{MOUTH_X, MOUTH_Z}, {ARM_SITE_X, ARM_SITE_Z}}) {
+        for (int[] site : sites) {
             int found = 0;
-            for (int tries = 0; found < ARM_COLUMNS_PER_SITE && tries < 400_000; tries++) {
+            for (int tries = 0; found < perSite && tries < 400_000; tries++) {
                 int x = site[0] + random.nextInt(2 * SITE_RADIUS + 1) - SITE_RADIUS, z = site[1] + random.nextInt(2 * SITE_RADIUS + 1) - SITE_RADIUS;
                 double edge = coast.undrowned(x, z).edge();
                 if (!(edge > 0) || Math.abs(edge - coastEdge) > band || coast.drowned().weight(x, z) <= 0) continue;
                 columns.add(new int[]{x, z});
                 found++;
             }
-            assertEquals(ARM_COLUMNS_PER_SITE, found, "too few drowned-region columns near " + site[0] + "," + site[1]);
+            assertEquals(perSite, found, "too few drowned-region columns near " + site[0] + "," + site[1]);
         }
         return columns.toArray(new int[0][]);
     }
@@ -624,6 +630,74 @@ class HighlandDrownedTest {
 
     /** Server world (HighlandPlanformProbe.serverPreset): the stranded river mouth the owner plan of the G-11-1 gates is read at, and the X crossing of two noise networks. */
     static final int MOUTH_X = 7453, MOUTH_Z = 3341, CROSSING_X = 9373, CROSSING_Z = 2111;
+
+    /** A fresh context of a preset at the given River Count (a new preset object each call, never WorldgenFixture.shared for a mutated preset). */
+    private static GeneratorContext riverCountContext(java.util.concurrent.Callable<Preset> preset, long seed, int riverCount) throws Exception {
+        var settings = preset.call();
+        settings.rivers().riverCount = riverCount;
+        return WorldgenFixture.context(settings, seed);
+    }
+
+    /** Bitwise position of a valley or axis sample. */
+    private record Point(long x, long z) {
+        static Point of(double x, double z) { return new Point(Double.doubleToLongBits(x), Double.doubleToLongBits(z)); }
+    }
+
+    private static Set<Point> valleyPoints(HighlandDrainage.Valleys valleys) {
+        var points = new java.util.HashSet<Point>();
+        for (int s = 0; s < valleys.x().length; s++) points.add(Point.of(valleys.x()[s], valleys.z()[s]));
+        return points;
+    }
+
+    private static Set<Point> axisPoints(HighlandDrainage.Plan plan) {
+        var points = new java.util.HashSet<Point>();
+        for (var a : plan.axis()) points.add(Point.of(a.x(), a.z()));
+        return points;
+    }
+
+    /** Position of the first drawn axis sample of the plan that is not a sample of its valley network, or null. */
+    private static String drawnOutsideValleys(HighlandDrainage.Plan plan) {
+        var valleys = valleyPoints(plan.valleys());
+        for (var a : plan.axis()) if (!valleys.contains(Point.of(a.x(), a.z()))) return a.x() + "," + a.z();
+        return null;
+    }
+
+    private static boolean sameValleys(HighlandDrainage.Valleys a, HighlandDrainage.Valleys b) {
+        return java.util.Arrays.equals(a.x(), b.x()) && java.util.Arrays.equals(a.z(), b.z()) && java.util.Arrays.equals(a.area(), b.area())
+            && java.util.Arrays.equals(a.first(), b.first()) && java.util.Arrays.equals(a.id(), b.id()) && java.util.Arrays.equals(a.down(), b.down())
+            && Double.doubleToLongBits(a.area2()) == Double.doubleToLongBits(b.area2());
+    }
+
+    /**
+     * D-GC8 tracer gate: River Count only selects which channels are drawn. On the server preset, owner of 7453,3341, River Count 3, 7
+     * and 30 (each on a fresh context) give bit-identical plan0 valley networks and arm arrays; the drawn axis of plan0 thins with River
+     * Count (fewer samples at 3 than at 7, at least as many at 30), and every drawn axis sample is a sample of the same plan's valley network.
+     */
+    @Test void armsIgnoreRiverCount() throws Exception {
+        int[] counts = {3, 7, 30};
+        var valleys = new HighlandDrainage.Valleys[3];
+        var arms = new HighlandArms[3];
+        int[] drawn = new int[3];
+        for (int i = 0; i < 3; i++) {
+            try (var context = riverCountContext(HighlandPlanformProbe::serverPreset, HighlandPlanformProbe.SERVER_SEED, counts[i])) {
+                var continent = (RollingHighlandsContinent) context.heightmap.continent();
+                var owner = continent.coast().undrowned(MOUTH_X, MOUTH_Z);
+                var plan0 = continent.basePlan(owner.ownerX(), owner.ownerZ());
+                valleys[i] = plan0.valleys();
+                drawn[i] = plan0.axis().size();
+                assertEquals(null, drawnOutsideValleys(plan0), "River Count " + counts[i] + ": a drawn axis sample is not a valley sample");
+                arms[i] = continent.coast().drowned().arms(owner.ownerX(), owner.ownerZ());
+            }
+        }
+        System.out.println("RH10 River Count independence: valley samples " + valleys[0].x().length + " in " + valleys[0].branches() + " branches (" + valleys[0].estimatedBytes()
+            + " bytes), arm segments " + arms[0].segments() + ", drawn axis samples at 3/7/30: " + drawn[0] + "/" + drawn[1] + "/" + drawn[2]);
+        assertTrue(valleys[0].x().length > 1000 && arms[0].segments() >= 20, "no valley network or arms at the owner");
+        for (int i = 1; i < 3; i++) {
+            assertTrue(sameValleys(valleys[0], valleys[i]), "plan0 valley network differs between River Count " + counts[0] + " and " + counts[i]);
+            assertTrue(sameArms(arms[0], arms[i]), "arm data differ between River Count " + counts[0] + " and " + counts[i]);
+        }
+        assertTrue(drawn[0] < drawn[1] && drawn[2] >= drawn[1], "River Count no longer thins the drawn axis: " + java.util.Arrays.toString(drawn));
+    }
 
     /**
      * D-GC1: the plan behind the arm data is the RH9 planner's plan. On the server preset, the owner of 7453,3341 built by
@@ -1572,5 +1646,114 @@ class HighlandDrownedTest {
             }
         }
         return counts;
+    }
+    /**
+     * Probe (11-22): the drawn network of eight plans at their preset's own River Count, as counts plus a SHA-256 over every field of nodes,
+     * reaches, axis, oxbows and the per-grid-node basin surface (build/rh10-gap/drawn-network.txt), the raw axis samples per plan
+     * (drawn-axis-LABEL.csv) and, for the final server plan of owner (0,0), terrain height and river water level of a 1024-block box with no
+     * drowned weight that holds drawn river water (drawn-render.csv). Per fixture an inert plan (drainage().build on a coast whose drowned
+     * layer is unbound) and the final plan (planOf, drowned arms bound). Fixtures: server preset owners (0,0) and SEAM_OWNER, ROCKIES owner
+     * (2,-1), default Rolling Highlands settings on the FTF default preset (seed 0, owner 0,0).
+     */
+    @Tag("probe")
+    @Test void drawnNetworkDump() throws Exception {
+        Path dir = Path.of("build/rh10-gap");
+        Files.createDirectories(dir);
+        var lines = new ArrayList<String>();
+        for (var fixture : DUMP_FIXTURES) {
+            try (var context = WorldgenFixture.context(dumpPreset(fixture.kind), fixture.seed)) {
+                var continent = (RollingHighlandsContinent) context.heightmap.continent();
+                continent.coast().bindDrowned(null, null);
+                lines.add(dumpPlan(fixture.label + "-inert", continent.drainage().build(fixture.ownerX, fixture.ownerZ), dir));
+            }
+            try (var context = WorldgenFixture.context(dumpPreset(fixture.kind), fixture.seed)) {
+                var continent = (RollingHighlandsContinent) context.heightmap.continent();
+                var plan = continent.planOf(fixture.ownerX, fixture.ownerZ).plan();
+                lines.add(dumpPlan(fixture.label + "-final", plan, dir));
+                if (fixture.kind == 0 && fixture.ownerX == 0 && fixture.ownerZ == 0) dumpRender(context, plan, dir.resolve("drawn-render.csv"));
+            }
+        }
+        lines.forEach(System.out::println);
+        Files.write(dir.resolve("drawn-network.txt"), lines);
+    }
+
+    private record DumpFixture(String label, int kind, long seed, int ownerX, int ownerZ) {}
+    private static final List<DumpFixture> DUMP_FIXTURES = List.of(
+        new DumpFixture("server-0_0", 0, HighlandPlanformProbe.SERVER_SEED, 0, 0),
+        new DumpFixture("server-m1_m1", 0, HighlandPlanformProbe.SERVER_SEED, SEAM_OWNER[0], SEAM_OWNER[1]),
+        new DumpFixture("rockies-2_m1", 1, HighlandPlanformProbe.USER_SEED, 2, -1),
+        new DumpFixture("default-0_0", 2, 0, 0, 0));
+
+    private static etcodehome.freeterraforged.data.worldgen.preset.settings.Preset dumpPreset(int kind) throws Exception {
+        if (kind == 0) return HighlandPlanformProbe.serverPreset();
+        if (kind == 1) return BiomeCensusProbe.rockies();
+        var preset = WorldgenFixture.preset();
+        preset.world().continent.continentType = etcodehome.freeterraforged.data.worldgen.preset.settings.ContinentType.ROLLING_HIGHLANDS;
+        preset.terrain().rollingHighlands = etcodehome.freeterraforged.data.worldgen.preset.settings.RollingHighlandsSettings.DEFAULT;
+        return preset;
+    }
+
+    /** One result line (counts and hash) of a plan; writes its raw axis samples to drawn-axis-LABEL.csv. */
+    private static String dumpPlan(String label, HighlandDrainage.Plan plan, Path dir) throws Exception {
+        var md = java.security.MessageDigest.getInstance("SHA-256");
+        java.util.function.DoubleConsumer d = v -> md.update(java.nio.ByteBuffer.allocate(8).putLong(Double.doubleToLongBits(v)).array());
+        java.util.function.IntConsumer n = v -> md.update(java.nio.ByteBuffer.allocate(4).putInt(v).array());
+        for (var node : plan.nodes()) { d.accept(node.x()); d.accept(node.z()); d.accept(node.ground()); d.accept(node.water()); d.accept(node.area()); n.accept(node.parent()); d.accept(node.head()); }
+        for (var reach : plan.reaches()) { n.accept(reach.downstream()); n.accept(reach.first()); n.accept(reach.last()); n.accept(reach.axisFrom()); n.accept(reach.axisTo()); }
+        var axis = new ArrayList<String>();
+        for (var a : plan.axis()) { d.accept(a.x()); d.accept(a.z()); d.accept(a.belt()); axis.add(a.x() + "," + a.z()); }
+        for (var o : plan.oxbows()) {
+            for (double v : o.x()) d.accept(v);
+            for (double v : o.z()) d.accept(v);
+            for (double v : o.halfWidth()) d.accept(v);
+            d.accept(o.water()); n.accept(o.nodeFrom()); n.accept(o.nodeTo());
+        }
+        for (int i = 0; i < plan.gridNodes(); i++) d.accept(plan.basins().nodeSurface(i));
+        n.accept(plan.gridNodes()); n.accept(plan.landNodes());
+        Files.write(dir.resolve("drawn-axis-" + label + ".csv"), axis);
+        return label + " gridNodes=" + plan.gridNodes() + " landNodes=" + plan.landNodes() + " nodes=" + plan.nodes().size() + " reaches=" + plan.reaches().size()
+            + " axis=" + plan.axis().size() + " oxbows=" + plan.oxbows().size() + " basins=" + plan.basins().count() + " sha256=" + java.util.HexFormat.of().formatHex(md.digest());
+    }
+
+    /** Render box edge and step (blocks) of drawn-render.csv. */
+    private static final int RENDER_BOX = 1024, RENDER_STEP = 4;
+
+    /**
+     * Height and river water level (raw float bits) per column of the first 1024-block box, in plan node order, whose columns all have
+     * drowned weight 0 and that holds drawn river water. A box already recorded in the d08ec417 file (first line "# box X Z") is reused so
+     * later runs compare the same columns.
+     */
+    private static void dumpRender(GeneratorContext context, HighlandDrainage.Plan plan, Path file) throws Exception {
+        var coast = coastOf(context);
+        var cell = new Cell();
+        var seen = new java.util.HashSet<Long>();
+        var baseline = file.resolveSibling("drawn-render-d08ec417.csv");
+        var candidates = new ArrayList<int[]>();
+        if (Files.exists(baseline)) {
+            String[] box = Files.readAllLines(baseline).get(0).split(" ");
+            candidates.add(new int[]{Integer.parseInt(box[2]), Integer.parseInt(box[3])});
+        } else {
+            for (var node : plan.nodes()) {
+                int bx = (int) Math.floor(node.x() / RENDER_BOX) * RENDER_BOX, bz = (int) Math.floor(node.z() / RENDER_BOX) * RENDER_BOX;
+                if (seen.add(PosUtil.pack(bx, bz))) candidates.add(new int[]{bx, bz});
+            }
+        }
+        for (int[] box : candidates) {
+            boolean dry = true;
+            for (int z = box[1]; z < box[1] + RENDER_BOX && dry; z += RENDER_STEP) for (int x = box[0]; x < box[0] + RENDER_BOX && dry; x += RENDER_STEP) dry = coast.sample(x, z).drowned() == 0;
+            if (!dry) continue;
+            var rows = new ArrayList<String>();
+            rows.add("# box " + box[0] + " " + box[1]);
+            boolean water = false;
+            for (int z = box[1]; z < box[1] + RENDER_BOX; z += RENDER_STEP) for (int x = box[0]; x < box[0] + RENDER_BOX; x += RENDER_STEP) {
+                context.heightmap.applyPrecise(cell.reset(), x, z, true);
+                water |= cell.hasRiverWater;
+                rows.add(x + "," + z + "," + Float.floatToIntBits(cell.height) + "," + (cell.hasRiverWater ? Float.floatToIntBits(cell.riverWaterLevel) : "none"));
+            }
+            if (!water) continue;
+            Files.write(file, rows);
+            return;
+        }
+        throw new AssertionError("no render box without drowned weight and with drawn river water");
     }
 }
