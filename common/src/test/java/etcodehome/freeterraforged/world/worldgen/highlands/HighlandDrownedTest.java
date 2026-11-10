@@ -56,9 +56,12 @@ class HighlandDrownedTest {
      * Ria bay boxes (user world, USER_SEED, 8 km boxes): the 11-03 ria site and its second candidate, widened (the two hold
      * fewer than 5 bays) with the six 8 km tiles of a scan of the user world (-32 to 64 km east, -48 to 64 km south) that have
      * the most coastline inside a drowned region (19.9, 17.1, 15.4, 13.3, 13.3 and 13.0 km); the ranking reads region weights
-     * on the standalone coast, so it does not depend on the bay shape being tuned.
+     * on the standalone coast, so it does not depend on the bay shape being tuned. 11-11 re-picked the fourth box from 45056,20480 to
+     * 53248,20480 (the next 8 km tile east): plan0's two largest valleys of the old box end at an RH9 sea pocket about 150 blocks short of
+     * the open sea, so with a narrow mouth their bays cannot reach the open sea (the gate asks every bay to), a fact of the plan0 valleys there
+     * and not of the bay shape; the new box holds two bays whose valleys reach the sea.
      */
-    static final int[][] RIA_BOXES = {{RIA_SITE_X, RIA_SITE_Z}, {8061, 24380}, {12288, -36864}, {45056, 20480}, {-28672, 20480}, {45056, 28672}, {61440, 61440}, {-4096, 53248}};
+    static final int[][] RIA_BOXES = {{RIA_SITE_X, RIA_SITE_Z}, {8061, 24380}, {12288, -36864}, {53248, 20480}, {-28672, 20480}, {45056, 28672}, {61440, 61440}, {-4096, 53248}};
     /** Centre of a sound basin (ROCKIES, USER_SEED): the coast point of region (-9, 2), one of the fjord regions that drew SOUND_CHANCE. */
     static final int SOUND_SITE_X = -46448, SOUND_SITE_Z = 13654;
     /** D-02: drowned share of the RH9 coastline, inclusive bounds. */

@@ -18,7 +18,7 @@ import java.util.Map;
  * above the coast point, at both ends, the physical branch (its id, the grid index of its downstream-most land node; "plan0 reach"
  * below means this branch) and its downstream branch (the ancestry the arm gates read). Only the connected coastal subtree is kept:
  * from each branch's junction up to and including the first sample beyond the arm reach, only segments within a region disc grown by
- * {@link HighlandDrowned#MAX_HALF_WIDTH}, only samples draining at least {@link HighlandDrowned#ARM_AREA}, and only branches whose
+ * {@link HighlandDrowned#MAX_HALF_WIDTH}, only samples draining at least {@link HighlandDrowned#ARM_AREA} ({@link HighlandDrowned#FJORD_ARM_AREA} in a fjord region), and only branches whose
  * downstream chain of kept branches ends at a sea root.
  *
  * <p>Segments are indexed in a uniform bucket grid, each over its box grown by its own largest half width, so a query reads one
@@ -63,7 +63,7 @@ final class HighlandArms {
             var f = found.get(s);
             ax[s] = f[0]; az[s] = f[1]; bx[s] = f[2]; bz[s] = f[3]; wa[s] = f[4]; wb[s] = f[5]; ua[s] = f[6]; ub[s] = f[7];
             reach[s] = (int) f[8]; down[s] = (int) f[9];
-            radius[s] = HighlandDrowned.armRadius(Math.max(wa[s], wb[s]));
+            radius[s] = HighlandDrowned.armRadius(Math.max(wa[s], wb[s]), (int) f[10]);
             // note: bucket grid over grown boxes copies HighlandPlanIndex's bucket keys (second use, not extracted).
             for (int z = bucket(Math.min(az[s], bz[s]) - radius[s]); z <= bucket(Math.max(az[s], bz[s]) + radius[s]); z++)
                 for (int x = bucket(Math.min(ax[s], bx[s]) - radius[s]); x <= bucket(Math.max(ax[s], bx[s]) + radius[s]); x++) {
@@ -84,7 +84,6 @@ final class HighlandArms {
     static HighlandArms of(HighlandDrainage.Plan plan0, HighlandCoast coast, double coastEdge, double maxReachEdge, HighlandDrowned drowned) {
         var valleys = plan0.valleys();
         boolean[] kept = new boolean[valleys.branches()];
-        double minArea = HighlandDrowned.ARM_AREA * valleys.area2();
         List<double[]> found = new ArrayList<>();
         // Branches are listed downstream first (a branch follows its downstream branch).
         for (int b = 0; b < kept.length; b++) {
@@ -93,12 +92,13 @@ final class HighlandArms {
             boolean any = false;
             double px = 0, pz = 0, pu = 0, pw = 0;
             for (int s = valleys.first()[b]; s < valleys.first()[b + 1]; s++) {
-                if (valleys.area()[s] < minArea) break; // areas only fall upstream: nothing further up this branch, nor its subtree, is eligible
                 double x = valleys.x()[s], z = valleys.z()[s];
+                if (valleys.area()[s] < drowned.armArea(x, z) * valleys.area2()) break; // areas only fall upstream: nothing further up this branch, nor its subtree, is eligible
                 double u = coast.undrowned(x, z).edge() - coastEdge, w = HighlandDrowned.armWidth(valleys.area()[s]);
-                if (s > valleys.first()[b] && (drowned.nearRegion(px, pz) || drowned.nearRegion(x, z))) {
+                int kinds = s > valleys.first()[b] ? drowned.armKinds(px, pz) | drowned.armKinds(x, z) : 0;
+                if (kinds != 0) {
                     any = true;
-                    found.add(new double[]{px, pz, x, z, pw, w, pu, u, valleys.id()[b], down < 0 ? -1 : valleys.id()[down]});
+                    found.add(new double[]{px, pz, x, z, pw, w, pu, u, valleys.id()[b], down < 0 ? -1 : valleys.id()[down], kinds});
                 }
                 if (u > maxReachEdge) break;
                 px = x; pz = z; pu = u; pw = w;

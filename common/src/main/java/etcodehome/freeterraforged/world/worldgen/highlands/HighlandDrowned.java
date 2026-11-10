@@ -41,18 +41,21 @@ final class HighlandDrowned {
     /** Blocks inland of the coast point over which arms shoal, and how far below the beach point arm water sits (fraction of beach to shallow ocean). */
     static final double ARM_REACH = 2500, DROWN_MARGIN = .3;
     /**
-     * Arms along plan0 valleys (D-GC1): arm half width is {@code HW_REF (area / 1 km^2)^HW_EXP} blocks of drainage area, at least
-     * {@code HW_MIN} and at most {@code MAX_HALF_WIDTH} (the widest any later tuning may use; also how far a region disc is grown for
-     * the arm data filter), {@code HW_REF} per region type; the valley profile is full inside {@code ARM_CORE} of the half width and
-     * falls to 0 at it; the lowering fades in over the {@code ARM_SEA_BAND} blocks seaward of the old coastline.
+     * Arms along plan0 valleys (D-GC1): the base arm half width is {@code HW_REF (area / 1 km^2)^HW_EXP} blocks of drainage area
+     * ({@code HW_REF} per region type: bays, then fjords), shaped by the terms below, at least {@code HW_MIN} and at most
+     * {@code MAX_HALF_WIDTH} (the widest any term may produce, also how far a region disc is grown for the arm data filter); the
+     * valley profile is full inside {@code ARM_CORE} of the half width (but its wall is never shorter than {@code ARM_WALL_MIN}
+     * blocks) and falls to 0 at the half width; the lowering fades in over the {@code ARM_SEA_BAND} blocks seaward of the old coastline.
      */
-    static final double MAX_HALF_WIDTH = 1200, ARM_SEA_BAND = 150, HW_REF = 90, FJORD_HW_REF = 60, HW_EXP = .35, HW_MIN = 24, ARM_CORE = .55, FJORD_ARM_CORE = .7;
+    static final double MAX_HALF_WIDTH = 1200, ARM_SEA_BAND = 150, HW_REF = 145, FJORD_HW_REF = 83, HW_EXP = .5, HW_MIN = 24, ARM_CORE = .55, FJORD_ARM_CORE = .5,
+        ARM_WALL_MIN = 16;
     /**
      * Arm eligibility (D-GC8): a physical valley carries an arm only where its drainage area is at least {@code ARM_AREA} of
-     * uplandSpacing squared (the RH5 creek-head area at the reference River Count, so the arm topology stays close to 11-09 and 11-10).
-     * A fixed shape constant 11-11 may tune; it never reads River Count (creekArea) and never the structural lake area.
+     * uplandSpacing squared (the RH5 creek-head area at the reference River Count), or {@code FJORD_ARM_AREA} in a fjord region (steep
+     * range country drains in small valleys, and side valleys become side arms). Fixed shape constants; they never read River Count
+     * (creekArea) and never the structural lake area.
      */
-    static final double ARM_AREA = .065;
+    static final double ARM_AREA = .065, FJORD_ARM_AREA = .045;
     /** Range core (0..1) a region needs within half a region of its centre to be a fjord region. */
     static final double FJORD_RANGE_CORE = .25;
     /**
@@ -68,15 +71,20 @@ final class HighlandDrowned {
      * keeps the sign of {@code edge - coast}); the edge never falls below {@link #depthFloor}.
      */
     static final double FJORD_DEPTH = 2;
-    /** Sounds (D-07): {@code SOUND_CHANCE} of fjord regions get a sound basin around the region's coast point (the tuning of its radius and widening is 11-11's). */
-    static final double SOUND_CHANCE = .3;
     /**
-     * Ria bays (D-13, D-14; the terms below are not read by the arm transform yet, 11-11 reuses them): mouth narrowing over
-     * {@code MOUTH_LEN} blocks inland of the coast point by {@code MOUTH_NARROW}; basin widening by up to {@code BAY_WIDEN} over the
-     * middle of the arm reach (from {@code WIDEN_FROM} to half of it full, falling to 0 at {@code WIDEN_TO}). Ria arms keep full
-     * strength out to {@code BAY_PLATEAU} of the reach and shoal over the rest (fjords shoal from the coast point).
+     * Sounds (D-07): {@code SOUND_CHANCE} of fjord regions get a sound basin around the region's coast point; arm half widths there are
+     * multiplied by {@code 1 + SOUND_WIDEN} within half of {@code SOUND_RADIUS} blocks of it, falling to 1 at {@code SOUND_RADIUS}, so arms
+     * meeting near the coast point open into water 1-3 km across (the land left between merged arms is the sound's islands).
      */
-    static final double MOUTH_LEN = 400, MOUTH_NARROW = 1, BAY_WIDEN = .4, WIDEN_FROM = .15, WIDEN_TO = .9, BAY_PLATEAU = .6;
+    static final double SOUND_CHANCE = .3, SOUND_RADIUS = 3000, SOUND_WIDEN = 8;
+    /**
+     * Ria bays (D-13, D-14): the arm half width is multiplied by {@code MOUTH_NARROW_MIN} at and seaward of the coast point, rising to 1
+     * over {@code MOUTH_LEN} blocks inland (the bay narrows where its valley crosses the old coastline and never closes), and by up to
+     * {@code 1 + BAY_WIDEN_FACTOR} over the middle of the arm reach (from {@code WIDEN_FROM} to half of it full, falling to 0 at
+     * {@code WIDEN_TO}), so water spreads into a basin inside the mouth. Ria arms keep full strength out to {@code BAY_PLATEAU} of the reach and
+     * shoal over the rest (fjords shoal from the coast point).
+     */
+    static final double MOUTH_LEN = 400, MOUTH_NARROW_MIN = .25, BAY_WIDEN_FACTOR = 2.2, WIDEN_FROM = .15, WIDEN_TO = .9, BAY_PLATEAU = .6;
     /**
      * Island chains (D-08, D-09, D-11): on the shelf seaward of the coast point of a region, flooded ridge tops are the land the
      * drowning left standing. Blocks seaward of the coast point where islands may stand ({@code ISLAND_GAP} to the shelf edge, with
@@ -88,7 +96,7 @@ final class HighlandDrowned {
      * low-frequency noise ({@code BLOB_SCALE}) above {@code BLOB_AT}. An island weight s raises the edge to
      * {@code edge + s (coast + peak - edge)}: continuous, shoaling toward the island, land only where s is near 1.
      */
-    static final double ISLAND_GAP = 100, ISLAND_SOFT = 150, ISLAND_PEAK = 300, ISLAND_PEAK_FJORD = 750,
+    static final double ISLAND_GAP = 100, ISLAND_SOFT = 220, ISLAND_PEAK = 300, ISLAND_PEAK_FJORD = 750,
         CHAIN_ANISO = 3, CHAIN_SCALE = 1200, CHAIN_AT = .4, CHAIN_HIGH = .7, GAP_SCALE = 700, GAP_AT = .15, BLOB_SCALE = 2400, BLOB_AT = .4;
     /**
      * Open-sea islands (D-10): a few RH-native islands offshore, independent of the regions, built from the same edge field. One
@@ -102,7 +110,7 @@ final class HighlandDrowned {
      * and it keeps the same coast gap as the island chains.
      */
     static final double OPEN_SPACING = 6000, OPEN_CHANCE = .5, OPEN_MIN_RADIUS = 380, OPEN_MAX_RADIUS = 1000, OPEN_OUTLINE = .2, OPEN_PEAK = 450,
-        OPEN_FLANK = .3, OPEN_GUARD = .5, OPEN_GUARD_FADE = .2;
+        OPEN_FLANK = .3, OPEN_GUARD = .5, OPEN_GUARD_FADE = .5;
     private static final int OPEN_TRIALS = 24;
     /** Half distance (blocks) of the central differences that orient a region. */
     private static final double GRADIENT_STEP = 256;
@@ -325,14 +333,14 @@ final class HighlandDrowned {
             arms = arms(ownerX, ownerZ);
             m = discs((int) Math.floor(rawX / REGION_SIZE), (int) Math.floor(rawZ / REGION_SIZE)); // building the arms read other discs and replaced the memoized cell
         }
-        double raised = raise(m, rawX, rawZ, open);
+        double raised = Math.max(open, raise(m, rawX, rawZ, edge)); // the chains read the standalone edge, not the open-sea raise: stacked windows made a step
         double steep = steepen(raised, fjord), lowering = 0;
         var hits = arms.query(rawX, rawZ);
         if (hits.count > 0) for (int n = 0; n < m.count; n++) {
             double w = discWeight(m.cx[n], m.cz[n], m.radius[n], rawX, rawZ);
             if (w <= 0) continue;
             var region = region(m.h[n], m.ci[n], m.cj[n], m.cx[n], m.cz[n]);
-            double k = w * sea * armValley(region, hits);
+            double k = w * sea * armValley(region, hits, rawX, rawZ);
             lowering = Math.min(lowering, k * (region.target - steep));
         }
         double result = steep + lowering;
@@ -343,30 +351,68 @@ final class HighlandDrowned {
     /**
      * Valley factor 0..1 of one region from the arm segments near the position: the largest over the segments of the valley
      * profile (full inside {@link #ARM_CORE} of the half width, 0 at it) times the arm fade at the segment's own u (today's fade, so
-     * ria arms keep full strength out to BAY_PLATEAU of the reach and shoal over the rest, fjord arms shoal from the coast point).
+     * ria arms keep full strength out to BAY_PLATEAU of the reach and shoal over the rest, fjord arms shoal from the coast point). The half
+     * width is the area law times {@link #shape}, so an arm stays centred on its plan0 valley.
      */
-    private static double armValley(Region region, HighlandArms.Hits hits) {
-        double core = region.fjord ? FJORD_ARM_CORE : ARM_CORE, ref = region.fjord ? FJORD_HW_REF : HW_REF, best = 0;
+    private static double armValley(Region region, HighlandArms.Hits hits, double x, double z) {
+        double core = region.fjord ? FJORD_ARM_CORE : ARM_CORE, ref = region.fjord ? FJORD_HW_REF : HW_REF, sound = soundFactor(region, x, z), best = 0;
         for (int h = 0; h < hits.count; h++) {
-            double hw = Math.max(HW_MIN, Math.min(MAX_HALF_WIDTH, ref * hits.width[h])), u = hits.u[h];
+            double hw = Math.max(HW_MIN, Math.min(MAX_HALF_WIDTH, ref * hits.width[h] * shape(region, hits.u[h], sound))), u = hits.u[h];
             if (hits.distance[h] >= hw) continue;
             double fade = u <= 0 ? 1 : 1 - smooth(region.fjord ? 0 : BAY_PLATEAU * region.reach, region.reach, u);
-            if (fade > 0) best = Math.max(best, fade * (1 - smooth(core, 1, hits.distance[h] / hw)));
+            double inner = Math.min(core, 1 - ARM_WALL_MIN / hw);
+            if (fade > 0) best = Math.max(best, fade * (1 - smooth(inner, 1, hits.distance[h] / hw)));
         }
         return best;
     }
 
+    /** Half width factor of an arm at inland coordinate {@code u}: the ria mouth and basin, or the sound factor of a fjord region. */
+    private static double shape(Region region, double u, double sound) {
+        if (region.fjord) return sound;
+        double narrow = MOUTH_NARROW_MIN + (1 - MOUTH_NARROW_MIN) * smooth(0, MOUTH_LEN * HighlandCoast.EDGE_PER_BLOCK, u);
+        return narrow * (1 + BAY_WIDEN_FACTOR * bayWiden(region, u));
+    }
+
+    /** Sound factor (1 to 1 + SOUND_WIDEN) of a fjord region at a position: full within half of SOUND_RADIUS of its sound centre, 1 from SOUND_RADIUS; 1 without a sound. */
+    private static double soundFactor(Region region, double x, double z) {
+        if (Double.isNaN(region.soundX)) return 1;
+        return 1 + SOUND_WIDEN * (1 - smooth(.5 * SOUND_RADIUS, SOUND_RADIUS, Math.hypot(x - region.soundX, z - region.soundZ)));
+    }
+
+    /** The arm eligibility area (fraction of uplandSpacing squared) at a position: {@link #FJORD_ARM_AREA} inside a fjord region, else {@link #ARM_AREA}. */
+    double armArea(double x, double z) { return fjord(x, z) > 0 ? FJORD_ARM_AREA : ARM_AREA; }
+
     /** Width factor of an arm from its drainage area (blocks^2): {@code (area / 1 km^2)^HW_EXP}; the half width is HW_REF times it. */
     static double armWidth(double area) { return Math.pow(Math.max(area, 0) / 1e6, HW_EXP); }
 
-    /** The widest half width (blocks) an arm of this width factor can have in any region type; also its index radius. */
-    static double armRadius(double width) { return Math.max(HW_MIN, Math.min(MAX_HALF_WIDTH, Math.max(HW_REF, FJORD_HW_REF) * width)); }
+    /**
+     * The widest half width (blocks) an arm of this width factor can have in the region kinds ({@link #armKinds}) near it, basin or sound
+     * widening included; also its index radius.
+     */
+    static double armRadius(double width, int kinds) {
+        double factor = 0;
+        if ((kinds & RIA) != 0) factor = HW_REF * (1 + BAY_WIDEN_FACTOR);
+        if ((kinds & FJORD) != 0) factor = Math.max(factor, FJORD_HW_REF);
+        if ((kinds & FJORD_SOUND) != 0) factor = Math.max(factor, FJORD_HW_REF * (1 + SOUND_WIDEN));
+        return Math.max(HW_MIN, Math.min(MAX_HALF_WIDTH, factor * width));
+    }
 
-    /** True where a position lies within a region disc grown by {@link #MAX_HALF_WIDTH} (the arm data filter). */
-    boolean nearRegion(double x, double z) {
+    /** Region kinds of {@link #armKinds}: bay regions, fjord regions, fjord regions with a sound. */
+    static final int RIA = 1, FJORD = 2, FJORD_SOUND = 4;
+
+    /**
+     * The kinds of region ({@link #RIA}, {@link #FJORD}, {@link #FJORD_SOUND} bits) whose disc grown by {@link #MAX_HALF_WIDTH} holds a
+     * position; 0 where none does (the arm data filter, and what sets the index radius of a segment there).
+     */
+    int armKinds(double x, double z) {
         var m = discs((int) Math.floor(x / REGION_SIZE), (int) Math.floor(z / REGION_SIZE));
-        for (int n = 0; n < m.count; n++) if (discWeight(m.cx[n], m.cz[n], m.radius[n] + MAX_HALF_WIDTH, x, z) > 0) return true;
-        return false;
+        int kinds = 0;
+        for (int n = 0; n < m.count; n++) {
+            if (discWeight(m.cx[n], m.cz[n], m.radius[n] + MAX_HALF_WIDTH, x, z) <= 0) continue;
+            var region = region(m.h[n], m.ci[n], m.cj[n], m.cx[n], m.cz[n]);
+            kinds |= !region.fjord ? RIA : Double.isNaN(region.soundX) ? FJORD : FJORD_SOUND;
+        }
+        return kinds;
     }
 
     /**
@@ -546,15 +592,9 @@ final class HighlandDrowned {
         return best;
     }
 
-    /** Threshold shift of a ria region at inland coordinate {@code u} (edge units above the coast point): negative widens the basin; 0 in fjord regions. */
+    /** Basin bump 0..1 of a ria region at inland coordinate {@code u} (edge units above the coast point): full at half the reach, 0 outside {@code WIDEN_FROM}..{@code WIDEN_TO} of it. */
     private static double bayWiden(Region region, double u) {
-        if (region.fjord) return 0;
-        return -BAY_WIDEN * smooth(WIDEN_FROM * region.reach, .5 * region.reach, u) * (1 - smooth(.5 * region.reach, WIDEN_TO * region.reach, u));
-    }
-
-    /** Mouth narrowing weight of a ria region at {@code u}: MOUTH_NARROW at and seaward of the coast point, 0 from MOUTH_LEN blocks inland; 0 in fjord regions. */
-    private static double bayNarrow(Region region, double u) {
-        return region.fjord ? 0 : MOUTH_NARROW * (1 - smooth(0, MOUTH_LEN * HighlandCoast.EDGE_PER_BLOCK, u));
+        return smooth(WIDEN_FROM * region.reach, .5 * region.reach, u) * (1 - smooth(.5 * region.reach, WIDEN_TO * region.reach, u));
     }
 
     /** Disc weight at a position: 1 inside the core, falling smoothly to 0 at the rim (squared distances until needed; hypot is slow). */
