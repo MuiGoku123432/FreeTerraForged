@@ -62,6 +62,17 @@ class HighlandDrownedTest {
      * and not of the bay shape; the new box holds two bays whose valleys reach the sea.
      */
     static final int[][] RIA_BOXES = {{RIA_SITE_X, RIA_SITE_Z}, {8061, 24380}, {12288, -36864}, {53248, 20480}, {-28672, 20480}, {45056, 28672}, {61440, 61440}, {-4096, 53248}};
+    /**
+     * ROCKIES ria box (USER_SEED, 8 km box) for the sheltered-water gate and the inland bay check (11-23, D-11-11-1, user 2026-11-10).
+     * FJORD_SITE's box holds a single bay about 1.7 km across at the 11-11 law (sheltered share 5.2%), and the user world needs bays that
+     * wide for its 1 km bay gate, so one law cannot satisfy both on FJORD_SITE. Picked by rankBaySites (build/rh10-gap/bay-sites.txt) with
+     * the plan0 arms in place: the 8 km ROCKIES tiles of the 11-05 grid ranked by ria coastline (standalone coast, position-only), at most 10
+     * with fjord crossings at most a quarter of the ria ones, then the inland filter (a bay, none 1200 blocks or more across, all connected,
+     * closed share at most MAX_CLOSED) and the first box meeting the D-15 targets with at least half FJORD_SITE's drowned sea. This box
+     * (ria crossings 70, tile rank 4): 2 bays, inners 411 and 959, closed 0; sheltered 34.0%, harbors 31.32 per 25 km2, navigable 99.4%,
+     * drowned sea 7.98 km2 (FJORD_SITE 5.85 km2). FJORD_SITE stays for edgeIsContinuous, planAndRenderAgree, navigableChannels and the probes.
+     */
+    static final int ROCKIES_RIA_SITE_X = 36864, ROCKIES_RIA_SITE_Z = 12288;
     /** Centre of a sound basin (ROCKIES, USER_SEED): the coast point of region (-9, 2), one of the fjord regions that drew SOUND_CHANCE. */
     static final int SOUND_SITE_X = -46448, SOUND_SITE_Z = 13654;
     /** D-02: drowned share of the RH9 coastline, inclusive bounds. */
@@ -1344,6 +1355,7 @@ class HighlandDrownedTest {
      * D-13, D-14 (user world, ria boxes pooled; at least 5 bays): the largest bay is at least 1 km across and none exceeds 5 km
      * (inscribed width); the mouth (water width along the standalone coastline) is at most half the inner width for at least
      * 70% of the bays; at least half of the bays have two or more heads; every bay lies in one owner and reaches the open sea.
+     * The inland check reads the ROCKIES ria box ROCKIES_RIA_SITE (11-23, D-11-11-1; was FJORD_SITE).
      */
     @Test void baysBranchAndNarrowAtTheMouth() throws Exception {
         var context = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
@@ -1351,7 +1363,7 @@ class HighlandDrownedTest {
         System.out.println("RH10 bays " + bays.summary());
         HighlandDrownedProbe.Bays inland;
         try (var rockies = WorldgenFixture.context(BiomeCensusProbe.rockies(), HighlandPlanformProbe.USER_SEED)) {
-            inland = HighlandDrownedProbe.bays(rockies, FJORD_SITE_X, FJORD_SITE_Z, SITE_RADIUS);
+            inland = HighlandDrownedProbe.bays(rockies, ROCKIES_RIA_SITE_X, ROCKIES_RIA_SITE_Z, SITE_RADIUS);
         }
         System.out.println("RH10 bays rockies " + inland.summary());
         assertTrue(bays.count() >= 5, "too few bays: " + bays.summary());
@@ -1553,17 +1565,19 @@ class HighlandDrownedTest {
 
     /**
      * D-15: sheltered share, harbors per 25 km2 and navigability of the drowned-scope sea meet the agreed targets at the ria
-     * site (user world) and the fjord site (ROCKIES). The finished coast (bays, narrow mouths, islands) has to produce them.
+     * site (user world) and the ROCKIES ria box ROCKIES_RIA_SITE (11-23, D-11-11-1: re-picked from FJORD_SITE, whose single 1.7 km
+     * bay holds sheltered water near 5% at the 11-11 law; the model-8 ROCKIES references were measured at the 11-01 site and stay
+     * print-only). The finished coast (bays, narrow mouths, islands) has to produce them.
      */
     @Test void shelteredWaterIsMeasured() throws Exception {
         var user = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
         var ria = HighlandDrownedProbe.measure(user, RIA_SITE_X, RIA_SITE_Z, SITE_RADIUS).drowned();
         HighlandDrownedProbe.Scope fjord;
         try (var rockies = WorldgenFixture.context(BiomeCensusProbe.rockies(), HighlandPlanformProbe.USER_SEED)) {
-            fjord = HighlandDrownedProbe.measure(rockies, FJORD_SITE_X, FJORD_SITE_Z, SITE_RADIUS).drowned();
+            fjord = HighlandDrownedProbe.measure(rockies, ROCKIES_RIA_SITE_X, ROCKIES_RIA_SITE_Z, SITE_RADIUS).drowned();
         }
         System.out.printf(java.util.Locale.ROOT,
-            "RH10 sheltered ria=%.1f%% (model 8 %.1f%%) rockies=%.1f%% (model 8 %.1f%%) | harbors/25km2 ria=%.2f (model 8 %.2f) rockies=%.2f (model 8 %.2f) | navigable ria=%.1f%% rockies=%.1f%%%n",
+            "RH10 sheltered ria=%.1f%% (model 8 %.1f%%) rockies ria box=%.1f%% (model 8 %.1f%%) | harbors/25km2 ria=%.2f (model 8 %.2f) rockies=%.2f (model 8 %.2f) | navigable ria=%.1f%% rockies=%.1f%%%n",
             100 * ria.shelteredShare(), 100 * MODEL8_SHELTERED_USER, 100 * fjord.shelteredShare(), 100 * MODEL8_SHELTERED_ROCKIES,
             ria.harborsPer25km2(), MODEL8_HARBORS_USER, fjord.harborsPer25km2(), MODEL8_HARBORS_ROCKIES,
             100 * ria.navigableShare(), 100 * fjord.navigableShare());
@@ -1811,6 +1825,183 @@ class HighlandDrownedTest {
 
     private static String line(HighlandDrownedProbe.Site site) {
         return String.format(java.util.Locale.ROOT, "  %d %d %d %.2f %.2f %d\n", site.x(), site.z(), site.crossings(), site.pnwShare(), site.rangeCore(), site.mouths());
+    }
+
+    /** 11-23: one 8 km tile of the bay site scan with its drowned coast crossings (ria: ria weight at least DROWNED_WEIGHT and fjord below it). */
+    private record SiteTile(int x, int z, int ria, int fjord) {}
+
+    /**
+     * 11-23 (D-11-11-1), probe tag: bounded bay site scan with the plan0 arms in place, written to build/rh10-gap/bay-sites.txt after every
+     * tile. Stage A ranks the 8 km tiles of the 11-05 grid (centres (k + .5) x 8192, x -32768..65536, z -49152..65536) of both worlds by
+     * ria crossings of the standalone coast, on position-only fields (no plan build). Stage B censuses bays (ROCKIES candidates: at most
+     * 10 with ria crossings and fjord crossings at most a quarter of them; user candidates: at most 12 that overlap no RIA_BOXES box; the 8
+     * current boxes). Stage C measures sheltered water on FJORD_SITE (reference) and at most 4 ROCKIES candidates that pass the inland
+     * filter. Picks: the first Stage C candidate meeting the D-15 targets with at least half the reference sea; for the user world the
+     * first change set (append one, append two, replace one of RIA_BOXES[4..7], candidates in rank order) whose projected pooled census
+     * meets every baysBranchAndNarrowAtTheMouth assertion, then up to two alternatives. Never calls scanSites (a column lookup per crossing).
+     */
+    @Tag("probe")
+    @Test void rankBaySites() throws Exception {
+        long start = System.nanoTime(), deadline = start + 30L * 60_000_000_000L;
+        var out = new StringBuilder();
+        var file = Path.of("build/rh10-gap/bay-sites.txt");
+        Files.createDirectories(file.getParent());
+        java.util.function.Consumer<String> row = text -> {
+            out.append(text).append('\n');
+            System.out.println(text);
+            try {
+                Files.writeString(file, out.toString());
+            } catch (java.io.IOException e) {
+                throw new java.io.UncheckedIOException(e);
+            }
+        };
+        boolean[] over = {false};
+        java.util.function.BiPredicate<String, Integer> expired = (stage, tiles) -> {
+            if (System.nanoTime() < deadline) return false;
+            if (!over[0]) {
+                over[0] = true;
+                row.accept("deadline reached in stage " + stage + " after " + tiles + " tiles");
+            }
+            return true;
+        };
+        var user = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
+        List<SiteTile> userCandidates;
+        try (var rockies = WorldgenFixture.context(BiomeCensusProbe.rockies(), HighlandPlanformProbe.USER_SEED)) {
+            long stage = System.nanoTime();
+            var rockiesTiles = rankSiteTiles("rockies", rockies, row, expired);
+            var userTiles = rankSiteTiles("user", user, row, expired);
+            row.accept("wall A ms=" + (System.nanoTime() - stage) / 1_000_000);
+            java.util.Comparator<SiteTile> rank = Comparator.<SiteTile>comparingInt(SiteTile::ria).reversed().thenComparingInt(SiteTile::z).thenComparingInt(SiteTile::x);
+            var rockiesCandidates = rockiesTiles.stream().filter(t -> t.ria() > 0 && 4 * t.fjord() <= t.ria()).sorted(rank).limit(10).toList();
+            userCandidates = userTiles.stream().filter(t -> t.ria() > 0 && java.util.Arrays.stream(RIA_BOXES).noneMatch(b -> Math.abs(t.x() - b[0]) < 8192 && Math.abs(t.z() - b[1]) < 8192))
+                .sorted(rank).limit(12).toList();
+
+            stage = System.nanoTime();
+            var rockiesBays = new ArrayList<HighlandDrownedProbe.Bays>();
+            var rockiesBayed = new ArrayList<SiteTile>();
+            for (var tile : rockiesCandidates) {
+                if (expired.test("B rockies", rockiesBayed.size())) break;
+                rockiesBays.add(baySiteRow("rockies", rockies, tile.x(), tile.z(), row));
+                rockiesBayed.add(tile);
+            }
+            row.accept("wall B rockies ms=" + (System.nanoTime() - stage) / 1_000_000);
+
+            stage = System.nanoTime();
+            long t0 = System.nanoTime();
+            int referenceX = FJORD_SITE_X, referenceZ = FJORD_SITE_Z;
+            var reference = HighlandDrownedProbe.measure(rockies, referenceX, referenceZ, SITE_RADIUS).drowned();
+            row.accept("stageC reference " + referenceX + "," + referenceZ + " " + reference.summary() + " ms=" + (System.nanoTime() - t0) / 1_000_000);
+            String rockiesPick = "none";
+            int measured = 0;
+            for (int i = 0; i < rockiesBayed.size() && measured < 4; i++) {
+                var bays = rockiesBays.get(i);
+                boolean inland = bays.count() >= 1 && bays.inners()[bays.inners().length - 1] < 1200 && bays.connected() == bays.count() && bays.closedShare() <= MAX_CLOSED;
+                if (!inland) continue;
+                if (expired.test("C rockies", measured)) break;
+                var tile = rockiesBayed.get(i);
+                t0 = System.nanoTime();
+                var scope = HighlandDrownedProbe.measure(rockies, tile.x(), tile.z(), SITE_RADIUS).drowned();
+                measured++;
+                row.accept("stageC rockies " + tile.x() + "," + tile.z() + " " + scope.summary() + " ms=" + (System.nanoTime() - t0) / 1_000_000);
+                if (rockiesPick.equals("none") && scope.shelteredShare() >= SHELTERED_TARGET && scope.harborsPer25km2() >= HARBOR_TARGET
+                    && scope.navigableShare() >= NAVIGABLE_TARGET && scope.seaArea() >= .5 * reference.seaArea()) rockiesPick = tile.x() + "," + tile.z();
+            }
+            row.accept("wall C ms=" + (System.nanoTime() - stage) / 1_000_000);
+            row.accept("rockies pick " + rockiesPick);
+        }
+
+        long stage = System.nanoTime();
+        var current = new ArrayList<HighlandDrownedProbe.Bays>();
+        for (int[] box : RIA_BOXES) {
+            if (expired.test("B current", current.size())) break;
+            current.add(baySiteRow("current", user, box[0], box[1], row));
+        }
+        var userBays = new ArrayList<HighlandDrownedProbe.Bays>();
+        var userBayed = new ArrayList<SiteTile>();
+        for (var tile : userCandidates) {
+            if (expired.test("B user", userBayed.size())) break;
+            userBays.add(baySiteRow("user", user, tile.x(), tile.z(), row));
+            userBayed.add(tile);
+        }
+        row.accept("wall B user ms=" + (System.nanoTime() - stage) / 1_000_000);
+
+        var sets = new java.util.LinkedHashMap<String, List<HighlandDrownedProbe.Bays>>();
+        if (current.size() == RIA_BOXES.length) {
+            for (int a = 0; a < userBayed.size(); a++) {
+                var plus = new ArrayList<>(current);
+                plus.add(userBays.get(a));
+                sets.put("append1 " + siteAt(userBayed.get(a)), plus);
+            }
+            for (int a = 0; a < userBayed.size(); a++) for (int b = a + 1; b < userBayed.size(); b++) {
+                var plus = new ArrayList<>(current);
+                plus.add(userBays.get(a));
+                plus.add(userBays.get(b));
+                sets.put("append2 " + siteAt(userBayed.get(a)) + " " + siteAt(userBayed.get(b)), plus);
+            }
+            for (int a = 0; a < userBayed.size(); a++) for (int k = 4; k < RIA_BOXES.length; k++) {
+                var swapped = new ArrayList<>(current);
+                swapped.set(k, userBays.get(a));
+                sets.put("replace" + k + " " + siteAt(userBayed.get(a)), swapped);
+            }
+        }
+        var passing = sets.entrySet().stream().filter(e -> userBaysPass(HighlandDrownedProbe.poolBays(e.getValue()))).limit(3).toList();
+        row.accept("user picks " + (passing.isEmpty() ? "none" : passing.get(0).getKey()));
+        if (!passing.isEmpty()) row.accept("user projected " + HighlandDrownedProbe.poolBays(passing.get(0).getValue()).summary());
+        for (int i = 1; i < passing.size(); i++) row.accept("user alt " + passing.get(i).getKey());
+        row.accept("total ms=" + (System.nanoTime() - start) / 1_000_000);
+    }
+
+    private static String siteAt(SiteTile tile) { return tile.x() + "," + tile.z(); }
+
+    /**
+     * Stage A rows of one world: every 8 km tile of the 11-05 grid, rows every 128 blocks with a 16-block step along x on the standalone coast
+     * (position-only), crossings counted by the drowned region weights. Stops at the deadline.
+     */
+    private static List<SiteTile> rankSiteTiles(String world, GeneratorContext context, java.util.function.Consumer<String> row, java.util.function.BiPredicate<String, Integer> expired) {
+        var standalone = new HighlandCoast(context);
+        var drowned = ((RollingHighlandsContinent) context.heightmap.continent()).coast().drowned();
+        double coastEdge = context.preset.world().controlPoints.coast;
+        var tiles = new ArrayList<SiteTile>();
+        for (int kz = -6; kz < 8; kz++) for (int kx = -4; kx < 8; kx++) {
+            if (expired.test("A " + world, tiles.size())) return tiles;
+            long t0 = System.nanoTime();
+            int cx = (int) ((kx + .5) * 8192), cz = (int) ((kz + .5) * 8192), x0 = cx - SITE_RADIUS, z0 = cz - SITE_RADIUS;
+            int[] ria = new int[64], fjord = new int[64];
+            java.util.stream.IntStream.range(0, 64).parallel().forEach(r -> {
+                int z = z0 + r * 128;
+                boolean previous = standalone.sample(x0, z).edge() > coastEdge;
+                for (int x = x0 + 16; x < x0 + 2 * SITE_RADIUS; x += 16) {
+                    boolean land = standalone.sample(x, z).edge() > coastEdge;
+                    if (land == previous) continue;
+                    previous = land;
+                    if (drowned.fjord(x, z) >= HighlandDrownedProbe.DROWNED_WEIGHT) fjord[r]++;
+                    else if (drowned.ria(x, z) >= HighlandDrownedProbe.DROWNED_WEIGHT) ria[r]++;
+                }
+            });
+            var tile = new SiteTile(cx, cz, java.util.Arrays.stream(ria).sum(), java.util.Arrays.stream(fjord).sum());
+            tiles.add(tile);
+            row.accept("stageA " + world + " " + siteAt(tile) + " ria=" + tile.ria() + " fjord=" + tile.fjord() + " ms=" + (System.nanoTime() - t0) / 1_000_000);
+        }
+        return tiles;
+    }
+
+    /** One Stage B row: the bay census of a box in the format the pick rules read. */
+    private static HighlandDrownedProbe.Bays baySiteRow(String label, GeneratorContext context, int x, int z, java.util.function.Consumer<String> row) {
+        long t0 = System.nanoTime();
+        var bays = HighlandDrownedProbe.bays(context, x, z, SITE_RADIUS);
+        var inners = java.util.Arrays.stream(bays.inners()).mapToObj(w -> String.format(java.util.Locale.ROOT, "%.0f", w)).collect(java.util.stream.Collectors.joining(","));
+        row.accept(String.format(java.util.Locale.ROOT, "stageB %s %d,%d %s inners=%s km1=%d km12=%d closedShare=%.3f ms=%d", label, x, z, bays.summary(), inners,
+            java.util.Arrays.stream(bays.inners()).filter(w -> w >= 1000).count(), java.util.Arrays.stream(bays.inners()).filter(w -> w >= 1200).count(), bays.closedShare(), (System.nanoTime() - t0) / 1_000_000));
+        return bays;
+    }
+
+    // note: mirrors the user-world assertions of baysBranchAndNarrowAtTheMouth, which stay inline in the gate (11-23 must not touch them).
+    private static boolean userBaysPass(HighlandDrownedProbe.Bays bays) {
+        if (bays.count() < 5) return false;
+        double widest = bays.inners()[bays.inners().length - 1];
+        return widest >= 1000 && widest <= 5000 && java.util.Arrays.stream(bays.inners()).filter(w -> w >= 1000).count() >= 3
+            && bays.narrowMouth() >= .7 * bays.count() && bays.branching() >= .5 * bays.count() && bays.singleOwner() == bays.count()
+            && bays.connected() == bays.count() && bays.closedShare() <= MAX_CLOSED;
     }
 
     /**
