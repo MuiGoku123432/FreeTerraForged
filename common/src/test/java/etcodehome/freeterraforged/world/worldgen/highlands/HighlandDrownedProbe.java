@@ -1806,6 +1806,213 @@ final class HighlandDrownedProbe {
         return lines;
     }
 
+    // ---- D-GC2 deciding gate (11-19): river-bearing heads, the final river at each and the arm its root enters ----
+
+    /** Axis run (blocks) above a head at which the plan0 channel must still be drawn for the head to be river-bearing. */
+    static final double HEAD_PROBE = 300;
+    /** Largest distance (blocks) from the plan0 channel point at HEAD_PROBE to the final-plan channel node taken as its river. */
+    static final double MATCH_DIST = 96;
+    /** A final root farther than its half width plus this many blocks from block-resolution sea is a dry gap. */
+    static final double ROOT_SEA_SLACK = 4;
+    /** Arm hits within this many blocks of the nearest one tie with it: a root at a junction lies on both branches that meet there. */
+    static final double ARM_TIE = 2;
+
+    /**
+     * MATCH: the root's nearest plan0 coastal axis is the head's branch or a branch on its downstream chain; WRONG_BRANCH: any other branch;
+     * DRY_GAP: no final channel within MATCH_DIST at the probe point, or the root is not at block-resolution sea; CREEKLESS: plan0 draws no
+     * channel HEAD_PROBE blocks above the head (outside the denominator).
+     */
+    enum Verdict { MATCH, WRONG_BRANCH, DRY_GAP, CREEKLESS }
+
+    /**
+     * One head: owner, plan0 branch (index and id, the "plan0 reach"), head position, flooded axis samples below it ({@code arm}: at least
+     * one; a head reached through open sea only is a coast head, reported, not gated), the probe point and its plan0 channel point, the
+     * final node found there and its distance, the final root (position, channel width, sea distance), the branch id its nearest plan0
+     * coastal axis belongs to (source "arm" for HighlandArms, "valley" for the nearest plan0 valley sample when no arm reaches the root)
+     * and the verdict; {@code headFinal} is the distance from the head to its final root, or, when no final river is found, to the nearest final
+     * channel (diagnostic).
+     */
+    record Head(String label, int ownerX, int ownerZ, int branch, int reach, double x, double z, int flooded, double run, boolean drawn, double catchment,
+                double probeX, double probeZ, double channelX, double channelZ, double finalDistance, double rootX, double rootZ, double rootWidth,
+                double rootSea, int armReach, double armDistance, String armSource, Verdict verdict, double headFinal) {
+        boolean arm() { return flooded > 0; }
+        boolean bearing() { return verdict != Verdict.CREEKLESS; }
+        boolean failing() { return verdict == Verdict.WRONG_BRANCH || verdict == Verdict.DRY_GAP; }
+        String line() {
+            return String.format(Locale.ROOT, "head %s owner %d,%d branch %d (reach %d) at %.0f,%.0f %s flooded=%d run=%.0f drawn=%b catchment=%.0f probe %.0f,%.0f channel %.0f,%.0f final=%.1f root %.0f,%.0f w=%.1f sea=%.1f arm=%d (%s, %.1f) %s headFinal=%.1f",
+                label, ownerX, ownerZ, branch, reach, x, z, arm() ? "arm" : "coast", flooded, run, drawn, catchment, probeX, probeZ, channelX, channelZ, finalDistance,
+                rootX, rootZ, rootWidth, rootSea, armReach, armSource, armDistance, verdict, headFinal);
+        }
+    }
+
+    private record Bits(long x, long z) {
+        static Bits of(double x, double z) { return new Bits(Double.doubleToLongBits(x), Double.doubleToLongBits(z)); }
+    }
+
+    /**
+     * The heads of one owner (D-GC2). For every plan0 branch that carries arm segments (HighlandArms), its valley axis is walked upstream
+     * from its junction (the root node for a sea root); the head is the first axis sample that is land on the final coast after at least one
+     * water sample and from which the axis stays land for HEAD_PROBE blocks (or to the branch end): a spit or island the valley crosses before it
+     * re-enters water is not a head (a branch whose junction is land has no head: it is a tributary above the shore). The probe point is the axis sample
+     * HEAD_PROBE blocks of axis above the head (the branch's last sample when it is shorter); the head is river-bearing when that sample is a
+     * sample of plan0's drawn axis (D-GC8: the physical valley there belongs to the drawn selection at the preset's River Count) and its catchment
+     * survives drowning: plan0's area at the probe, less the area above the first sample upstream of the probe where the valley re-enters water
+     * (an isthmus between two drowned basins), is at least the drawn threshold (creekArea). The plan0
+     * channel point is the nearest point of the plan0 reach (HighlandPlanIndex over plan0) whose axis passes the probe point; the final river is
+     * the final-plan channel nearest to it (distance to the refined polyline, HighlandPlanIndex over the final plan) within MATCH_DIST, followed
+     * downstream from its reach's downstream node to its root.
+     */
+    static List<Head> heads(String label, GeneratorContext context, int ownerX, int ownerZ) {
+        var continent = (RollingHighlandsContinent) context.heightmap.continent();
+        var coast = continent.coast();
+        double coastEdge = context.preset.world().controlPoints.coast;
+        var plan0 = continent.basePlan(ownerX, ownerZ);
+        var valleys = plan0.valleys();
+        var index0 = new HighlandPlanIndex(plan0);
+        var drawn = new java.util.HashSet<Bits>();
+        for (var a : plan0.axis()) drawn.add(Bits.of(a.x(), a.z()));
+        var arms = coast.drowned().arms(ownerX, ownerZ);
+        var armReaches = new java.util.HashSet<Integer>();
+        for (int s = 0; s < arms.segments(); s++) armReaches.add(arms.reach[s]);
+        var finalIndex = continent.planOf(ownerX, ownerZ);
+        var finalPlan = finalIndex.plan();
+        var nodes = finalPlan.nodes();
+        var drainage = continent.drainage();
+        var heads = new ArrayList<Head>();
+        for (int b = 0; b < valleys.branches(); b++) {
+            if (!armReaches.contains(valleys.id()[b])) continue;
+            int from = valleys.first()[b], to = valleys.first()[b + 1], water = 0, flooded = 0, head = -1, probe = -1;
+            double run = 0;
+            for (int s = from; s < to; s++) {
+                double x = valleys.x()[s], z = valleys.z()[s];
+                if (coast.sample(x, z).edge() <= coastEdge) {
+                    water++;
+                    if (coast.undrowned(x, z).edge() > coastEdge) flooded++;
+                    continue;
+                }
+                if (water == 0) break; // the junction is land: a tributary above the shore, no head
+                // A land sample after water is the head only when the axis stays land for HEAD_PROBE blocks above it (or to the branch end); a spit
+                // or island the valley crosses before re-entering water is not (its flooded samples count with the head's).
+                int p = s;
+                double r = 0;
+                boolean dry = true;
+                while (p + 1 < to && r < HEAD_PROBE) {
+                    r += Math.hypot(valleys.x()[p + 1] - valleys.x()[p], valleys.z()[p + 1] - valleys.z()[p]);
+                    p++;
+                    if (coast.sample(valleys.x()[p], valleys.z()[p]).edge() <= coastEdge) { dry = false; break; }
+                }
+                if (dry) { head = s; probe = p; run = r; break; }
+                s = p - 1; // continue the walk at the water sample
+            }
+            if (head < 0) continue;
+            double hx = valleys.x()[head], hz = valleys.z()[head], px = valleys.x()[probe], pz = valleys.z()[probe];
+            // The catchment that survives drowning: plan0's drainage area at the probe less the area above the first sample upstream of it where
+            // the valley re-enters water (an isthmus between two drowned basins keeps only what joins between them).
+            double catchment = valleys.area()[probe];
+            for (int s = probe + 1; s < to; s++) if (coast.sample(valleys.x()[s], valleys.z()[s]).edge() <= coastEdge) { catchment -= valleys.area()[s]; break; }
+            boolean isDrawn = drawn.contains(Bits.of(px, pz));
+            if (!isDrawn || catchment < drainage.creekArea()) {
+                heads.add(new Head(label, ownerX, ownerZ, b, valleys.id()[b], hx, hz, flooded, run, isDrawn, catchment, px, pz, Double.NaN, Double.NaN, Double.NaN,
+                    Double.NaN, Double.NaN, Double.NaN, Double.NaN, -1, Double.NaN, "-", Verdict.CREEKLESS, Double.NaN));
+                continue;
+            }
+            var hits = index0.near(px, pz);
+            int k = -1;
+            for (int h = 0; h < hits.count; h++) if (k < 0 || hits.axis[h] < hits.axis[k]) k = h;
+            double cx = k < 0 ? px : px - hits.offsetX[k], cz = k < 0 ? pz : pz - hits.offsetZ[k];
+            // The final channel nearest to the plan0 channel point: distance to its refined polyline (HighlandPlanIndex over the final plan), then
+            // its reach's downstream node; a channel beyond the index influence counts as none.
+            var finalHits = finalIndex.near(cx, cz);
+            int nearest = -1;
+            double best = Double.POSITIVE_INFINITY;
+            for (int h = 0; h < finalHits.count; h++) if (finalHits.distance[h] < best) { best = finalHits.distance[h]; nearest = finalPlan.reaches().get(finalHits.reach[h]).downstream(); }
+            if (nearest < 0 || best > MATCH_DIST) {
+                var atHead = finalIndex.near(hx, hz);
+                double headFinal = Double.POSITIVE_INFINITY;
+                for (int h = 0; h < atHead.count; h++) headFinal = Math.min(headFinal, atHead.distance[h]);
+                heads.add(new Head(label, ownerX, ownerZ, b, valleys.id()[b], hx, hz, flooded, run, true, catchment, px, pz, cx, cz, best,
+                    Double.NaN, Double.NaN, Double.NaN, Double.NaN, -1, Double.NaN, "-", Verdict.DRY_GAP, headFinal));
+                continue;
+            }
+            int v = nearest;
+            for (int guard = 0; nodes.get(v).parent() >= 0 && guard <= nodes.size(); guard++) v = nodes.get(v).parent();
+            var root = nodes.get(v);
+            double halfWidth = drainage.halfWidth(root.area(), 1);
+            double sea = seaDistance(coast, coastEdge, root.x(), root.z(), halfWidth + ROOT_SEA_SLACK);
+            var chain = new java.util.HashSet<Integer>();
+            for (int c = b; c >= 0; c = valleys.down()[c]) chain.add(valleys.id()[c]);
+            var armHits = arms.query(root.x(), root.z());
+            int armReach = -1;
+            double armDistance = Double.POSITIVE_INFINITY;
+            for (int h = 0; h < armHits.count; h++) if (armHits.distance[h] < armDistance) { armDistance = armHits.distance[h]; armReach = arms.reach[armHits.segment[h]]; }
+            boolean onChain = false;
+            String source = "arm";
+            if (armReach >= 0) {
+                for (int h = 0; h < armHits.count; h++) if (armHits.distance[h] <= armDistance + ARM_TIE && chain.contains(arms.reach[armHits.segment[h]])) onChain = true;
+            } else {
+                source = "valley";
+                for (int c = 0; c < valleys.branches(); c++) for (int s = valleys.first()[c]; s < valleys.first()[c + 1]; s++) {
+                    double d = Math.hypot(valleys.x()[s] - root.x(), valleys.z()[s] - root.z());
+                    if (d < armDistance) { armDistance = d; armReach = valleys.id()[c]; }
+                }
+                onChain = chain.contains(armReach);
+            }
+            if (onChain && !chain.contains(armReach)) armReach = chain.stream().filter(id -> {
+                for (int h = 0; h < armHits.count; h++) if (arms.reach[armHits.segment[h]] == id) return true;
+                return false;
+            }).findFirst().orElse(armReach);
+            Verdict verdict = !(sea <= halfWidth + ROOT_SEA_SLACK) ? Verdict.DRY_GAP : onChain ? Verdict.MATCH : Verdict.WRONG_BRANCH;
+            heads.add(new Head(label, ownerX, ownerZ, b, valleys.id()[b], hx, hz, flooded, run, true, catchment, px, pz, cx, cz, best,
+                root.x(), root.z(), 2 * halfWidth, sea, armReach, armDistance, source, verdict, Math.hypot(root.x() - hx, root.z() - hz)));
+        }
+        return heads;
+    }
+
+    /** Distance (2-block rings up to max) from (x, z) to the nearest block-resolution sea sample; 0 inside the sea, infinite beyond max (note: HighlandMouthTest.seaDistance, second copy, not extracted). */
+    static double seaDistance(HighlandCoast coast, double coastEdge, double x, double z, double max) {
+        if (coast.sample(x, z).edge() <= coastEdge) return 0;
+        for (double r = 2; r <= max; r += 2) {
+            int m = (int) Math.max(16, Math.ceil(Math.PI * r));
+            for (int k = 0; k < m; k++) {
+                double a = 2 * Math.PI * k / m;
+                if (coast.sample(x + r * Math.cos(a), z + r * Math.sin(a)).edge() <= coastEdge) return r;
+            }
+        }
+        return Double.POSITIVE_INFINITY;
+    }
+
+    /** Counts of a head list: river-bearing arm heads, matched, wrong-branch, dry, creek-less arm heads, coast heads (bearing) and their failures. */
+    record HeadCounts(int bearing, int matched, int wrong, int dry, int creekless, int coast, int coastFailing) {
+        static HeadCounts of(List<Head> heads) {
+            int bearing = 0, matched = 0, wrong = 0, dry = 0, creekless = 0, coast = 0, coastFailing = 0;
+            for (var h : heads) {
+                if (!h.arm()) { if (h.bearing()) { coast++; if (h.failing()) coastFailing++; } continue; }
+                switch (h.verdict()) {
+                    case CREEKLESS -> creekless++;
+                    case MATCH -> { bearing++; matched++; }
+                    case WRONG_BRANCH -> { bearing++; wrong++; }
+                    case DRY_GAP -> { bearing++; dry++; }
+                }
+            }
+            return new HeadCounts(bearing, matched, wrong, dry, creekless, coast, coastFailing);
+        }
+        String summary(String label) {
+            return String.format(Locale.ROOT, "dgc2 %s: river-bearing arm heads=%d matched=%d wrong-branch=%d dry=%d creek-less=%d; coast heads (river-bearing, reported)=%d failing=%d",
+                label, bearing, matched, wrong, dry, creekless, coast, coastFailing);
+        }
+    }
+
+    /** Review renders of one head: hillshade and mask (2 km box, 4-block pixels) with the head, the plan0 channel point and the final root marked red. */
+    static void renderHead(GeneratorContext context, Head head, Path dir, String stem) throws Exception {
+        int cx = (int) Math.round(head.x()), cz = (int) Math.round(head.z());
+        var marks = new ArrayList<Outlier>();
+        marks.add(new Outlier(cx, cz, 0, 0));
+        if (Double.isFinite(head.channelX())) marks.add(new Outlier((int) head.channelX(), (int) head.channelZ(), 0, 0));
+        if (Double.isFinite(head.rootX())) marks.add(new Outlier((int) head.rootX(), (int) head.rootZ(), 0, 0));
+        HighlandPlanformProbe.render(context, cx, cz, 2048, 4, dir.resolve(stem + ".png"));
+        uatMask(context, cx, cz, 2048, 4, marks, dir.resolve(stem + "-mask.png"));
+    }
+
     private static final int MASK_AXIS = 0xffd400, MASK_OUTLIER = 0xff0000;
 
     /**

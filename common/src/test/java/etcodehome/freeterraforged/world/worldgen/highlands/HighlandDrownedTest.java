@@ -774,6 +774,219 @@ class HighlandDrownedTest {
         }
     }
 
+    /** D-GC2 deciding gate: river-bearing arm heads the regular gate needs in total over its three owners. */
+    static final int DGC2_MIN_HEADS = 5;
+    /** Renders of failing coast heads (reported, not gated) per run, at most. */
+    private static final int DGC2_COAST_RENDERS = 6;
+
+    /** The owner (undrowned coast) of a block position. */
+    private static int[] ownerAt(GeneratorContext context, int x, int z) {
+        var site = coastOf(context).undrowned(x, z);
+        return new int[]{site.ownerX(), site.ownerZ()};
+    }
+
+    /** Heads of one owner: the count line and one line per head go to {@code lines}. */
+    private static List<HighlandDrownedProbe.Head> ownerHeads(String world, GeneratorContext context, int ownerX, int ownerZ, List<String> lines) {
+        var heads = HighlandDrownedProbe.heads(world, context, ownerX, ownerZ);
+        String summary = HighlandDrownedProbe.HeadCounts.of(heads).summary(world + " owner " + ownerX + "," + ownerZ) + " (River Count " + context.preset.rivers().riverCount + ")";
+        lines.add(summary);
+        heads.forEach(h -> lines.add("  " + h.line()));
+        System.out.println(summary);
+        return heads;
+    }
+
+    /**
+     * Renders every failing arm head (and up to DGC2_COAST_RENDERS failing coast heads) of a list to {@code dir} as {@code dgc2-<world>-x<x>-z<z>.png}
+     * and {@code -mask.png} (head, plan0 channel point and final root in red); render paths go to {@code lines}. Returns the failing arm heads.
+     */
+    private static List<String> renderFailures(GeneratorContext context, List<HighlandDrownedProbe.Head> heads, Path dir, String world, int[] coastRenders, List<String> lines) throws Exception {
+        var failing = new ArrayList<String>();
+        for (var h : heads) {
+            if (!h.failing() || !h.arm() && coastRenders[0] >= DGC2_COAST_RENDERS) continue;
+            if (!h.arm()) coastRenders[0]++;
+            String stem = "dgc2-" + world.replace(' ', '-') + "-x" + Math.round(h.x()) + "-z" + Math.round(h.z());
+            HighlandDrownedProbe.renderHead(context, h, dir, stem);
+            lines.add("  render " + dir.resolve(stem + ".png").toAbsolutePath() + " (+ -mask.png) for " + h.line());
+            if (h.arm()) failing.add(h.line());
+        }
+        return failing;
+    }
+
+    /**
+     * Heads of the same plan0 branch at two River Counts: every head position must agree, and where an arm head is river-bearing at both counts
+     * so must its verdict (coast heads that change verdict are listed, not gated, like their verdicts). Returns the gated changes.
+     */
+    private static List<String> riverCountChanges(List<HighlandDrownedProbe.Head> a, List<HighlandDrownedProbe.Head> b, List<String> lines) {
+        var changes = new ArrayList<String>();
+        var coastChanges = new ArrayList<String>();
+        var byReach = new java.util.HashMap<Integer, HighlandDrownedProbe.Head>();
+        for (var h : b) byReach.put(h.reach(), h);
+        int both = 0, bearingChanged = 0, armChanged = 0;
+        for (var h : a) {
+            var other = byReach.remove(h.reach());
+            if (other == null || other.x() != h.x() || other.z() != h.z()) { changes.add("head moved or missing: " + h.line() + " vs " + (other == null ? "none" : other.line())); continue; }
+            if (h.bearing() != other.bearing()) { bearingChanged++; continue; }
+            if (!h.bearing()) continue;
+            both++;
+            if (h.verdict() != other.verdict()) (h.arm() ? changes : coastChanges).add("verdict changed: " + h.line() + " vs " + other.line());
+            if (h.armReach() != other.armReach()) armChanged++;
+        }
+        byReach.values().forEach(h -> changes.add("head only at the second River Count: " + h.line()));
+        lines.add(String.format(java.util.Locale.ROOT, "dgc2 River Count comparison: heads river-bearing at both %d, river-bearing at one only %d, root arm reach differs (same verdict) %d, arm-head changes %d, coast-head verdict changes (reported) %d",
+            both, bearingChanged, armChanged, changes.size(), coastChanges.size()));
+        System.out.println(lines.get(lines.size() - 1));
+        changes.forEach(c -> lines.add("  " + c));
+        coastChanges.forEach(c -> lines.add("  coast (reported) " + c));
+        return changes;
+    }
+
+    /**
+     * D-GC2 deciding gate (11-19), regular set: the server preset owner (0,0), the ROCKIES owner of FJORD_ARM_SITE and the user-preset owner of
+     * RIA_SITE, plus the server owner (0,0) again at River Count 3 on a fresh context (D-GC8 amendment).
+     *
+     * <p>Definitions ({@link HighlandDrownedProbe#heads}):
+     * <ul>
+     * <li>River-bearing head: walking a plan0 branch's valley axis (Plan.valleys, the physical branch, "plan0 reach") upstream from its junction,
+     * the head is the first axis sample that is land on the final coast after water samples and from which the axis stays land for HEAD_PROBE
+     * blocks (a spit or island the valley crosses before re-entering water is not a head); it is river-bearing when the sample HEAD_PROBE (300)
+     * blocks of axis above it is a sample of plan0's drawn axis (the physical valley there belongs to the drawn selection at the preset's River
+     * Count) and its catchment survives drowning (plan0's area there, less the area above the first sample further up where the valley re-enters
+     * water, at least creekArea). Creek-less heads are outside the denominator by definition; their count is printed. Only branches
+     * that carry HighlandArms segments are walked, and only heads with at least one flooded sample below them (standalone land, final sea) are arm
+     * heads and gated; heads reached through open sea only are coast heads, reported with their verdicts.</li>
+     * <li>Final river: the final-plan node nearest (within MATCH_DIST, 96 blocks) to the plan0 channel point at the probe (the nearest point of the
+     * plan0 drawn reach whose axis passes the probe sample, HighlandPlanIndex over plan0), followed downstream to its root.</li>
+     * <li>Verdicts: match when the root's nearest plan0 coastal axis (HighlandArms; ties within ARM_TIE, 2 blocks, count, since a root at a junction
+     * lies on both branches) belongs to the head's branch or a branch on its downstream chain; wrong-branch when it belongs to any other branch (when no
+     * arm segment reaches the root, the nearest plan0 valley sample decides); dry gap when the root is farther than halfWidth + 4 from
+     * block-resolution sea, or when no final channel exists within MATCH_DIST at the probe.</li>
+     * </ul>
+     * Gate: at least DGC2_MIN_HEADS river-bearing arm heads in total, zero wrong-branch, zero dry gaps; at River Count 3 the head positions are the
+     * same and every arm head river-bearing at both counts keeps its verdict (only which heads are river-bearing may change; coast-head changes are listed). Every head and its
+     * verdict go to build/rh10-gap/dgc2-regular.txt; failing heads are rendered there as dgc2-*.png.
+     */
+    @Test void riverHeadsMeetTheirArms() throws Exception {
+        var dir = Path.of("build/rh10-gap");
+        Files.createDirectories(dir);
+        var lines = new ArrayList<String>();
+        var all = new ArrayList<HighlandDrownedProbe.Head>();
+        var failing = new ArrayList<String>();
+        int[] coastRenders = {0};
+        List<HighlandDrownedProbe.Head> atPreset, atThree;
+        try (var server = WorldgenFixture.context(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED)) {
+            atPreset = ownerHeads("server", server, 0, 0, lines);
+            all.addAll(atPreset);
+            failing.addAll(renderFailures(server, atPreset, dir, "server", coastRenders, lines));
+        }
+        try (var rockies = WorldgenFixture.context(BiomeCensusProbe.rockies(), HighlandPlanformProbe.USER_SEED)) {
+            int[] owner = ownerAt(rockies, FJORD_ARM_SITE_X, FJORD_ARM_SITE_Z);
+            var heads = ownerHeads("rockies", rockies, owner[0], owner[1], lines);
+            all.addAll(heads);
+            failing.addAll(renderFailures(rockies, heads, dir, "rockies", coastRenders, lines));
+        }
+        try (var user = WorldgenFixture.context(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED)) {
+            int[] owner = ownerAt(user, RIA_SITE_X, RIA_SITE_Z);
+            var heads = ownerHeads("user", user, owner[0], owner[1], lines);
+            all.addAll(heads);
+            failing.addAll(renderFailures(user, heads, dir, "user", coastRenders, lines));
+        }
+        try (var three = riverCountContext(HighlandPlanformProbe::serverPreset, HighlandPlanformProbe.SERVER_SEED, 3)) {
+            atThree = ownerHeads("server rc3", three, 0, 0, lines);
+            failing.addAll(renderFailures(three, atThree, dir, "server-rc3", coastRenders, lines));
+        }
+        var changes = riverCountChanges(atPreset, atThree, lines);
+        var counts = HighlandDrownedProbe.HeadCounts.of(all);
+        lines.add(0, counts.summary("regular (server 0,0, ROCKIES FJORD_ARM_SITE owner, user RIA_SITE owner)"));
+        Files.write(dir.resolve("dgc2-regular.txt"), lines);
+        System.out.println(lines.get(0));
+        assertTrue(counts.bearing() >= DGC2_MIN_HEADS, "only " + counts.bearing() + " river-bearing arm heads (need " + DGC2_MIN_HEADS + "): " + lines.get(0));
+        assertTrue(failing.isEmpty(), failing.size() + " wrong-branch or dry arm heads (see build/rh10-gap/dgc2-regular.txt): " + failing);
+        assertTrue(changes.isEmpty(), "River Count 3 changed " + changes.size() + " head verdicts or positions: " + changes);
+    }
+
+    /** Adds an 8 km fidelity box centre unless it lies within SITE_RADIUS (both axes) of one already taken. */
+    private static void addBox(List<int[]> boxes, int x, int z) {
+        for (int[] b : boxes) if (Math.abs(b[0] - x) <= SITE_RADIUS && Math.abs(b[1] - z) <= SITE_RADIUS) return;
+        boxes.add(new int[]{x, z});
+    }
+
+    /**
+     * D-GC2 deciding gate (11-19), full set (slow): the verdicts of {@link #riverHeadsMeetTheirArms} (at least DGC2_MIN_HEADS river-bearing arm
+     * heads, zero wrong-branch, zero dry) over the server preset owners of every UAT site, the first drowned owner (ring search of
+     * plansBuildOnFiveSeeds) of each of the five plan seeds on the user preset and on ROCKIES, and the ROCKIES FJORD_BOXES owners, plus the 11-12
+     * fidelity screen (pooled share at least FIDELITY_TARGET with the D-11-14-2 margin, outliers listed) over the 8 km boxes of FIDELITY_SERVER_BOXES
+     * and the UAT sites (server), FJORD_BOXES and each seed's first drowned point (ROCKIES), RIA_BOXES[0..1] and each seed's first drowned point
+     * (user); the 11-12 boxes are all kept, an added box (UAT site, drowned point) is skipped when its centre lies within SITE_RADIUS of one
+     * already taken. Every head with its verdict, the fidelity summaries and
+     * outliers go to build/rh10-gap/dgc2.txt; failing heads are rendered there as dgc2-*.png.
+     */
+    @Tag("slow")
+    @Test void riverHeadsMeetTheirArmsEverywhere() throws Exception {
+        var dir = Path.of("build/rh10-gap");
+        Files.createDirectories(dir);
+        var lines = new ArrayList<String>();
+        var all = new ArrayList<HighlandDrownedProbe.Head>();
+        var failing = new ArrayList<String>();
+        var parts = new ArrayList<HighlandDrownedProbe.Fidelity>();
+        var fidelityLines = new ArrayList<String>();
+        int[] coastRenders = {0};
+        long[] seeds = {HighlandPlanformProbe.USER_SEED, 1L, 42L, -314159L, 20261107L};
+        try (var server = WorldgenFixture.context(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED)) {
+            var owners = new java.util.LinkedHashSet<List<Integer>>();
+            for (int[] site : UAT_SITES) { int[] o = ownerAt(server, site[0], site[1]); owners.add(List.of(o[0], o[1])); }
+            for (var o : owners) {
+                var heads = ownerHeads("server", server, o.get(0), o.get(1), lines);
+                all.addAll(heads);
+                failing.addAll(renderFailures(server, heads, dir, "server", coastRenders, lines));
+            }
+            var boxes = new ArrayList<int[]>();
+            for (int[] b : FIDELITY_SERVER_BOXES) boxes.add(b);
+            for (int[] b : UAT_SITES) addBox(boxes, b[0], b[1]);
+            fidelityBoxes("server", server, boxes.toArray(int[][]::new), parts, fidelityLines);
+        }
+        for (int preset = 0; preset < 2; preset++) {
+            for (long seed : seeds) {
+                String world = (preset == 0 ? "user" : "rockies") + " seed " + seed;
+                try (var context = WorldgenFixture.context(preset == 0 ? HighlandPlanformProbe.userPreset() : BiomeCensusProbe.rockies(), seed)) {
+                    var owners = new java.util.LinkedHashSet<List<Integer>>();
+                    var boxes = new ArrayList<int[]>();
+                    if (seed == HighlandPlanformProbe.USER_SEED) {
+                        int[][] fixed = preset == 0 ? java.util.Arrays.copyOf(RIA_BOXES, 2) : FJORD_BOXES;
+                        boxes.addAll(java.util.Arrays.asList(fixed));
+                        if (preset == 1) for (int[] b : FJORD_BOXES) { int[] o = ownerAt(context, b[0], b[1]); owners.add(List.of(o[0], o[1])); }
+                    }
+                    int[] point = firstDrownedPoint(context);
+                    if (point == null) {
+                        lines.add("dgc2 " + world + ": no drowned coast point within 65 km of the origin");
+                        if (preset == 0) failing.add(world + ": no drowned coast point (the user preset must have one, plansBuildOnFiveSeeds)");
+                    } else {
+                        int[] o = ownerAt(context, point[0], point[1]);
+                        owners.add(List.of(o[0], o[1]));
+                        addBox(boxes, point[0], point[1]);
+                        lines.add("dgc2 " + world + ": first drowned point " + point[0] + "," + point[1] + " owner " + o[0] + "," + o[1]);
+                    }
+                    for (var o : owners) {
+                        var heads = ownerHeads(world, context, o.get(0), o.get(1), lines);
+                        all.addAll(heads);
+                        failing.addAll(renderFailures(context, heads, dir, world, coastRenders, lines));
+                    }
+                    if (!boxes.isEmpty()) fidelityBoxes(world, context, boxes.toArray(int[][]::new), parts, fidelityLines);
+                }
+            }
+        }
+        var counts = HighlandDrownedProbe.HeadCounts.of(all);
+        var pooled = HighlandDrownedProbe.poolFidelity(parts);
+        lines.add(0, counts.summary("full set"));
+        lines.add(1, pooled.summary("pooled") + String.format(java.util.Locale.ROOT, " (target %.2f, limit %.3f with the D-11-14-2 margin)", FIDELITY_TARGET, FIDELITY_TARGET - tol(FIDELITY_TARGET)));
+        lines.addAll(fidelityLines);
+        Files.write(dir.resolve("dgc2.txt"), lines);
+        System.out.println(lines.get(0) + "\n" + lines.get(1));
+        assertTrue(counts.bearing() >= DGC2_MIN_HEADS, "only " + counts.bearing() + " river-bearing arm heads: " + lines.get(0));
+        assertTrue(failing.isEmpty(), failing.size() + " wrong-branch or dry arm heads (see build/rh10-gap/dgc2.txt): " + failing);
+        assertTrue(pooled.medial() >= FIDELITY_MIN_MEDIAL, "too little flooded land for the screen: " + lines.get(1));
+        assertTrue(pooled.share() >= FIDELITY_TARGET - tol(FIDELITY_TARGET), "only " + pooled.share() + margin(FIDELITY_TARGET - tol(FIDELITY_TARGET)) + " of the flooded medial axis lies within its half width of a plan0 axis: " + lines.get(1));
+    }
+
     /** The land column of an owner nearest its centre (256-block lattice, spiral by rings): a column whose standalone edge is land and whose owner is the given one. */
     private static int[] ownerLandColumn(GeneratorContext context, int ownerX, int ownerZ) {
         var coast = coastOf(context);
