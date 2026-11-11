@@ -1743,6 +1743,7 @@ class HighlandDrownedTest {
     @Test void islandsMixAndChains() throws Exception {
         var census = islandCensus();
         var all = HighlandDrownedProbe.poolIslands(List.of(census.ria, census.fjord));
+        System.out.println("RH10 island diameters (blocks, 400 and up, sorted): " + java.util.Arrays.toString(java.util.Arrays.stream(all.diameters()).filter(d -> d >= 400).sorted().map(Math::rint).toArray()));
         System.out.println("RH10 islands ria " + census.ria.summary() + "\nRH10 islands fjord " + census.fjord.summary() + "\nRH10 islands pooled " + all.summary());
         assertTrue(census.ria.count() > 0 && census.fjord.count() > 0, "no islands in a scope: ria " + census.ria.count() + " fjord " + census.fjord.count());
         assertTrue(all.per25km2(1000, 3000) >= 1, "islands of 1-3 km per 25 km2 of drowned region: " + all.per25km2(1000, 3000) + ": " + all.summary());
@@ -2251,6 +2252,9 @@ class HighlandDrownedTest {
         assertTrue(failures.isEmpty(), "circular outlines (sd below " + MIN_RIM_SD + "): " + failures);
     }
 
+    /** Island fields (11-15): the rays an island field needs to be judged (of RIM_RAYS), and the least sd of its outermost island radius, in region radii (same as the flood rim: MIN_RIM_SD). */
+    static final int MIN_ISLAND_RIM_RAYS = 40;
+
     /** Rim census of the flooding regions around the boxes (server window: one wide box); returns the number of regions judged. */
     private static int rimCensus(String label, GeneratorContext context, int[][] boxes, int radius, List<String> lines, List<String> failures) {
         int judged = 0;
@@ -2262,7 +2266,105 @@ class HighlandDrownedTest {
             judged++;
             if (rim.sd() < MIN_RIM_SD) failures.add(line);
         }
+        for (var region : HighlandDrownedProbe.regionsAround(context, boxes, radius)) {
+            var rim = HighlandDrownedProbe.islandRim(context, region);
+            if (rim.rays() == 0) continue;
+            String line = String.format(java.util.Locale.ROOT, "%s ISLANDS %s (%d,%d) R=%.0f rays=%d rim/R mean=%.3f sd=%.3f", label, region.fjord() ? "FJORD" : "RIA", region.i(), region.j(), region.radius(), rim.rays(), rim.mean(), rim.sd());
+            lines.add(line);
+            if (rim.rays() < MIN_ISLAND_RIM_RAYS) continue;
+            judged++;
+            if (rim.sd() < MIN_RIM_SD) failures.add(line);
+        }
         return judged;
+    }
+
+    /**
+     * Island fields are not rings (11-15, G-11-2 b, D-GC3 "no island rings"): region (3,3) of the server preset (centre 17284,21954, R 2844, the diagnosis ring:
+     * raised-island land 17 to 28% of every band out to .92 R, then a cliff to 4.5%). No tenth of the radius from .1 to 1.0 holds more than
+     * RING_MAX_OVER_MEDIAN times the median band share of raised-island land, and no band falls by more than RING_MAX_DROP of the band inside it.
+     */
+    static final double RING_MAX_OVER_MEDIAN = 1.5, RING_MAX_DROP = .6;
+    static final int RING_SITE_X = 17284, RING_SITE_Z = 21954;
+
+    @Test void islandsAreNotRings() throws Exception {
+        var server = WorldgenFixture.shared(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED);
+        var region = ((RollingHighlandsContinent) server.heightmap.continent()).coast().drowned().dominant(RING_SITE_X, RING_SITE_Z, false);
+        assertTrue(region != null && region.i() == 3 && region.j() == 3, "the ring site is no longer region (3,3): " + region);
+        double[] bands = HighlandDrownedProbe.islandBands(server, region);
+        var line = new StringBuilder(String.format(java.util.Locale.ROOT, "RH10 island rings region (3,3) centre %.0f,%.0f R=%.0f %s: island land share by tenth of R:", region.cx(), region.cz(), region.radius(), region.fjord() ? "FJORD" : "RIA"));
+        for (double share : bands) line.append(String.format(java.util.Locale.ROOT, " %.1f%%", 100 * share));
+        System.out.println(line);
+        double[] sorted = java.util.Arrays.copyOfRange(bands, 1, 10);
+        java.util.Arrays.sort(sorted);
+        double median = sorted[sorted.length / 2], max = sorted[sorted.length - 1];
+        assertTrue(median > 0, "no island land in region (3,3): " + line);
+        assertTrue(max <= RING_MAX_OVER_MEDIAN * median, "a band holds " + max + " of island land, more than " + RING_MAX_OVER_MEDIAN + " times the median " + median + ": " + line);
+        for (int b = 2; b < 10; b++)
+            assertTrue(bands[b - 1] - bands[b] <= RING_MAX_DROP * bands[b - 1], "island land falls from " + bands[b - 1] + " to " + bands[b] + " between tenths " + (b - 1) + " and " + b + " (a cliff, more than " + RING_MAX_DROP + " of the inner band): " + line);
+    }
+
+    /**
+     * No island is a ruler line (11-15, G-11-4, D-GC3 "no 1-octave straight island chains"): in the island census boxes (user RIA_BOXES, ROCKIES FJORD_BOXES) and an
+     * 8 km box at the diagnosis strip site 34272,-12747 (server preset, 26 chain islands 80 blocks wide or less and 300 long or more) there is no raised-island
+     * component of the 4-block raster at most RULER_WIDTH wide and at least RULER_LENGTH long; and every island at least 300 blocks across (equivalent
+     * diameter, the island census) stands at least ISLAND_MIN_TOP above sea (ISLAND_MIN_TOP_FJORD in the ROCKIES fjord country).
+     */
+    static final int RULER_STEP = 4, RULER_SITE_X = 34272, RULER_SITE_Z = -12747;
+
+    @Test void islandsAreNotRulerLines() throws Exception {
+        var lines = new ArrayList<String>();
+        var server = WorldgenFixture.shared(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED);
+        rulerBox("server", server, new int[] {RULER_SITE_X, RULER_SITE_Z}, SITE_RADIUS, lines);
+        // The plan's boxes held 0 ruler lines at 11-14 (the 11-10 to 11-13 arms and rims removed most of the diagnosis 26), so the census also scans the 1.15 R window of
+        // every region of the server window of the diagnosis (the diagnosis slivers() method: 1 chain island 80 wide and 611 long at 47639,20672).
+        var seen = new ArrayList<double[]>();
+        for (var region : HighlandDrownedProbe.regionsAround(server, new int[][] {{18000, 6000}}, 32000)) {
+            int radius = (int) Math.ceil(1.15 * region.radius() / 64) * 64;
+            var rulers = HighlandDrownedProbe.rulerLines(server, (int) Math.round(region.cx()), (int) Math.round(region.cz()), radius, RULER_STEP);
+            for (var r : rulers.found()) {
+                if (seen.stream().anyMatch(o -> Math.hypot(o[0] - r[0], o[1] - r[1]) < 150)) continue;
+                seen.add(r);
+                lines.add(String.format(java.util.Locale.ROOT, "  ruler server-regions %.0f,%.0f width %.0f length %.0f (region %d,%d)", r[0], r[1], r[2], r[3], region.i(), region.j()));
+            }
+        }
+        var user = WorldgenFixture.shared(HighlandPlanformProbe.userPreset(), HighlandPlanformProbe.USER_SEED);
+        for (int[] box : RIA_BOXES) rulerBox("user", user, box, SITE_RADIUS, lines);
+        try (var rockies = WorldgenFixture.context(BiomeCensusProbe.rockies(), HighlandPlanformProbe.USER_SEED)) {
+            for (int[] box : FJORD_BOXES) rulerBox("rockies", rockies, box, SITE_RADIUS, lines);
+        }
+        Files.createDirectories(Path.of("build/rh10-gap"));
+        Files.write(Path.of("build/rh10-gap/island-rulers.txt"), lines);
+        var found = lines.stream().filter(line -> line.startsWith("  ruler")).toList();
+        var census = islandCensus();
+        System.out.println(islandTops("ria", census.ria(), ISLAND_MIN_TOP_RIA) + "\n" + islandTops("fjord", census.fjord(), ISLAND_MIN_TOP_FJORD));
+        assertTrue(found.isEmpty(), found.size() + " ruler-line islands (at most " + HighlandDrownedProbe.RULER_WIDTH + " wide, at least " + HighlandDrownedProbe.RULER_LENGTH + " long): " + found.stream().limit(10).toList());
+        for (var scope : List.of(java.util.Map.entry("ria", census.ria()), java.util.Map.entry("fjord", census.fjord()))) {
+            var islands = scope.getValue();
+            double least = scope.getKey().equals("ria") ? ISLAND_MIN_TOP_RIA : ISLAND_MIN_TOP_FJORD;
+            for (int k = 0; k < islands.count(); k++)
+                if (islands.diameters()[k] >= 300) assertTrue(islands.tops()[k] >= least, scope.getKey() + " island " + Math.round(islands.diameters()[k]) + " blocks across stands " + islands.tops()[k] + " above sea (at least " + least + ")");
+        }
+    }
+
+    /** The island minimum tops of HighlandDrowned (blocks above sea) the gate holds the 300-block islands to. */
+    static final double ISLAND_MIN_TOP_RIA = HighlandDrowned.ISLAND_MIN_TOP, ISLAND_MIN_TOP_FJORD = HighlandDrowned.ISLAND_MIN_TOP_FJORD;
+
+    private static String islandTops(String label, HighlandDrownedProbe.Islands islands, double least) {
+        double[][] classes = {{0, 300}, {300, 1000}, {1000, 3000}, {3000, Double.MAX_VALUE}};
+        var out = new StringBuilder("RH10 island tops " + label + " (blocks above sea, min/median per size class, minimum top " + least + "):");
+        for (double[] c : classes) {
+            double[] tops = java.util.stream.IntStream.range(0, islands.count()).filter(k -> islands.diameters()[k] >= c[0] && islands.diameters()[k] < c[1]).mapToDouble(k -> islands.tops()[k]).sorted().toArray();
+            out.append(String.format(java.util.Locale.ROOT, " [%.0f-%s: n=%d min=%.1f median=%.1f]", c[0], c[1] == Double.MAX_VALUE ? "more" : String.format(java.util.Locale.ROOT, "%.0f", c[1]), tops.length, tops.length > 0 ? tops[0] : Double.NaN, tops.length > 0 ? tops[tops.length / 2] : Double.NaN));
+        }
+        return out.toString();
+    }
+
+    private static void rulerBox(String label, GeneratorContext context, int[] box, int radius, List<String> lines) {
+        var rulers = HighlandDrownedProbe.rulerLines(context, box[0], box[1], radius, RULER_STEP);
+        String line = label + " box " + box[0] + "," + box[1] + " r" + radius + ": " + rulers.found().size() + " ruler-line islands of " + rulers.components() + " island components";
+        System.out.println("RH10 rulers " + line);
+        lines.add(line);
+        for (var r : rulers.found()) lines.add(String.format(java.util.Locale.ROOT, "  ruler %s %.0f,%.0f width %.0f length %.0f", label, r[0], r[1], r[2], r[3]));
     }
 
     /**

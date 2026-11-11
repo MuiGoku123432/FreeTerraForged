@@ -120,6 +120,19 @@ final class HighlandDrowned {
     static final double ISLAND_GAP = 100, ISLAND_SOFT = 220, ISLAND_PEAK = 300, ISLAND_PEAK_FJORD = 750,
         CHAIN_ANISO = 3, CHAIN_SCALE = 1200, CHAIN_AT = .4, CHAIN_HIGH = .7, GAP_SCALE = 700, GAP_AT = .15, BLOB_SCALE = 2400, BLOB_AT = .4;
     /**
+     * Island reshaping (11-15, G-11-2 b, G-11-4, D-GC3): the chain crest is {@code CHAIN_OCTAVES} ridge octaves and its (across, along) coordinates are
+     * domain-warped by {@code CHAIN_WARP} blocks at wavelength {@code CHAIN_WARP_SCALE}, so chains bend and break instead of running as ruler lines.
+     * An island is land only where its raise lifts the ground at least {@code ISLAND_MIN_TOP} blocks of coast ramp above the coast point
+     * ({@code ISLAND_MIN_TOP_FJORD} in fjord regions): the raise is shifted down by that amount and the shift fades out by {@code LIFT_BLEND} times it
+     * ({@link #lift}; a fade over 3 times it steepened the island flanks past the edge step limit of edgeIsContinuous), so no few-block strips stand.
+     * The density falls gradually toward the warped rim: the chain and blob thresholds rise by {@code ENV_RISE (1 - e)} with e the island envelope, 1 inside {@code ENV_CORE} of the warped radius and 0 at the rim
+     * ({@link #envelope}), instead of the weight cutting the field on the disc contour. The shelf window's coast side is pushed seaward
+     * by up to {@code WINDOW_ROUGH} blocks of coast ramp of a low-frequency noise ({@code WINDOW_ROUGH_SCALE}), never toward the coast.
+     */
+    static final double CHAIN_WARP = 400, CHAIN_WARP_SCALE = 1500, ISLAND_MIN_TOP = 5, ISLAND_MIN_TOP_FJORD = 12, ENV_CORE = .7, ENV_RISE = .1,
+        WINDOW_ROUGH = 120, WINDOW_ROUGH_SCALE = 2200, LIFT_BLEND = 8;
+    static final int CHAIN_OCTAVES = 2;
+    /**
      * Open-sea islands (D-10): a few RH-native islands offshore, independent of the regions, built from the same edge field. One
      * jittered cell per {@code OPEN_SPACING} blocks is active with chance {@code OPEN_CHANCE}; its island centre is the first of
      * {@code OPEN_TRIALS} hashed points whose standalone edge is in the open-sea band (at or below the shallow-ocean point, at or above
@@ -610,20 +623,35 @@ final class HighlandDrowned {
      * over the regions; the edge itself outside the shelf window or where no island stands.
      */
     private double raise(Memo m, double x, double z, double edge) {
-        double window = smooth(shelfEdge, shelfEdge + ISLAND_SOFT * HighlandCoast.EDGE_PER_BLOCK, edge)
-            * (1 - smooth(coastEdge - (ISLAND_GAP + ISLAND_SOFT) * HighlandCoast.EDGE_PER_BLOCK, coastEdge - ISLAND_GAP * HighlandCoast.EDGE_PER_BLOCK, edge));
+        double window = shelfWindow(x, z, edge);
         if (window <= 0) return edge;
         double best = edge;
         for (int n = 0; n < m.count; n++) {
-            double w = discWeight(m, n, x, z);
-            if (w <= 0) continue;
+            double env = envelope(m, n, x, z);
+            if (env <= 0) continue;
             var region = region(m.h[n], m.ci[n], m.cj[n], m.cx[n], m.cz[n]);
-            double s = w * window * island(region, x, z);
+            double s = window * island(region, x, z, env);
             if (s <= 0) continue;
             double peak = (region.fjord ? ISLAND_PEAK_FJORD : ISLAND_PEAK) * HighlandCoast.EDGE_PER_BLOCK;
-            best = Math.max(best, edge + s * (coastEdge + peak - edge));
+            best = Math.max(best, lift(edge + s * (coastEdge + peak - edge), (region.fjord ? ISLAND_MIN_TOP_FJORD : ISLAND_MIN_TOP) * HighlandCoast.EDGE_PER_BLOCK));
         }
         return best;
+    }
+
+    /** The shelf window of the island chains at a position: over the shelf edge, and not within the coast gap (its coast side roughened seaward by a low-frequency noise). */
+    private double shelfWindow(double x, double z, double edge) {
+        double rough = WINDOW_ROUGH * HighlandCoast.EDGE_PER_BLOCK * noise(0x524831304BL, x, z, WINDOW_ROUGH_SCALE);
+        return smooth(shelfEdge, shelfEdge + ISLAND_SOFT * HighlandCoast.EDGE_PER_BLOCK, edge)
+            * (1 - smooth(coastEdge - (ISLAND_GAP + ISLAND_SOFT) * HighlandCoast.EDGE_PER_BLOCK, coastEdge - ISLAND_GAP * HighlandCoast.EDGE_PER_BLOCK, edge + rough));
+    }
+
+    /**
+     * Minimum island top: a raised edge value whose lift above the coast point is {@code u} becomes {@code u - m (1 - smooth(m, LIFT_BLEND m, u))} (m the minimum
+     * top in edge units): land begins where the raise reaches m, and from {@code LIFT_BLEND} m up the raise is untouched. Monotone and continuous, never above the input.
+     */
+    private double lift(double raised, double min) {
+        double u = raised - coastEdge;
+        return coastEdge + u - min * (1 - smooth(min, LIFT_BLEND * min, u));
     }
 
     /** Open-sea island candidates of the 3x3 cells around (gi, gj), memoized per thread for the last cell. */
@@ -684,14 +712,19 @@ final class HighlandDrowned {
         return best;
     }
 
-    /** Island weight 0..1 of one region at a position: broken chains along the coast (rotated rigidly about the region centre) and broad blobs. */
-    private static double island(Region region, double x, double z) {
+    /**
+     * Island weight 0..1 of one region at a position, given the island envelope {@code env} there (see {@link #envelope}): broken, warped chains along the
+     * coast (rotated rigidly about the region centre) and broad blobs, both thinned toward the rim by the thresholds rising with {@code 1 - env}.
+     */
+    private static double island(Region region, double x, double z, double env) {
         double dx = x - region.cx, dz = z - region.cz;
         double along = dx * region.gx + dz * region.gz, across = -dx * region.gz + dz * region.gx;
-        double chain = smooth(CHAIN_AT, CHAIN_HIGH, ridge(0x5248313048L, across / CHAIN_ANISO + region.ox, along + region.oz, CHAIN_SCALE, 1))
+        double warpA = CHAIN_WARP * (2 * noise(0x524831304CL, x, z, CHAIN_WARP_SCALE) - 1), warpB = CHAIN_WARP * (2 * noise(0x524831304DL, x, z, CHAIN_WARP_SCALE) - 1);
+        double rise = ENV_RISE * (1 - env);
+        double chain = smooth(CHAIN_AT + rise, CHAIN_HIGH + rise, ridge(0x5248313048L, (across + warpA) / CHAIN_ANISO + region.ox, along + warpB + region.oz, CHAIN_SCALE, CHAIN_OCTAVES))
             * smooth(GAP_AT, GAP_AT + .15, noise(0x5248313049L, x, z, GAP_SCALE));
-        double blob = smooth(BLOB_AT, BLOB_AT + .1, noise(0x524831304AL, x, z, BLOB_SCALE));
-        return Math.max(chain, blob);
+        double blob = smooth(BLOB_AT + rise, BLOB_AT + .1 + rise, noise(0x524831304AL, x, z, BLOB_SCALE));
+        return Math.max(chain, blob) * smooth(0, .1, env);
     }
 
     /** Island weight (0..1) at a position: the footprint of the island chains, 0 where the edge is not raised (used by the identity gate). */
@@ -701,10 +734,23 @@ final class HighlandDrowned {
         var m = discs((int) Math.floor(x / REGION_SIZE), (int) Math.floor(z / REGION_SIZE));
         double best = 0;
         for (int n = 0; n < m.count; n++) {
-            double w = discWeight(m, n, x, z);
-            if (w > 0) best = Math.max(best, w * island(region(m.h[n], m.ci[n], m.cj[n], m.cx[n], m.cz[n]), x, z));
+            double env = envelope(m, n, x, z);
+            if (env > 0) best = Math.max(best, island(region(m.h[n], m.ci[n], m.cj[n], m.cx[n], m.cz[n]), x, z, env));
         }
         return best;
+    }
+
+    /**
+     * Island envelope of active disc n of the memoized cell: 1 within {@link #ENV_CORE} of the warped rim radius, falling smoothly to 0 at the rim
+     * (the support of {@link #discWeight}, with a wider ramp so the island density fades instead of being cut on the disc contour).
+     */
+    private static double envelope(Memo m, int n, double x, double z) {
+        double dx = x - m.cx[n], dz = z - m.cz[n], d2 = dx * dx + dz * dz, outer = m.radius[n] * (1 + RIM_WARP);
+        if (d2 >= outer * outer) return 0;
+        double inner = ENV_CORE * m.radius[n] * (1 - RIM_WARP);
+        if (d2 <= inner * inner) return 1;
+        double d = Math.sqrt(d2), rim = rimRadius(m.radius[n], m.ca[n], m.sa[n], m.cb[n], m.sb[n], dx / d, dz / d);
+        return d >= rim ? 0 : 1 - smooth(ENV_CORE * rim, rim, d);
     }
 
     /** Basin bump 0..1 of a ria region at inland coordinate {@code u} (edge units above the coast point): full at half the reach, 0 outside {@code WIDEN_FROM}..{@code WIDEN_TO} of it. */

@@ -1291,6 +1291,127 @@ final class HighlandDrownedProbe {
         return new Rim(found.length, mean, sd);
     }
 
+    /** Every region (flooding or not) whose disc weight is above .5 somewhere on a 500-block lattice around the box centres. */
+    static List<HighlandDrowned.Region> regionsAround(GeneratorContext context, int[][] boxes, int radius) {
+        var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+        var set = new java.util.LinkedHashSet<HighlandDrowned.Region>();
+        for (int[] box : boxes) for (double z = box[1] - radius; z <= box[1] + radius; z += 500) for (double x = box[0] - radius; x <= box[0] + radius; x += 500) {
+            var r = coast.drowned().dominant(x, z, false);
+            if (r != null && regionWeight(r, x, z) > .5) set.add(r);
+        }
+        return new ArrayList<>(set);
+    }
+
+    /**
+     * Island fields (11-15, G-11-2 b): the outermost raised-island radius over {@link #RIM_RAYS} rays from a region's centre (as {@link #rim}, a ray counts
+     * when it has island land beyond half a radius), and the radial distribution of raised-island land. Raised island land is land on the bound coast that
+     * is sea on the unbound one (diagnosis ringStats()). An island column counts for the region with the largest effective weight there.
+     */
+    static Rim islandRim(GeneratorContext context, HighlandDrowned.Region r) {
+        var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+        double coastEdge = context.preset.world().controlPoints.coast;
+        double[] reach = new double[RIM_RAYS];
+        IntStream.range(0, RIM_RAYS).parallel().forEach(k -> {
+            double angle = 2 * Math.PI * k / RIM_RAYS, cos = Math.cos(angle), sin = Math.sin(angle), best = -1;
+            for (double d = .3 * r.radius(); d <= RIM_FAR * r.radius(); d += RIM_STEP) {
+                double x = r.cx() + d * cos, z = r.cz() + d * sin;
+                if (!(coast.sample(x, z).edge() > coastEdge && coast.undrowned(x, z).edge() <= coastEdge)) continue;
+                var owner = coast.drowned().dominant(x, z, false);
+                if (owner != null && owner.i() == r.i() && owner.j() == r.j()) best = d;
+            }
+            reach[k] = best > .5 * r.radius() ? best / r.radius() : Double.NaN;
+        });
+        double[] found = Arrays.stream(reach).filter(v -> !Double.isNaN(v)).toArray();
+        double mean = Arrays.stream(found).average().orElse(0), sd = Math.sqrt(Arrays.stream(found).map(v -> (v - mean) * (v - mean)).average().orElse(0));
+        return new Rim(found.length, mean, sd);
+    }
+
+    /** Share of raised-island land per tenth of a region radius (index 0 is 0 to .1 R) on a 12-block lattice over the nominal disc. */
+    static double[] islandBands(GeneratorContext context, HighlandDrowned.Region r) {
+        var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+        double coastEdge = context.preset.world().controlPoints.coast;
+        int[] land = new int[10], total = new int[10];
+        int step = 12, n = (int) (2 * r.radius() / step) + 1;
+        double x0 = r.cx() - r.radius(), z0 = r.cz() - r.radius();
+        int[][] part = new int[n][20];
+        IntStream.range(0, n).parallel().forEach(j -> {
+            for (int i = 0; i < n; i++) {
+                double x = x0 + i * step, z = z0 + j * step, d = Math.hypot(x - r.cx(), z - r.cz()) / r.radius();
+                if (d >= 1) continue;
+                int band = (int) (d * 10);
+                part[j][band]++;
+                if (coast.sample(x, z).edge() > coastEdge && coast.undrowned(x, z).edge() <= coastEdge) part[j][10 + band]++;
+            }
+        });
+        for (int[] row : part) for (int b = 0; b < 10; b++) { total[b] += row[b]; land[b] += row[10 + b]; }
+        double[] share = new double[10];
+        for (int b = 0; b < 10; b++) share[b] = total[b] > 0 ? (double) land[b] / total[b] : 0;
+        return share;
+    }
+
+    /**
+     * Ruler-line islands (11-15, G-11-4): raised-island components of a box on a {@code step}-block lattice (4-connected, not touching the border) with their
+     * width (twice the largest chamfer distance to the sea, blocks) and length (area over width); a ruler line is one at most {@link #RULER_WIDTH} wide and
+     * at least {@link #RULER_LENGTH} long (diagnosis slivers(): 26 chain islands at 34272,-12747). {@code found} lists them as {x, z, width, length}.
+     */
+    record Rulers(int components, List<double[]> found) {}
+    static final double RULER_WIDTH = 80, RULER_LENGTH = 300;
+
+    static Rulers rulerLines(GeneratorContext context, int originX, int originZ, int radius, int step) {
+        var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+        double coastEdge = context.preset.world().controlPoints.coast;
+        int w = 2 * radius / step + 1, x0 = originX - radius, z0 = originZ - radius;
+        boolean[] island = new boolean[w * w];
+        IntStream.range(0, w).parallel().forEach(j -> {
+            for (int i = 0; i < w; i++) {
+                double x = x0 + i * step, z = z0 + j * step;
+                island[j * w + i] = coast.sample(x, z).edge() > coastEdge && coast.undrowned(x, z).edge() <= coastEdge;
+            }
+        });
+        var parts = label(island, w);
+        boolean[] border = borderTouching(parts.id, w, parts.area.length - 1);
+        float[] dist = new float[w * w];
+        for (int at = 0; at < dist.length; at++) dist[at] = island[at] ? 1e9f : 0;
+        for (int j = 0; j < w; j++) for (int i = 0; i < w; i++) {
+            int at = j * w + i;
+            if (!island[at]) continue;
+            float m = dist[at];
+            if (i > 0) m = Math.min(m, dist[at - 1] + 1);
+            if (j > 0) m = Math.min(m, dist[at - w] + 1);
+            if (i > 0 && j > 0) m = Math.min(m, dist[at - w - 1] + 1.414f);
+            if (i < w - 1 && j > 0) m = Math.min(m, dist[at - w + 1] + 1.414f);
+            dist[at] = m;
+        }
+        for (int j = w - 1; j >= 0; j--) for (int i = w - 1; i >= 0; i--) {
+            int at = j * w + i;
+            if (!island[at]) continue;
+            float m = dist[at];
+            if (i < w - 1) m = Math.min(m, dist[at + 1] + 1);
+            if (j < w - 1) m = Math.min(m, dist[at + w] + 1);
+            if (i < w - 1 && j < w - 1) m = Math.min(m, dist[at + w + 1] + 1.414f);
+            if (i > 0 && j < w - 1) m = Math.min(m, dist[at + w - 1] + 1.414f);
+            dist[at] = m;
+        }
+        int count = parts.area.length - 1;
+        float[] widest = new float[count + 1];
+        int[] at0 = new int[count + 1];
+        for (int at = 0; at < island.length; at++) {
+            int id = parts.id[at];
+            if (id == 0 || dist[at] <= widest[id]) continue;
+            widest[id] = dist[at];
+            at0[id] = at;
+        }
+        var found = new ArrayList<double[]>();
+        int components = 0;
+        for (int id = 1; id <= count; id++) {
+            if (border[id]) continue;
+            components++;
+            double width = 2 * widest[id] * step, length = parts.area[id] * (double) step * step / Math.max(step, width);
+            if (width <= RULER_WIDTH && length >= RULER_LENGTH) found.add(new double[] {x0 + at0[id] % w * step, z0 + at0[id] / w * step, width, length});
+        }
+        return new Rulers(components, found);
+    }
+
     /** Region disc weight (the warped disc, see HighlandDrowned.regionWeight). */
     private static double regionWeight(HighlandDrowned.Region r, double x, double z) { return HighlandDrowned.regionWeight(r, x, z); }
 
