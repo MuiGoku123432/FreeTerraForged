@@ -58,8 +58,8 @@ class HighlandShoreTest {
             // Before: about 60% of these sea columns were one block deep.
             if (oneDeep > (.05 + HighlandDrownedTest.tol(.05)) * sea) failures.add("more than 6.5% of sea columns one block deep (5% with the D-11-14-2 scaled margin): " + oneDeep + " of " + sea);
             if (shores < 20) failures.add("too few shore crossings to judge");
-            if (beaches < (.95 - HighlandDrownedTest.tol(.95)) * shores) failures.add("fewer than 92% (95% with the D-11-14-2 margin) of low sea-shore columns are beach terrain: " + beaches + " of " + shores);
-            if (coastal < (.95 - HighlandDrownedTest.tol(.95)) * shores) failures.add("fewer than 92% (95% with the D-11-14-2 margin) of low sea-shore columns read coast continentalness: " + coastal + " of " + shores);
+            if (beaches < (.95 - HighlandDrownedTest.tol(.95)) * shores) failures.add("fewer than 93.5% (95% with the D-11-14-2 margin) of low sea-shore columns are beach terrain: " + beaches + " of " + shores);
+            if (coastal < (.95 - HighlandDrownedTest.tol(.95)) * shores) failures.add("fewer than 93.5% (95% with the D-11-14-2 margin) of low sea-shore columns read coast continentalness: " + coastal + " of " + shores);
             // The climate pass's region-wide COAST tag only became a beach on some lookup paths.
             if (landCoast > 0) failures.add("land columns keep the region COAST tag");
             assertTrue(failures.isEmpty(), String.join("\n", failures) + "\n" + summary);

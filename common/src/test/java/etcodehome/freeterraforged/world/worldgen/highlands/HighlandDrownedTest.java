@@ -86,11 +86,17 @@ class HighlandDrownedTest {
     /** D-02: drowned share of the RH9 coastline, inclusive bounds. */
     static final double MIN_SHARE = .20, MAX_SHARE = .30;
     /**
-     * D-11-14-2 (scaled; user, 2026-11-10): every share or percentage gate of RH10 (and the RH9 coast and shore share gates) is judged with a margin in the
-     * lenient direction: 3 percentage points for a target of 10% or more, 1.5 points for a smaller one (fidelity: the target is its off-valley share,
-     * 1 - FIDELITY_TARGET). Two-sided bands widen at both ends. Counts, lengths, heights, determinism and cost gates are not margined.
+     * D-11-14-2 (scaled; user, 2026-11-10; refined 2026-11-10 to size the margin from the miss share): every share or percentage gate of RH10 (and the RH9
+     * coast and shore share gates) is judged with a margin in the lenient direction, sized from the share the gate can miss by, min(target, 1 - target):
+     * 3 percentage points when that is 10% or more, 1.5 points when it is smaller (a 95% gate misses by 5%, so 1.5 points: 93.5%), and half the target
+     * when the target is under 2% (a 1% gate gets .5 points: 1.5%). Two-sided bands widen at both ends. Counts, lengths, heights, determinism and cost
+     * gates are not margined.
      */
-    static double tol(double target) { return target >= .10 ? .03 : .015; }
+    static double tol(double target) {
+        double miss = Math.min(target, 1 - target);
+        if (miss < .02) return miss / 2;
+        return miss >= .10 - 1e-9 ? .03 : .015;
+    }
 
     /** The limit actually asserted after the D-11-14-2 margin, for failure messages (the raw value is printed beside it). */
     static String margin(double limit) {
@@ -705,7 +711,7 @@ class HighlandDrownedTest {
         System.out.println(lines.get(0) + "\n" + lines.get(1));
         assertTrue(pooled.medial() >= FIDELITY_MIN_MEDIAL, "too little flooded land for the screen to mean anything: " + pooled.summary("pooled"));
         assertTrue(pooled.unmapped() == 0, pooled.unmapped() + " flooded components map to no plan0 reach: " + pooled.mapping().stream().filter(l -> l.endsWith("UNMAPPED")).toList());
-        assertTrue(pooled.share() >= FIDELITY_TARGET - tol(1 - FIDELITY_TARGET), "only " + pooled.share() + margin(FIDELITY_TARGET - tol(1 - FIDELITY_TARGET)) + " of the medial axis lies within its half width of a plan0 axis (" + pooled.outliers().size() + " outliers, see build/rh10-gap/fidelity.txt): " + pooled.summary("pooled"));
+        assertTrue(pooled.share() >= FIDELITY_TARGET - tol(FIDELITY_TARGET), "only " + pooled.share() + margin(FIDELITY_TARGET - tol(FIDELITY_TARGET)) + " of the medial axis lies within its half width of a plan0 axis (" + pooled.outliers().size() + " outliers, see build/rh10-gap/fidelity.txt): " + pooled.summary("pooled"));
     }
 
     /**
