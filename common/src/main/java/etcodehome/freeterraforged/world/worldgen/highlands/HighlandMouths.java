@@ -12,7 +12,7 @@ import java.util.Map;
  * RH10 river mouths (D-11-18-1, 11-24): the mouth profile of every sea-reaching channel of one final plan. A profile is a polyline of
  * stations along the channel (land stations upstream of the coast crossing, sea stations seaward of it), each with the signed
  * along-channel arclength {@code s} (0 at the crossing, positive upstream), the bed {@code b(s)} the land branch and the sea branch both
- * render, the natural bed the land branch would draw there, the water and the half width. The land branch (the wet bed of the channel)
+ * render, the water and the half width. The land branch (the wet bed of the channel)
  * and the ocean branch (a trough in the sea floor) read it through {@code RollingHighlandsContinent.mouthProfile}, so both sides of the
  * contour share one bed at the same real distance along the channel.
  *
@@ -34,7 +34,7 @@ final class HighlandMouths {
      * lies below the mouth band, and stations whose coast owner is not the plan's owner; {@code minEdge}: the lowest edge among station
      * centres and lateral corners; {@code radius}: the corridor radius (largest half width plus the largest bank run plus a margin).
      */
-    record Profile(int[] reaches, double[] x, double[] z, double[] s, double[] bed, double[] natural, double[] water, double[] halfWidth,
+    record Profile(int[] reaches, double[] x, double[] z, double[] s, double[] bed, double[] water, double[] halfWidth,
                    int crossing, int trough, int status, int outsideBand, int crossOwnerStations, double minEdge, double radius) {
         boolean ownsReach(int reach) { for (int r : reaches) if (r == reach) return true; return false; }
         int stations() { return x.length; }
@@ -44,14 +44,14 @@ final class HighlandMouths {
     static final class Hits {
         int count;
         Profile[] profile = new Profile[8];
-        double[] s = new double[8], distance = new double[8], bed = new double[8], natural = new double[8], halfWidth = new double[8];
-        void add(Profile p, double along, double d, double b, double n, double hw) {
+        double[] s = new double[8], distance = new double[8], bed = new double[8], halfWidth = new double[8];
+        void add(Profile p, double along, double d, double b, double hw) {
             if (count == profile.length) {
                 int size = 2 * count;
                 profile = Arrays.copyOf(profile, size); s = Arrays.copyOf(s, size); distance = Arrays.copyOf(distance, size);
-                bed = Arrays.copyOf(bed, size); natural = Arrays.copyOf(natural, size); halfWidth = Arrays.copyOf(halfWidth, size);
+                bed = Arrays.copyOf(bed, size); halfWidth = Arrays.copyOf(halfWidth, size);
             }
-            profile[count] = p; s[count] = along; distance[count] = d; bed[count] = b; natural[count] = n; halfWidth[count] = hw;
+            profile[count] = p; s[count] = along; distance[count] = d; bed[count] = b; halfWidth[count] = hw;
             count++;
         }
     }
@@ -99,7 +99,7 @@ final class HighlandMouths {
 
     /**
      * The profiles whose corridor contains a position, with the distance to the channel (nearest segment), and the along-channel
-     * arclength, bed, natural bed and half width there. Where several segments of one profile are nearly equidistant (inside a bend) the
+     * arclength, bed and half width there. Where several segments of one profile are nearly equidistant (inside a bend) the
      * values are an excess-distance weighted blend, as in {@link HighlandPlanIndex#near}, so they stay continuous. Per thread and reused.
      */
     Hits query(double x, double z) {
@@ -124,7 +124,7 @@ final class HighlandMouths {
                 best = Math.min(best, d);
             }
             if (best <= profile.radius()) {
-                double sigma = Math.max(1, .25 * best), weights = 0, along = 0, bed = 0, natural = 0, half = 0;
+                double sigma = Math.max(1, .25 * best), weights = 0, along = 0, bed = 0, half = 0;
                 for (int c = from; c < to; c++) {
                     double excess = scratch[0][c - from] - best;
                     if (excess >= 3 * sigma) continue;
@@ -133,10 +133,9 @@ final class HighlandMouths {
                     weights += w;
                     along += w * lerp(profile.s()[i], profile.s()[i + 1], t);
                     bed += w * lerp(profile.bed()[i], profile.bed()[i + 1], t);
-                    natural += w * lerp(profile.natural()[i], profile.natural()[i + 1], t);
                     half += w * lerp(profile.halfWidth()[i], profile.halfWidth()[i + 1], t);
                 }
-                hits.add(profile, along / weights, best, bed / weights, natural / weights, half / weights);
+                hits.add(profile, along / weights, best, bed / weights, half / weights);
             }
             from = to;
         }

@@ -279,8 +279,9 @@ public final class HighlandPlanIndex {
     }
 
     /** All reaches whose centreline lies within INFLUENCE of (x, z), in ascending reach order. */
-    public Hits near(double x, double z) {
-        Hits out = HITS.get();
+    public Hits near(double x, double z) { return near(x, z, HITS.get()); }
+    /** {@link #near(double, double)} into a result of the caller's own, for queries made while the per-thread result is still being read. */
+    Hits near(double x, double z, Hits out) {
         out.count = 0;
         int[] candidates = buckets.get(key(bucket(x), bucket(z)));
         if (candidates == null) return out;

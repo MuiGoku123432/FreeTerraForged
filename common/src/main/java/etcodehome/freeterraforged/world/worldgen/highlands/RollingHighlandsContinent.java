@@ -388,7 +388,7 @@ public final class RollingHighlandsContinent implements Continent {
             // RH10 river mouths (11-24, D-11-18-1): inside MOUTH_BAND of the coast the plan's mouth profiles carve their troughs into the sea
             // floor; outside it the ocean branch reads no plan.
             if (location.edge() > coastEdge - MOUTH_BAND) {
-                carved = carveMouths(x, z, floor);
+                carved = carveMouths(x, z, location.ownerX(), location.ownerZ(), floor);
                 weight = SCRATCH.get().troughWeight;
                 if (carved < floor) cell.height = normalized(carved);
             }
@@ -553,8 +553,10 @@ public final class RollingHighlandsContinent implements Continent {
      * point), station spacing, bed profile run upstream (the land bed meets the profile at MOUTH_UPSTREAM), run over which the bed eases
      * into the sea (MOUTH_ENTRY), trough clear run, turn run toward the shore normal, and reach limit of a trough (all blocks).
      */
-    static final double MOUTH_BAND_BLOCKS = 512, MOUTH_BAND = MOUTH_BAND_BLOCKS * HighlandCoast.EDGE_PER_BLOCK;
-    static final double MOUTH_STATION = 2, MOUTH_UPSTREAM = 48, MOUTH_ENTRY = 4, MOUTH_CLEAR = 16, MOUTH_TURN_RUN = 24, MOUTH_REACH = 128;
+    static final double MOUTH_BAND_BLOCKS = 768, MOUTH_BAND = MOUTH_BAND_BLOCKS * HighlandCoast.EDGE_PER_BLOCK;
+    /** Tile (blocks) of the owner memo and the stencil margin around it (blocks, at least MOUTH_REACH plus MOUTH_CLEAR plus the largest corridor radius the census prints; raise it with them). */
+    static final double MOUTH_TILE = 64, MOUTH_STENCIL = 256;
+    static final double MOUTH_STATION = 2, MOUTH_UPSTREAM = 48, MOUTH_ENTRY = 4, MOUTH_CLEAR = 32, MOUTH_TURN_RUN = 24, MOUTH_REACH = 128;
     /** Smallest wet depth of a river bed (blocks), smallest lateral run (blocks) and steepest lateral slope (per block) of a trough's banks, and the corridor margin (blocks). */
     static final double MOUTH_MIN_WET = 1, MOUTH_BANK_MIN = 4, MOUTH_BANK_SLOPE = 1, MOUTH_MARGIN = 8;
     /** How much deeper than the land bed at the crossing the sea bed settles (blocks): the rendered land bed differs from its profile estimate by a few hundredths, and the sea must never end up above it. */
@@ -615,17 +617,31 @@ public final class RollingHighlandsContinent implements Continent {
     /** The single evaluator of mouth profiles, read by the land branch (carveValleys' wet bed) and the ocean branch: the profiles whose corridor contains the position. */
     private HighlandMouths.Hits mouthProfile(HighlandPlanIndex index, double x, double z) { return mouths(index).query(x, z); }
     /**
-     * The sea floor at an ocean column inside the mouth band with the troughs of the owner's sea-reaching channels carved in (blocks relative
-     * to sea level); the strongest lateral weight of a trough that carves here goes to {@code SCRATCH.troughWeight}. A trough's core (within
-     * the half width of its centreline) lies at the profile's bed b(s); it blends into the {@code background} over a bank run of at least
-     * MOUTH_BANK_MIN blocks and at most MOUTH_BANK_SLOPE per block. The lowest trough wins where corridors overlap.
+     * The sea floor at an ocean column inside the mouth band with the troughs of the sea-reaching channels of every owner that can reach it
+     * carved in (blocks relative to sea level); the strongest lateral weight of a trough that carves here goes to {@code SCRATCH.troughWeight}.
+     * A trough's core (within the half width of its centreline) lies at the profile's bed b(s); it blends into the {@code background} over a bank run
+     * of at least MOUTH_BANK_MIN blocks and at most MOUTH_BANK_SLOPE per block. The lowest trough wins where corridors overlap.
+     *
+     * <p>Candidate owners are the column's own and the owners found by a position-only stencil (see {@link #stencilOwners}); every candidate's
+     * index comes from the owner cache, built when cold, so coverage never depends on which plans happen to be cached. The stencil is complete
+     * because a neighbour's corridor starts on that neighbour's land within MOUTH_REACH plus MOUTH_CLEAR plus the largest corridor radius of the column, deep
+     * inside the neighbour's cell (its edge falls to 0 only at the cell border, far beyond the coast), so a grown tile of that size always
+     * contains a stencil sample whose owner is that neighbour.
      */
-    private double carveMouths(double x, double z, double background) {
+    private double carveMouths(double x, double z, int ownerX, int ownerZ, double background) {
         var scratch = SCRATCH.get();
         scratch.troughWeight = 0;
-        var owner = coast.sample(x, z);
-        var hits = mouthProfile(plan(owner.ownerX(), owner.ownerZ()), x, z);
-        double carved = background;
+        double carved = carveOwner(plan(ownerX, ownerZ), x, z, background, background, scratch);
+        stencilOwners(scratch, x, z);
+        for (int k = 0; k < scratch.ownerCount; k += 2) {
+            if (scratch.owners[k] == ownerX && scratch.owners[k + 1] == ownerZ) continue;
+            carved = carveOwner(plan(scratch.owners[k], scratch.owners[k + 1]), x, z, background, carved, scratch);
+        }
+        return carved;
+    }
+    /** The trough floor of one owner's mouth profiles at a column, lowered into {@code carved} (see {@link #carveMouths}). */
+    private double carveOwner(HighlandPlanIndex index, double x, double z, double background, double carved, Scratch scratch) {
+        var hits = mouthProfile(index, x, z);
         for (int k = 0; k < hits.count; k++) {
             double bed = hits.bed[k];
             if (bed >= background) continue;
@@ -636,6 +652,27 @@ public final class RollingHighlandsContinent implements Continent {
         }
         return carved;
     }
+    /**
+     * The owners (x, z pairs in {@code scratch.owners}) of the centre, corners and edge midpoints of the column's MOUTH_TILE tile grown by
+     * MOUTH_STENCIL, skipping owners without land (edge 0); memoized per thread for the last tile.
+     */
+    private void stencilOwners(Scratch scratch, double x, double z) {
+        int tx = (int) Math.floor(x / MOUTH_TILE), tz = (int) Math.floor(z / MOUTH_TILE);
+        long tile = PosUtil.pack(tx, tz);
+        if (tile == scratch.tile && scratch.tileOwner == this) return;
+        scratch.tile = tile;
+        scratch.tileOwner = this;
+        scratch.ownerCount = 0;
+        double x0 = tx * MOUTH_TILE - MOUTH_STENCIL, z0 = tz * MOUTH_TILE - MOUTH_STENCIL, span = MOUTH_TILE + 2 * MOUTH_STENCIL;
+        for (int j = 0; j < 3; j++) for (int i = 0; i < 3; i++) {
+            var at = coast.undrowned(x0 + span * i / 2, z0 + span * j / 2);
+            if (!(at.edge() > 0)) continue;
+            boolean known = false;
+            for (int k = 0; k < scratch.ownerCount; k += 2) known |= scratch.owners[k] == at.ownerX() && scratch.owners[k + 1] == at.ownerZ();
+            if (!known) { scratch.owners[scratch.ownerCount++] = at.ownerX(); scratch.owners[scratch.ownerCount++] = at.ownerZ(); }
+        }
+    }
+
     /**
      * The mouth profile of every sea-reaching channel of an index's plan (a root with a child whose main channel, the largest-area child, crosses
      * from sea to land): see {@link HighlandMouths}. Reads only the plan's nodes (with their water), the index's node reaches and position-only
@@ -651,9 +688,11 @@ public final class RollingHighlandsContinent implements Continent {
         }
         var found = new java.util.ArrayList<HighlandMouths.Profile>();
         var cell = new Cell();
+        // The index's per-thread near() result may be in use by the caller (a wet column asking for its mouth profile), so the build queries into its own.
+        var near = new HighlandPlanIndex.Hits();
         for (int root = 0; root < main.length; root++) {
             if (nodes.get(root).parent() >= 0 || main[root] < 0) continue;
-            var profile = buildMouth(index, main, root, cell);
+            var profile = buildMouth(index, main, root, cell, near);
             if (profile != null) found.add(profile);
         }
         return found.isEmpty() ? HighlandMouths.EMPTY : new HighlandMouths(found);
@@ -683,7 +722,7 @@ public final class RollingHighlandsContinent implements Continent {
      * at sea it eases to at most one block under sea level and stays flat until the trough end, the first station from which the floor stays
      * at or below it over the clear run.
      */
-    private HighlandMouths.Profile buildMouth(HighlandPlanIndex index, int[] main, int root, Cell cell) {
+    private HighlandMouths.Profile buildMouth(HighlandPlanIndex index, int[] main, int root, Cell cell, HighlandPlanIndex.Hits near) {
         var plan = index.plan();
         var nodes = plan.nodes();
         int down = -1, up = -1;
@@ -760,12 +799,28 @@ public final class RollingHighlandsContinent implements Continent {
         for (int k = 0; k <= landStations; k++) {
             double s = k <= landCount ? k * MOUTH_STATION : reachLength;
             var at = chainAt(landChain, s);
-            lx[k] = at[0]; lz[k] = at[1]; ls[k] = s; lwater[k] = at[2];
+            lx[k] = at[0]; lz[k] = at[1]; ls[k] = s;
+            // The channel's values here are those carveValleys reads at this point (the index's blended attributes), so the natural bed below is the
+            // bed a wet column on the axis gets; they fall back to the chain's own interpolation where no hit of the station's reach is found.
+            index.near(at[0], at[1], near);
+            int hit = -1;
+            for (int h = 0; h < near.count; h++) if (near.reach[h] == (int) at[5] && (hit < 0 || near.distance[h] < near.distance[hit])) hit = h;
+            double water = hit >= 0 ? near.water[hit] : at[2], area = hit >= 0 ? near.area[hit] : at[3], head = hit >= 0 ? near.head[hit] : at[4], slope = hit >= 0 ? near.slope[hit] : at[7];
+            lwater[k] = water;
             reaches.add((int) at[5]);
-            double q = Math.max(.01, at[3] / area2), flat = 1 - smooth(.002, .03, at[7]), creek = drainage.creekness(at[3]);
-            double natural = lwater[k] - bedDepth(q, flat, at[4], creek, noise(classSeed + 3912, at[0], at[1], 100));
-            lnatural[k] = Math.min(natural, lwater[k] - MOUTH_MIN_WET);
-            lhalf[k] = mouthHalfWidth(at[3], at[4], at[0], at[1]);
+            double q = Math.max(.01, area / area2), flat = 1 - smooth(.002, .03, slope), creek = drainage.creekness(area);
+            double centre = Math.min(water - bedDepth(q, flat, head, creek, noise(classSeed + 3912, at[0], at[1], 100)), water - MOUTH_MIN_WET);
+            // Junction scour deepens the bed in proportion to its depth, as carveValleys does. note: second copy of its scour expression (not extracted).
+            double scour = 0;
+            for (int candidate : index.junctionCandidates(at[0], at[1])) {
+                var junction = index.junction(candidate);
+                double dj = Math.hypot(at[0] - junction.x(), at[1] - junction.z()), mainWidth = 2 * drainage.halfWidth(junction.mainArea(), 1);
+                if (dj >= clamp(3 * mainWidth, 24, HighlandPlanIndex.JUNCTION_REACH)) continue;
+                double ratio = clamp(junction.tributaryArea() / Math.max(1, junction.mainArea()), 0, 1);
+                scour = Math.max(scour, SCOUR * lerp(.4, 1, smooth(30, 90, junction.angle())) * lerp(.3, 1, smooth(.05, .5, ratio)) * (1 - smooth(0, 1.5 * mainWidth, dj)));
+            }
+            lnatural[k] = water - (water - centre) * (1 + scour);
+            lhalf[k] = mouthHalfWidth(area, head, at[0], at[1]);
         }
         // Sea sides: direction per station (central difference), half width (the root's channel), floors at the centre and both lateral corners.
         double[] shalf = new double[seaCount + 1], bgMax = new double[seaCount + 1], bgCentre = new double[seaCount + 1];
@@ -792,7 +847,7 @@ public final class RollingHighlandsContinent implements Continent {
         double[] lbed = new double[landStations + 1];
         for (int k = landStations; k >= 0; k--) {
             envelope = Math.min(envelope, lnatural[k]);
-            double weight = 1 - smooth(0, reachLength, ls[k]);
+            double weight = 1 - smooth(0, MOUTH_UPSTREAM, ls[k]);
             lbed[k] = Math.min(Math.min(envelope, lerp(envelope, front, weight)), lwater[k] - MOUTH_MIN_WET);
         }
         double b0 = lbed[0], seaBed = Math.min(b0 - MOUTH_SEA_DEEPEN, -MOUTH_MIN_WET);
@@ -812,7 +867,7 @@ public final class RollingHighlandsContinent implements Continent {
         if (status == HighlandMouths.FEASIBLE && trough < 0) status = HighlandMouths.REACH;
         // Assemble in ascending s: seaward end first, the crossing station, then the land stations.
         int seaKept = last, total = seaKept + 1 + landStations;
-        double[] x = new double[total], z = new double[total], s = new double[total], bed = new double[total], natural = new double[total], water = new double[total], half = new double[total];
+        double[] x = new double[total], z = new double[total], s = new double[total], bed = new double[total], water = new double[total], half = new double[total];
         double maxHalf = 0, maxRun = MOUTH_BANK_MIN, minEdge = Double.POSITIVE_INFINITY;
         int outsideBand = 0, crossOwner = 0;
         for (int i = 0; i < total; i++) {
@@ -821,11 +876,10 @@ public final class RollingHighlandsContinent implements Continent {
             if (seaward) {
                 x[i] = sx[k]; z[i] = sz[k]; s[i] = -k * MOUTH_STATION; half[i] = shalf[k]; water[i] = 0;
                 bed[i] = trough >= 0 && k > trough ? Math.max(sbed[trough], bgMax[k]) : sbed[k];
-                natural[i] = lnatural[0];
             } else if (k == 0) {
-                x[i] = cx; z[i] = cz; s[i] = 0; half[i] = lhalf[0]; water[i] = lwater[0]; bed[i] = b0; natural[i] = lnatural[0];
+                x[i] = cx; z[i] = cz; s[i] = 0; half[i] = lhalf[0]; water[i] = lwater[0]; bed[i] = b0;
             } else {
-                x[i] = lx[k]; z[i] = lz[k]; s[i] = ls[k]; half[i] = lhalf[k]; water[i] = lwater[k]; bed[i] = lbed[k]; natural[i] = lnatural[k];
+                x[i] = lx[k]; z[i] = lz[k]; s[i] = ls[k]; half[i] = lhalf[k]; water[i] = lwater[k]; bed[i] = lbed[k];
             }
             maxHalf = Math.max(maxHalf, half[i]);
             // The sea floor is at most at sea level, so no column's bank run is longer than this bound.
@@ -844,7 +898,7 @@ public final class RollingHighlandsContinent implements Continent {
             if (edge < coastEdge - MOUTH_BAND) outsideBand++;
         }
         int[] reachIds = reaches.stream().mapToInt(Integer::intValue).toArray();
-        return new HighlandMouths.Profile(reachIds, x, z, s, bed, natural, water, half, seaKept, trough < 0 ? -1 : seaKept - trough, status, outsideBand, crossOwner, minEdge, maxHalf + maxRun + MOUTH_MARGIN);
+        return new HighlandMouths.Profile(reachIds, x, z, s, bed, water, half, seaKept, trough < 0 ? -1 : seaKept - trough, status, outsideBand, crossOwner, minEdge, maxHalf + maxRun + MOUTH_MARGIN);
     }
     /** Vanilla's low weirdness slice (normal side) and erosion levels 3-4, inset from the slice boundaries. */
     static final double BEACH_WEIRDNESS_MIN = -.26, BEACH_WEIRDNESS_MAX = -.06, BEACH_EROSION_MIN = -.2225, BEACH_EROSION_MAX = .44;
@@ -1071,6 +1125,7 @@ public final class RollingHighlandsContinent implements Continent {
             scratch.section[k] = section;
             scratch.carve[k] = carve;
             scratch.radius[k] = radius;
+            scratch.bedDepth[k] = bedDepth;
             // Floodplain wetlands: broad, flat, low valley floors of larger rivers hold pools and hummocks at the
             // river's water level. The weight is a product of continuous factors, so the composition stays smooth.
             double wetland = 0;
@@ -1195,9 +1250,10 @@ public final class RollingHighlandsContinent implements Continent {
             // at the contour; the offset is 0 where the profile meets the natural bed, MOUTH_UPSTREAM blocks from the coast. Nothing clamps after it.
             if (edge - coastEdge < HighlandDrainage.COAST_BAND) {
                 var mouth = mouthProfile(index, x, z);
-                double offset = 0;
+                // The bed this channel would have on its axis here (before the section's lateral shape), the same expression as the plan's natural bed.
+                double natural = Math.min(water - scratch.bedDepth[wetOwner], water - MOUTH_MIN_WET), offset = 0;
                 for (int k = 0; k < mouth.count; k++)
-                    if (mouth.s[k] <= MOUTH_UPSTREAM && mouth.profile[k].ownsReach(hits.reach[wetOwner])) offset = Math.min(offset, mouth.bed[k] - mouth.natural[k]);
+                    if (mouth.s[k] <= MOUTH_UPSTREAM && mouth.profile[k].ownsReach(hits.reach[wetOwner])) offset = Math.min(offset, mouth.bed[k] - natural);
                 bed += offset;
             }
             return bed;
@@ -1277,13 +1333,18 @@ public final class RollingHighlandsContinent implements Continent {
         final Cell lakeCell = new Cell();
         /** Strongest lateral weight of a mouth trough at the last ocean column of this thread (see carveMouths). */
         double troughWeight;
+        /** Owner memo (11-24): the last stencil tile of this thread and the owner pairs found for it. */
+        long tile = Long.MIN_VALUE;
+        Object tileOwner;
+        int ownerCount;
+        final int[] owners = new int[18];
         HighlandValley.Section[] section = new HighlandValley.Section[64];
-        double[] carve = new double[64], wetland = new double[64], radius = new double[64], joinedWater = new double[64];
+        double[] carve = new double[64], wetland = new double[64], radius = new double[64], joinedWater = new double[64], bedDepth = new double[64];
         int[] close = new int[64];
         Scratch ensure(int size) {
             if (carve.length < size) {
                 int n = Math.max(size, carve.length * 2);
-                section = new HighlandValley.Section[n]; carve = new double[n]; wetland = new double[n]; radius = new double[n]; joinedWater = new double[n]; close = new int[n];
+                section = new HighlandValley.Section[n]; carve = new double[n]; wetland = new double[n]; radius = new double[n]; joinedWater = new double[n]; bedDepth = new double[n]; close = new int[n];
             }
             return this;
         }

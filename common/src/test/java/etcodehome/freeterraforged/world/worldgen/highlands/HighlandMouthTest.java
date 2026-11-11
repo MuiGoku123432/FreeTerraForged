@@ -227,7 +227,9 @@ class HighlandMouthTest {
      * Every sea-reaching channel (a plan root with a child whose last rendered river cell lies within halfWidth + {@link #SEA_SLACK}
      * of sea): the bed at that cell against the sea floor {@link #SILL_NEAR} blocks seaward of the contour (at most {@link #SILL_STEP}
      * apart), the floor from {@link #SILL_FROM} to {@link #SILL_TO} blocks seaward never shallower than that bed (no dome), and the
-     * planned water there at most {@link #SILL_WATER} above sea. Returns the failures; one line per channel goes to {@code out}.
+     * planned water there at most {@link #SILL_WATER} above sea. Where the nearest-sea ray leaves the channel before {@link #SILL_TO} blocks (the channel meets the coast at an angle, or is narrow) the
+     * step and dome are measured along the drawn channel's own direction instead (user ruling 2026-11-11, thresholds unchanged); every row prints both measures and the mode.
+     * Returns the failures; one line per channel goes to {@code out}.
      */
     private static List<String> sills(String label, GeneratorContext context, int ownerX, int ownerZ, StringBuilder out) {
         var continent = (RollingHighlandsContinent) context.heightmap.continent();
@@ -300,9 +302,6 @@ class HighlandMouthTest {
         assertTrue(failures.isEmpty(), failures.size() + " channels have a sill, dome or raised water at the mouth:\n" + String.join("\n", failures));
     }
 
-    /** The owner whose mouths the first gate pass measures (11-24 Task 1, the tracer): default preset, seed 42, owner 0,0. */
-    private static boolean tracer(Fixture fixture) { return fixture.label().equals("default 42"); }
-
     /** Rendered ground (blocks above sea) and cell kind at a position, through the continent's own precise path. Null where the column is not sea floor or river bed (a stack, or land away from the channel). */
     private static double render(GeneratorContext context, Cell cell, double x, double z) {
         context.heightmap.applyPrecise(cell.reset(), x, z, false);
@@ -330,16 +329,16 @@ class HighlandMouthTest {
         var failures = new ArrayList<String>();
         var cell = new Cell();
         int feasible = 0, outside = 0, crossOwner = 0;
-        double deepest = 0;
+        double deepest = 0, radius = 0;
         for (var p : profiles) {
             int c = p.crossing(), e = p.trough();
             String id = String.format(Locale.ROOT, "%s owner %d,%d mouth @%.0f,%.0f w=%.1f", label, ownerX, ownerZ, p.x()[c], p.z()[c], 2 * p.halfWidth()[c]);
-            outside += p.outsideBand(); crossOwner += p.crossOwnerStations();
+            outside += p.outsideBand(); crossOwner += p.crossOwnerStations(); radius = Math.max(radius, p.radius());
             deepest = Math.max(deepest, (coastEdge - p.minEdge()) / HighlandCoast.EDGE_PER_BLOCK);
             var row = new StringBuilder(String.format(Locale.ROOT, "  %s status=%d stations=%d trough=%s b0=%.2f outsideBand=%d crossOwner=%d minEdgeBlocks=%.0f", id, p.status(), p.stations(),
                 e < 0 ? "none" : String.format(Locale.ROOT, "%.0f", -p.s()[e]), p.bed()[c], p.outsideBand(), p.crossOwnerStations(), (coastEdge - p.minEdge()) / HighlandCoast.EDGE_PER_BLOCK));
             if (p.status() == HighlandMouths.FEASIBLE) feasible++;
-            else failures.add(id + ": status " + (p.status() == HighlandMouths.LAND ? "LAND (re-emerging land before the trough end)" : "REACH (no trough end within the reach limit)") + ", last station s=" + p.s()[0]);
+            else failures.add(id + ": status " + (p.status() == HighlandMouths.LAND ? "LAND (re-emerging land before the trough end)" : "REACH (no trough end within the reach limit)") + String.format(Locale.ROOT, ", last station s=%.0f at %.0f,%.0f: sea floor there %.2f, trough bed %.2f (floor at the crossing %.2f)", p.s()[0], p.x()[0], p.z()[0], continent.backgroundAt(p.x()[0], p.z()[0]), p.bed()[0], continent.backgroundAt(p.x()[c - 1], p.z()[c - 1])));
             if (p.outsideBand() > 0) failures.add(String.format(Locale.ROOT, "%s: %d stations outside the mouth band (deepest %.0f of %.0f blocks)", id, p.outsideBand(), (coastEdge - p.minEdge()) / HighlandCoast.EDGE_PER_BLOCK, RollingHighlandsContinent.MOUTH_BAND_BLOCKS));
             if (p.status() != HighlandMouths.FEASIBLE) { out.append(row).append('\n'); continue; }
             // (a) along, seaward from the crossing to the trough end: the bed never rises seaward and the ground never stands above it (the natural floor may dip
@@ -415,8 +414,8 @@ class HighlandMouthTest {
             out.append(row.append(String.format(Locale.ROOT, " worstRise=%.2f worstOverBed=%.2f worstWetDepth=%.2f worstAcrossStep=%.2f worstBeyond=%.2f%n", worstRise, worstOver, worstDepth, worstAcross, worstBeyond)));
         }
         long infeasible = profiles.size() - feasible;
-        out.append(String.format(Locale.ROOT, "%s owner %d,%d: mouths=%d feasible=%d infeasible=%d outsideBand=%d crossOwnerStations=%d deepestStationBlocks=%.0f failures=%d%n", label, ownerX, ownerZ,
-            profiles.size(), feasible, infeasible, outside, crossOwner, deepest, failures.size()));
+        out.append(String.format(Locale.ROOT, "%s owner %d,%d: mouths=%d feasible=%d infeasible=%d outsideBand=%d crossOwnerStations=%d deepestStationBlocks=%.0f maxCorridorRadius=%.0f failures=%d%n", label, ownerX, ownerZ,
+            profiles.size(), feasible, infeasible, outside, crossOwner, deepest, radius, failures.size()));
         return failures;
     }
 
@@ -429,7 +428,6 @@ class HighlandMouthTest {
         var out = new StringBuilder();
         var failures = new ArrayList<String>();
         for (var fixture : fixtures()) {
-            if (!tracer(fixture)) continue;
             var context = WorldgenFixture.shared(fixture.preset().call(), fixture.seed());
             var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
             var owners = new ArrayList<int[]>(List.of(fixture.owners()));
@@ -441,6 +439,93 @@ class HighlandMouthTest {
         }
         System.out.println("RH10 river mouth profiles (11-24):\n" + out);
         assertTrue(failures.isEmpty(), failures.size() + " mouth profile checks fail:\n" + String.join("\n", failures));
+    }
+
+    /** Per column in the given order: height, river water level, river water flag, coast flag and water class, as raw bits; index = position in {@code columns}. */
+    private static long[][] capture(GeneratorContext context, List<int[]> columns, int[] order, List<int[]> first) {
+        var cell = new Cell();
+        for (int[] c : first) context.heightmap.applyPrecise(cell.reset(), c[0], c[1], false);
+        long[][] rows = new long[columns.size()][];
+        for (int i : order) {
+            context.heightmap.applyPrecise(cell.reset(), columns.get(i)[0], columns.get(i)[1], false);
+            rows[i] = new long[]{Float.floatToIntBits(cell.height), Float.floatToIntBits(cell.riverWaterLevel), cell.hasRiverWater ? 1 : 0, Float.floatToIntBits(cell.highlandCoast), cell.highlandWater};
+        }
+        return rows;
+    }
+
+    /**
+     * D-11-18-1 no generation-order seams (11-24, T-11-40): on server (0,0), default 42 (0,0) and the seam owner server (-1,-1), the corridor columns (every
+     * 4th station of every profile and two lateral points at half width plus half a bank run) and 32 band sea columns away from every corridor render
+     * bit-identical height, river water, coast flag and water class in three fresh contexts that meet them in different orders: A sea columns first, B land
+     * columns first, C one land column of each neighbour owner first and then the list in reverse.
+     */
+    @Test void mouthProfilesArePathIndependent() throws Exception {
+        var fixtures = fixtures();
+        var cases = List.of(new Object[]{fixtures.get(0), 0, 0}, new Object[]{fixtures.get(1), 0, 0},
+            new Object[]{fixtures.get(0), HighlandDrownedTest.SEAM_OWNER[0], HighlandDrownedTest.SEAM_OWNER[1]});
+        var failures = new ArrayList<String>();
+        var out = new StringBuilder();
+        for (var one : cases) {
+            var fixture = (Fixture) one[0];
+            int ownerX = (Integer) one[1], ownerZ = (Integer) one[2];
+            var shared = WorldgenFixture.shared(fixture.preset().call(), fixture.seed());
+            var continent = (RollingHighlandsContinent) shared.heightmap.continent();
+            double coastEdge = shared.preset.world().controlPoints.coast;
+            var mouths = continent.mouths(continent.planOf(ownerX, ownerZ));
+            var columns = new ArrayList<int[]>();
+            var sea = new ArrayList<Boolean>();
+            for (var p : mouths.profiles()) for (int i = 0; i < p.stations(); i += 4) {
+                int lo = Math.max(0, i - 1), hi = Math.min(p.stations() - 1, i + 1);
+                double tx = p.x()[hi] - p.x()[lo], tz = p.z()[hi] - p.z()[lo], tl = Math.hypot(tx, tz);
+                double floor = continent.backgroundAt(p.x()[i], p.z()[i]);
+                double run = Math.max(RollingHighlandsContinent.MOUTH_BANK_MIN, RollingHighlandsContinent.MOUTH_BANK_FACTOR * (Double.isNaN(floor) ? 0 : Math.max(0, floor - p.bed()[i])) / RollingHighlandsContinent.MOUTH_BANK_SLOPE);
+                double offset = p.halfWidth()[i] + run / 2;
+                for (double[] at : new double[][]{{p.x()[i], p.z()[i]}, {p.x()[i] - tz / tl * offset, p.z()[i] + tx / tl * offset}, {p.x()[i] + tz / tl * offset, p.z()[i] - tx / tl * offset}})
+                    columns.add(new int[]{(int) Math.round(at[0]), (int) Math.round(at[1])});
+            }
+            int corridor = columns.size(), far = 0;
+            for (int[] c : missColumns(shared, new CostKey("seam", fixture, ownerX, ownerZ))) {
+                if (far == 32) break;
+                if (continent.mouths(continent.planOf(ownerX, ownerZ)).query(c[0], c[1]).count == 0) { columns.add(c); far++; }
+            }
+            for (int[] c : columns) sea.add(continent.coast().sample(c[0], c[1]).edge() <= coastEdge);
+            var seaFirst = new ArrayList<Integer>(); var landFirst = new ArrayList<Integer>();
+            for (int i = 0; i < columns.size(); i++) if (sea.get(i)) seaFirst.add(i); else landFirst.add(i);
+            int[] orderA = new int[columns.size()], orderB = new int[columns.size()], orderC = new int[columns.size()];
+            int n = 0;
+            for (int i : seaFirst) orderA[n++] = i;
+            for (int i : landFirst) orderA[n++] = i;
+            n = 0;
+            for (int i : landFirst) orderB[n++] = i;
+            for (int i : seaFirst) orderB[n++] = i;
+            for (int i = 0; i < columns.size(); i++) orderC[i] = columns.size() - 1 - i;
+            // Neighbour land columns for C: land samples of other owners around the first corridor column.
+            var neighbours = new ArrayList<int[]>();
+            int[] anchor = columns.get(0);
+            for (int ring = 1; ring <= 3 && neighbours.size() < 4; ring++)
+                for (int dz = -ring; dz <= ring; dz++) for (int dx = -ring; dx <= ring; dx++) {
+                    if (Math.max(Math.abs(dx), Math.abs(dz)) != ring || neighbours.size() >= 4) continue;
+                    int px = anchor[0] + dx * 2500, pz = anchor[1] + dz * 2500;
+                    var at = continent.coast().sample(px, pz);
+                    if ((at.ownerX() != ownerX || at.ownerZ() != ownerZ) && at.edge() > coastEdge) neighbours.add(new int[]{px, pz});
+                }
+            long[][] a, b, c;
+            var firstSea = List.of(columns.get(seaFirst.isEmpty() ? 0 : seaFirst.get(0)));
+            try (var context = WorldgenFixture.context(fixture.preset().call(), fixture.seed())) { a = capture(context, columns, orderA, firstSea); }
+            try (var context = WorldgenFixture.context(fixture.preset().call(), fixture.seed())) { b = capture(context, columns, orderB, List.of()); }
+            try (var context = WorldgenFixture.context(fixture.preset().call(), fixture.seed())) { c = capture(context, columns, orderC, neighbours); }
+            int mismatches = 0;
+            for (int i = 0; i < columns.size(); i++) {
+                if (!Arrays.equals(a[i], b[i]) || !Arrays.equals(a[i], c[i])) {
+                    if (mismatches++ == 0) failures.add(String.format(Locale.ROOT, "%s owner %d,%d: first mismatch at column %d (%d,%d) sea=%s: A=%s B=%s C=%s", fixture.label(), ownerX, ownerZ, i, columns.get(i)[0], columns.get(i)[1], sea.get(i),
+                        Arrays.toString(a[i]), Arrays.toString(b[i]), Arrays.toString(c[i])));
+                }
+            }
+            if (mismatches > 0) failures.add(String.format(Locale.ROOT, "%s owner %d,%d: %d of %d columns differ between orders", fixture.label(), ownerX, ownerZ, mismatches, columns.size()));
+            out.append(String.format(Locale.ROOT, "%s owner %d,%d: columns=%d (corridor %d, away %d, sea %d, neighbour land columns first in C %d) mismatches=%d%n", fixture.label(), ownerX, ownerZ, columns.size(), corridor, far, seaFirst.size(), neighbours.size(), mismatches));
+        }
+        System.out.println("RH10 river mouth path independence (11-24):\n" + out);
+        assertTrue(failures.isEmpty(), failures.size() + " path independence failures:\n" + String.join("\n", failures));
     }
 
     /** One owner to measure the mouth cost on (label "<fixture>/<x>,<z>"). */
