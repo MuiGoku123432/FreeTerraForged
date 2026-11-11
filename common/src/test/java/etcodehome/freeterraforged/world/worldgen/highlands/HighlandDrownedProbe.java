@@ -23,7 +23,7 @@ import etcodehome.freeterraforged.world.worldgen.densityfunction.CellSampler;
  * weight of at least {@link #DROWNED_WEIGHT}); islands, edge slope, plan cost and the drowned share are global.
  *
  * <ul>
- * <li>islands: 4-connected land components on the GRID mask that do not touch the box border;</li>
+ * <li>islands: 4-connected land components on the GRID mask that do not touch the box border (see {@link #islands} for the padded whole-island census);</li>
  * <li>sheltered: scoped points at least {@link #SHELTER_DEPTH} deep whose effective fetch (mean free-water run over
  * {@link #FETCH_RAYS} compass rays, each capped at {@link #FETCH_CAP}; a ray leaving the box counts as open to the
  * cap) is at most {@link #SHELTER_FETCH};</li>
@@ -737,14 +737,20 @@ final class HighlandDrownedProbe {
     }
 
     /**
-     * Islands of a drowned scope in a box (11-06): land components (4-connected on the GRID lattice, not touching the box
-     * border, at least {@link #MIN_ISLAND} cells) with at least half of their cells in the scope (fjord weight, or ria weight
-     * where there is no fjord weight, at least {@link #DROWNED_WEIGHT}). Per island, sorted by nothing: equivalent diameter
-     * (blocks), top height and steepest lattice slope (real column lookups, blocks above water and per block), whether a
-     * channel plan node with the creek area or river water lies on it, and whether another island is within
-     * {@link #CHAIN_GAP}. {@code regionArea} is the scope's area (land and sea, blocks2).
+     * Islands of a drowned scope in a box (11-06, D-11-15-1): land components (4-connected on the GRID lattice, at least {@link #MIN_ISLAND} cells)
+     * with at least half of their cells in the scope (fjord weight, or ria weight where there is no fjord weight, at least {@link #DROWNED_WEIGHT}),
+     * measured WHOLE: the lattice is scanned over the box plus a padding margin, an island is counted once by its anchor (its first cell in row-major
+     * order) when the anchor lies inside the reporting box (so overlapping boxes dedupe by anchor, see {@link #poolIslands}), and a component that
+     * touches the padded border is never counted: one of at least {@link #MAINLAND_CELLS} cells is mainland-connected coast, a smaller one is
+     * {@code unresolved} (the padding doubles from {@link #ISLAND_PAD_START} to {@link #ISLAND_PAD_MAX} while any are left). Per island, sorted by nothing:
+     * equivalent diameter (blocks), length and width (extents along the principal axes of its cells, blocks), top height and steepest lattice slope (real
+     * column lookups, blocks above water and per block), whether a channel plan node with the creek area or river water lies on it, whether another
+     * island is within {@link #CHAIN_GAP}, and {@code interior} (the island the old census counted: no cell on the unpadded box border). {@code regionArea}
+     * is the scope's area in the box (land and sea, blocks2); {@code eligibleArea} the part of it in the island shelf window (standalone edge over the
+     * shelf edge and seaward of the coast gap) and {@code coastLength} the mainland shoreline in the scope (blocks).
      */
-    record Islands(int count, double[] diameters, double[] tops, double[] steepest, boolean[] chained, boolean[] creek, double regionArea) {
+    record Islands(int count, double[] diameters, double[] tops, double[] steepest, boolean[] chained, boolean[] creek, double regionArea,
+                   long[] anchors, double[] lengths, double[] widths, boolean[] interior, int unresolved, int pad, double eligibleArea, double coastLength, long nanos) {
         int under(double lo, double hi) {
             int n = 0;
             for (double d : diameters) if (d >= lo && d < hi) n++;
@@ -754,6 +760,14 @@ final class HighlandDrownedProbe {
         int creekCount(double lo, double hi) {
             int n = 0;
             for (int k = 0; k < count; k++) if (creek[k] && diameters[k] >= lo && diameters[k] < hi) n++;
+            return n;
+        }
+        Islands withNanos(long elapsed) {
+            return new Islands(count, diameters, tops, steepest, chained, creek, regionArea, anchors, lengths, widths, interior, unresolved, pad, eligibleArea, coastLength, elapsed);
+        }
+        int interiorCount(double lo, double hi) {
+            int n = 0;
+            for (int k = 0; k < count; k++) if (interior[k] && diameters[k] >= lo && diameters[k] < hi) n++;
             return n;
         }
         double per25km2(double lo, double hi) { return regionArea > 0 ? under(lo, hi) * 25e6 / regionArea : Double.NaN; }
@@ -769,38 +783,100 @@ final class HighlandDrownedProbe {
                 count, regionArea / 1e6, under(0, 300), under(300, 1000), under(1000, 3000), under(3000, Double.MAX_VALUE), per25km2(1000, 3000), chainedCount(),
                 creekCount(0, 1000), creekCount(1000, Double.MAX_VALUE), under(1000, Double.MAX_VALUE), medianTop(), medianSteepest());
         }
+        /** The census diagnostics (D-11-15-1): what the padding recovered, what is unresolved, the eligible window and the coast, the wall time. */
+        String diagnostics() {
+            int old = 0, oldBig = interiorCount(1000, 3000);
+            for (boolean in : interior) if (in) old++;
+            return String.format(Locale.ROOT, "census pad=%d unresolved=%d counted=%d (old rule %d, recovered %d) big(1-3km) %d (old rule %d) per25km2 old rule=%.2f; eligible shelf window %.1fkm2 of scope %.1fkm2, mainland coast in scope %.1fkm, %d ms",
+                pad, unresolved, count, old, count - old, under(1000, 3000), oldBig, regionArea > 0 ? oldBig * 25e6 / regionArea : Double.NaN, eligibleArea / 1e6, regionArea / 1e6, coastLength / 1e3, nanos / 1_000_000);
+        }
+        /** Length and width of every island of at least {@code minDiameter} blocks across (equivalent diameter): "diameter LxW" in blocks, longest first. */
+        String shapes(double minDiameter) {
+            var out = new ArrayList<String>();
+            Integer[] order = java.util.stream.IntStream.range(0, count).boxed().filter(k -> diameters[k] >= minDiameter).sorted((a, b) -> Double.compare(lengths[b], lengths[a])).toArray(Integer[]::new);
+            for (int k : order) out.add(String.format(Locale.ROOT, "%.0f(%.0fx%.0f%s)", diameters[k], lengths[k], widths[k], interior[k] ? "" : ",clipped"));
+            return out.toString();
+        }
     }
     /** Smallest island the census counts (lattice cells): smaller specks are noise of the lattice, not islands. */
     static final int MIN_ISLAND = 4;
+    /** Census padding (blocks): start and budget; a component of at least MAINLAND_CELLS lattice cells (10 km2) that touches the padded border is mainland-connected coast. */
+    static final int ISLAND_PAD_START = 2048, ISLAND_PAD_MAX = 4096, MAINLAND_CELLS = 39063;
 
+    /** Island census of a box (see {@link Islands}): padded whole-island scan, the padding doubling within its budget while components stay unresolved. */
     static Islands islands(GeneratorContext context, int originX, int originZ, int radius, boolean fjordScope) {
+        long started = System.nanoTime();
+        int pad = ISLAND_PAD_START;
+        Islands census = islandPass(context, originX, originZ, radius, fjordScope, pad);
+        while (census.unresolved() > 0 && pad < ISLAND_PAD_MAX) {
+            pad = Math.min(ISLAND_PAD_MAX, 2 * pad);
+            census = islandPass(context, originX, originZ, radius, fjordScope, pad);
+        }
+        return census.withNanos(System.nanoTime() - started);
+    }
+
+    private static Islands islandPass(GeneratorContext context, int originX, int originZ, int radius, boolean fjordScope, int pad) {
         var continent = (RollingHighlandsContinent) context.heightmap.continent();
         var coast = continent.coast();
         var drowned = coast.drowned();
-        double coastEdge = context.preset.world().controlPoints.coast;
-        int gw = 2 * radius / GRID + 1, x0 = originX - radius, z0 = originZ - radius;
-        boolean[] land = new boolean[gw * gw], scoped = new boolean[gw * gw];
+        double coastEdge = context.preset.world().controlPoints.coast, deepOcean = context.preset.world().controlPoints.deepOcean;
+        double windowEnd = coastEdge - HighlandDrowned.ISLAND_GAP * HighlandCoast.EDGE_PER_BLOCK;
+        int bw = 2 * radius / GRID + 1, margin = pad / GRID, gw = bw + 2 * margin, x0 = originX - radius - margin * GRID, z0 = originZ - radius - margin * GRID;
+        boolean[] land = new boolean[gw * gw], scoped = new boolean[gw * gw], eligible = new boolean[gw * gw];
         IntStream.range(0, gw).parallel().forEach(j -> {
             for (int i = 0; i < gw; i++) {
                 double x = x0 + i * GRID, z = z0 + j * GRID;
                 land[j * gw + i] = coast.sample(x, z).edge() > coastEdge;
                 double fjord = drowned.fjord(x, z);
                 scoped[j * gw + i] = fjordScope ? fjord >= DROWNED_WEIGHT : fjord < DROWNED_WEIGHT && drowned.ria(x, z) >= DROWNED_WEIGHT;
+                if (scoped[j * gw + i] && inBox(i, j, margin, bw)) {
+                    double standalone = coast.undrowned(x, z).edge();
+                    eligible[j * gw + i] = standalone > deepOcean && standalone < windowEnd;
+                }
             }
         });
-        double regionArea = 0;
-        for (boolean s : scoped) if (s) regionArea += (double) GRID * GRID;
+        double regionArea = 0, eligibleArea = 0;
+        for (int at = 0; at < land.length; at++) {
+            if (!scoped[at] || !inBox(at % gw, at / gw, margin, bw)) continue;
+            regionArea += (double) GRID * GRID;
+            if (eligible[at]) eligibleArea += (double) GRID * GRID;
+        }
         var parts = label(land, gw);
         boolean[] border = borderTouching(parts.id, gw, parts.area.length - 1);
-        int[] inScope = new int[parts.area.length];
-        for (int at = 0; at < land.length; at++) if (land[at] && scoped[at]) inScope[parts.id[at]]++;
+        int count0 = parts.area.length;
+        int[] inScope = new int[count0], anchor = new int[count0];
+        boolean[] touchesBox = new boolean[count0];
+        Arrays.fill(anchor, -1);
+        for (int at = 0; at < land.length; at++) {
+            if (!land[at]) continue;
+            int id = parts.id[at];
+            if (anchor[id] < 0) anchor[id] = at;
+            if (scoped[at]) inScope[id]++;
+            int i = at % gw, j = at / gw;
+            if (inBox(i, j, margin, bw) && (i == margin || j == margin || i == margin + bw - 1 || j == margin + bw - 1)) touchesBox[id] = true;
+        }
         var kept = new ArrayList<Integer>();
-        for (int id = 1; id < parts.area.length; id++) if (!border[id] && parts.area[id] >= MIN_ISLAND && inScope[id] * 2 >= parts.area[id]) kept.add(id);
+        int unresolved = 0;
+        for (int id = 1; id < count0; id++) {
+            if (parts.area[id] < MIN_ISLAND || inScope[id] * 2 < parts.area[id] || !inBox(anchor[id] % gw, anchor[id] / gw, margin, bw)) continue;
+            if (!border[id]) kept.add(id);
+            else if (parts.area[id] < MAINLAND_CELLS) unresolved++;
+        }
+        double coastLength = 0;
+        for (int at = 0; at < land.length; at++) {
+            int id = parts.id[at], i = at % gw, j = at / gw;
+            if (!land[at] || !scoped[at] || !border[id] || parts.area[id] < MAINLAND_CELLS || !inBox(i, j, margin, bw)) continue;
+            if (i > 0 && !land[at - 1]) coastLength += GRID;
+            if (i + 1 < gw && !land[at + 1]) coastLength += GRID;
+            if (j > 0 && !land[at - gw]) coastLength += GRID;
+            if (j + 1 < gw && !land[at + gw]) coastLength += GRID;
+        }
         int count = kept.size();
         var slot = new java.util.HashMap<Integer, Integer>();
         for (int k = 0; k < count; k++) slot.put(kept.get(k), k);
-        double[] diameters = new double[count], tops = new double[count], steepest = new double[count];
-        boolean[] chained = new boolean[count], creek = new boolean[count];
+        double[] diameters = new double[count], tops = new double[count], steepest = new double[count], lengths = new double[count], widths = new double[count];
+        boolean[] chained = new boolean[count], creek = new boolean[count], interior = new boolean[count];
+        long[] anchors = new long[count];
         var cell = new Cell();
         double[] heights = new double[gw * gw];
         Arrays.fill(heights, Double.NaN);
@@ -841,7 +917,13 @@ final class HighlandDrownedProbe {
                 break search;
             }
         }
-        for (int k = 0; k < count; k++) diameters[k] = 2 * Math.sqrt(parts.area[kept.get(k)] * (double) GRID * GRID / Math.PI);
+        for (int k = 0; k < count; k++) {
+            int id = kept.get(k);
+            diameters[k] = 2 * Math.sqrt(parts.area[id] * (double) GRID * GRID / Math.PI);
+            anchors[k] = ((long) (x0 + anchor[id] % gw * GRID) << 32) ^ ((z0 + anchor[id] / gw * GRID) & 0xffffffffL);
+            interior[k] = !touchesBox[id];
+        }
+        shapes(parts.id, gw, slot, lengths, widths);
         // Channel plan nodes with at least the creek area: a drawn creek (or river) on the island.
         double creekArea = continent.drainage().creekArea();
         for (var cells : byOwner.values()) {
@@ -855,7 +937,39 @@ final class HighlandDrownedProbe {
                 if (k != null && land[j * gw + i]) creek[k] = true;
             }
         }
-        return new Islands(count, diameters, tops, steepest, chained, creek, regionArea);
+        return new Islands(count, diameters, tops, steepest, chained, creek, regionArea, anchors, lengths, widths, interior, unresolved, pad, eligibleArea, coastLength, 0);
+    }
+
+    /** Whether lattice cell (i, j) of a padded scan lies in the reporting box (the {@code bw}-cell square inside {@code margin} cells of padding). */
+    private static boolean inBox(int i, int j, int margin, int bw) {
+        return i >= margin && j >= margin && i < margin + bw && j < margin + bw;
+    }
+
+    /** Length and width (blocks) of the islands of {@code slot}: the extents of their cells along the principal axes, a cell counting its {@link #GRID} width. */
+    private static void shapes(int[] id, int gw, java.util.Map<Integer, Integer> slot, double[] lengths, double[] widths) {
+        int n = lengths.length;
+        double[] cnt = new double[n], sx = new double[n], sy = new double[n], sxx = new double[n], syy = new double[n], sxy = new double[n];
+        for (int at = 0; at < id.length; at++) {
+            Integer k = slot.get(id[at]);
+            if (k == null || id[at] == 0) continue;
+            double x = at % gw, y = at / gw;
+            cnt[k]++; sx[k] += x; sy[k] += y; sxx[k] += x * x; syy[k] += y * y; sxy[k] += x * y;
+        }
+        double[] cos = new double[n], sin = new double[n], lo = new double[n], hi = new double[n], loB = new double[n], hiB = new double[n];
+        for (int k = 0; k < n; k++) {
+            double mx = sx[k] / cnt[k], my = sy[k] / cnt[k], vx = sxx[k] / cnt[k] - mx * mx, vy = syy[k] / cnt[k] - my * my, c = sxy[k] / cnt[k] - mx * my;
+            double angle = .5 * Math.atan2(2 * c, vx - vy);
+            cos[k] = Math.cos(angle); sin[k] = Math.sin(angle);
+            lo[k] = loB[k] = Double.MAX_VALUE; hi[k] = hiB[k] = -Double.MAX_VALUE;
+        }
+        for (int at = 0; at < id.length; at++) {
+            Integer k = slot.get(id[at]);
+            if (k == null || id[at] == 0) continue;
+            double x = at % gw, y = at / gw, along = x * cos[k] + y * sin[k], across = -x * sin[k] + y * cos[k];
+            lo[k] = Math.min(lo[k], along); hi[k] = Math.max(hi[k], along);
+            loB[k] = Math.min(loB[k], across); hiB[k] = Math.max(hiB[k], across);
+        }
+        for (int k = 0; k < n; k++) { lengths[k] = (hi[k] - lo[k] + 1) * GRID; widths[k] = (hiB[k] - loB[k] + 1) * GRID; }
     }
 
     /**
@@ -934,18 +1048,24 @@ final class HighlandDrownedProbe {
         return new OpenIslands(islands, fullOwners, inFull, belowGuard, outOfBounds);
     }
 
-    /** One island census over several boxes: lists concatenated, region areas summed. */
+    /** One island census over several boxes: lists concatenated (an island whose anchor appears in two overlapping boxes counted once), region areas summed. */
     static Islands poolIslands(List<Islands> parts) {
-        int count = parts.stream().mapToInt(Islands::count).sum();
-        boolean[] chained = new boolean[count], creek = new boolean[count];
-        int at = 0;
-        for (var part : parts) {
-            System.arraycopy(part.chained(), 0, chained, at, part.count());
-            System.arraycopy(part.creek(), 0, creek, at, part.count());
-            at += part.count();
+        var seen = new java.util.HashSet<Long>();
+        var from = new ArrayList<int[]>();
+        for (int p = 0; p < parts.size(); p++) for (int k = 0; k < parts.get(p).count(); k++) if (seen.add(parts.get(p).anchors()[k])) from.add(new int[] {p, k});
+        int count = from.size();
+        double[] diameters = new double[count], tops = new double[count], steepest = new double[count], lengths = new double[count], widths = new double[count];
+        boolean[] chained = new boolean[count], creek = new boolean[count], interior = new boolean[count];
+        long[] anchors = new long[count];
+        for (int n = 0; n < count; n++) {
+            var part = parts.get(from.get(n)[0]);
+            int k = from.get(n)[1];
+            diameters[n] = part.diameters()[k]; tops[n] = part.tops()[k]; steepest[n] = part.steepest()[k]; lengths[n] = part.lengths()[k]; widths[n] = part.widths()[k];
+            chained[n] = part.chained()[k]; creek[n] = part.creek()[k]; interior[n] = part.interior()[k]; anchors[n] = part.anchors()[k];
         }
-        return new Islands(count, parts.stream().flatMapToDouble(p -> Arrays.stream(p.diameters())).toArray(), parts.stream().flatMapToDouble(p -> Arrays.stream(p.tops())).toArray(),
-            parts.stream().flatMapToDouble(p -> Arrays.stream(p.steepest())).toArray(), chained, creek, parts.stream().mapToDouble(Islands::regionArea).sum());
+        return new Islands(count, diameters, tops, steepest, chained, creek, parts.stream().mapToDouble(Islands::regionArea).sum(), anchors, lengths, widths, interior,
+            parts.stream().mapToInt(Islands::unresolved).sum(), parts.stream().mapToInt(Islands::pad).max().orElse(0), parts.stream().mapToDouble(Islands::eligibleArea).sum(),
+            parts.stream().mapToDouble(Islands::coastLength).sum(), parts.stream().mapToLong(Islands::nanos).sum());
     }
 
     private static double height(GeneratorContext context, Cell cell, double x, double z) {
@@ -1347,6 +1467,58 @@ final class HighlandDrownedProbe {
         double[] share = new double[10];
         for (int b = 0; b < 10; b++) share[b] = total[b] > 0 ? (double) land[b] / total[b] : 0;
         return share;
+    }
+
+    /** Annulus of the angular coverage census, as fractions of a region radius. */
+    static final double SECTOR_FROM = .3, SECTOR_TO = .9;
+
+    /**
+     * Angular coverage of island land (11-15, D-11-15-2): the annulus {@link #SECTOR_FROM} to {@link #SECTOR_TO} R of a region cut into {@code rings} concentric
+     * rings and {@code sectors} bearing sectors, on a 12-block lattice; per (ring, sector) cell the share of its lattice points that are raised-island land
+     * (as {@link #islandBands}). A closed ring of island land fills one ring in every sector; a broken field does not.
+     */
+    static double[][] islandCoverage(GeneratorContext context, HighlandDrowned.Region r, int rings, int sectors) {
+        var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+        double coastEdge = context.preset.world().controlPoints.coast;
+        int step = 12, n = (int) (2 * SECTOR_TO * r.radius() / step) + 1, cells = rings * sectors;
+        double x0 = r.cx() - SECTOR_TO * r.radius(), z0 = r.cz() - SECTOR_TO * r.radius();
+        int[][] part = new int[n][2 * cells];
+        IntStream.range(0, n).parallel().forEach(j -> {
+            for (int i = 0; i < n; i++) {
+                double x = x0 + i * step, z = z0 + j * step, d = Math.hypot(x - r.cx(), z - r.cz()) / r.radius();
+                if (d < SECTOR_FROM || d >= SECTOR_TO) continue;
+                int ring = Math.min(rings - 1, (int) ((d - SECTOR_FROM) / (SECTOR_TO - SECTOR_FROM) * rings));
+                int sector = Math.min(sectors - 1, (int) ((Math.atan2(z - r.cz(), x - r.cx()) + Math.PI) / (2 * Math.PI) * sectors));
+                part[j][ring * sectors + sector]++;
+                if (coast.sample(x, z).edge() > coastEdge && coast.undrowned(x, z).edge() <= coastEdge) part[j][cells + ring * sectors + sector]++;
+            }
+        });
+        double[][] share = new double[rings][sectors];
+        for (int c = 0; c < cells; c++) {
+            int total = 0, land = 0;
+            for (int[] row : part) { total += row[c]; land += row[cells + c]; }
+            share[c / sectors][c % sectors] = total > 0 ? (double) land / total : 0;
+        }
+        return share;
+    }
+
+    /**
+     * The longest unbroken arc of a coverage matrix ({@link #islandCoverage}): the most consecutive bearing sectors (cyclic) of ONE ring whose island share is
+     * at least {@code cover}. A closed ring of island land is an arc of every sector the shelf window reaches; a broken field is many short arcs.
+     */
+    static int longestArc(double[][] coverage, double cover) {
+        int best = 0;
+        for (double[] ring : coverage) {
+            int n = ring.length, start = -1;
+            for (int k = 0; k < n; k++) if (ring[k] < cover) { start = k; break; }
+            if (start < 0) { best = Math.max(best, n); continue; }
+            int run = 0;
+            for (int k = 1; k <= n; k++) {
+                if (ring[(start + k) % n] >= cover) best = Math.max(best, ++run);
+                else run = 0;
+            }
+        }
+        return best;
     }
 
     /**
