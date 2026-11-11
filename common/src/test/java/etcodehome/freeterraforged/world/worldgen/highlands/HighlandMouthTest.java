@@ -158,4 +158,99 @@ class HighlandMouthTest {
         System.out.println("RH10 river mouths (11-17):\n" + out);
         assertTrue(failures.isEmpty(), failures.size() + " rivers of width " + MIN_WIDTH + " or more do not reach the sea:\n" + String.join("\n", failures));
     }
+
+    /** The bed at the last river cell may differ from the sea floor this many blocks seaward of the mouth by at most {@link #SILL_STEP}. */
+    static final double SILL_STEP = 2, SILL_WATER = .5, SILL_SLACK = .05;
+    /** Seaward distances (blocks past the coast contour) at which the floor is compared with the bed, and the range in which it may not be shallower. */
+    static final int SILL_NEAR = 2, SILL_FROM = 4, SILL_TO = 30;
+
+    private static double ground(GeneratorContext context, Cell cell) { return (cell.height - context.levels.water) * context.levels.terrainScaleFactor; }
+
+    /**
+     * Ground height of the sea column {@code distance} blocks past the coast contour along (dx, dz) from the contour point (x, z), or negative
+     * infinity where the column is not sea floor (a sea stack stands there, or the ray has reached other land) and a river bed is not held to it.
+     */
+    private static double seaFloor(GeneratorContext context, double x, double z, double dx, double dz, double distance) {
+        var cell = new Cell();
+        context.heightmap.apply(cell.reset(), (int) Math.round(x + dx * distance), (int) Math.round(z + dz * distance), false);
+        return cell.highlandCoast > 0 || cell.continentEdge > context.preset.world().controlPoints.coast ? Double.NEGATIVE_INFINITY : ground(context, cell);
+    }
+
+    /** The coast contour on the segment from the land point (x, z) toward (dx, dz), found by bisection within {@code length} blocks (the start when it already is sea). */
+    private static double contour(HighlandCoast coast, double coastEdge, double x, double z, double dx, double dz, double length) {
+        double lo = 0, hi = length;
+        if (coast.sample(x, z).edge() <= coastEdge) return 0;
+        for (int i = 0; i < 10; i++) {
+            double mid = (lo + hi) / 2;
+            if (coast.sample(x + dx * mid, z + dz * mid).edge() <= coastEdge) hi = mid; else lo = mid;
+        }
+        return hi;
+    }
+
+    /**
+     * Every sea-reaching channel (a plan root with a child whose last rendered river cell lies within halfWidth + {@link #SEA_SLACK}
+     * of sea): the bed at that cell against the sea floor {@link #SILL_NEAR} blocks seaward of the contour (at most {@link #SILL_STEP}
+     * apart), the floor from {@link #SILL_FROM} to {@link #SILL_TO} blocks seaward never shallower than that bed (no dome), and the
+     * planned water there at most {@link #SILL_WATER} above sea. Returns the failures; one line per channel goes to {@code out}.
+     */
+    private static List<String> sills(String label, GeneratorContext context, int ownerX, int ownerZ, StringBuilder out) {
+        var continent = (RollingHighlandsContinent) context.heightmap.continent();
+        var coast = continent.coast();
+        double coastEdge = context.preset.world().controlPoints.coast;
+        var nodes = continent.planOf(ownerX, ownerZ).plan().nodes();
+        boolean[] hasChild = new boolean[nodes.size()];
+        for (var node : nodes) if (node.parent() >= 0) hasChild[node.parent()] = true;
+        var failures = new ArrayList<String>();
+        var cell = new Cell();
+        int channels = 0;
+        for (int i = 0; i < nodes.size(); i++) {
+            var root = nodes.get(i);
+            if (root.parent() >= 0 || !hasChild[i]) continue;
+            double halfWidth = continent.drainage().halfWidth(root.area(), 1);
+            var last = lastRiverCell(context, coastEdge, nodes, i);
+            if (last == null) continue;
+            double[] sea = seaDistance(coast, coastEdge, last[0], last[1], halfWidth + SEA_SLACK);
+            if (!Double.isFinite(sea[0])) continue;
+            channels++;
+            context.heightmap.apply(cell.reset(), (int) Math.round(last[0]), (int) Math.round(last[1]), false);
+            double bed = ground(context, cell), water = (cell.riverWaterLevel - context.levels.water) * context.levels.terrainScaleFactor;
+            double reach = contour(coast, coastEdge, last[0], last[1], sea[1], sea[2], sea[0]);
+            double mx = last[0] + sea[1] * reach, mz = last[1] + sea[2] * reach;
+            double near = seaFloor(context, mx, mz, sea[1], sea[2], SILL_NEAR), step = Double.isInfinite(near) ? 0 : near - bed, crest = Double.NEGATIVE_INFINITY, sill = 0;
+            for (int d = 0; d <= SILL_TO; d++) {
+                double floor = seaFloor(context, mx, mz, sea[1], sea[2], d);
+                if (floor > bed + SILL_SLACK) { sill = d; crest = Math.max(crest, floor); }
+            }
+            double dome = Double.NEGATIVE_INFINITY;
+            for (int d = SILL_FROM; d <= SILL_TO; d += 2) dome = Math.max(dome, seaFloor(context, mx, mz, sea[1], sea[2], d) - bed);
+            String row = String.format(Locale.ROOT, "last %.0f,%.0f seaDistance=%.0f contour=%.1f bed=%.2f floor(+%d)=%.2f step=%.2f sillLength=%.0f crest=%.2f dome=%.2f water=%.2f",
+                last[0], last[1], sea[0], reach, bed, SILL_NEAR, near, step, sill, crest, dome, water);
+            out.append(String.format(Locale.ROOT, "  %s owner %d,%d root @%.0f,%.0f w=%.1f %s%n", label, ownerX, ownerZ, root.x(), root.z(), 2 * halfWidth, row));
+            if (Math.abs(step) > SILL_STEP || dome > SILL_SLACK || water > SILL_WATER)
+                failures.add(String.format(Locale.ROOT, "%s owner %d,%d root @%.0f,%.0f w=%.1f: %s", label, ownerX, ownerZ, root.x(), root.z(), 2 * halfWidth, row));
+        }
+        out.append(String.format(Locale.ROOT, "%s owner %d,%d: channels=%d failures=%d%n", label, ownerX, ownerZ, channels, failures.size()));
+        return failures;
+    }
+
+    /**
+     * G-11-6 B1 (D-GC4, 11-18): the river bed meets the sea floor at sea level (RH8.1 origin: the bed stopped at the coast contour while
+     * the shoreface floor started shallow): no step, no wall, no submarine dome, no raised water at any sea-reaching channel.
+     */
+    @Test void mouthsHaveNoSills() throws Exception {
+        var out = new StringBuilder();
+        var failures = new ArrayList<String>();
+        for (var fixture : fixtures()) {
+            var context = WorldgenFixture.shared(fixture.preset().call(), fixture.seed());
+            var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+            var owners = new ArrayList<int[]>(List.of(fixture.owners()));
+            for (int[] block : fixture.blocks()) {
+                var owner = coast.undrowned(block[0], block[1]);
+                owners.add(new int[]{owner.ownerX(), owner.ownerZ()});
+            }
+            for (int[] owner : owners) failures.addAll(sills(fixture.label(), context, owner[0], owner[1], out));
+        }
+        System.out.println("RH10 river mouth sills (11-18):\n" + out);
+        assertTrue(failures.isEmpty(), failures.size() + " channels have a sill, dome or raised water at the mouth:\n" + String.join("\n", failures));
+    }
 }

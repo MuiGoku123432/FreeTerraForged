@@ -387,10 +387,7 @@ public final class RollingHighlandsContinent implements Continent {
             // leaves wide one-block-deep flats wherever the edge field lingers just under the coast point (in-game
             // 2026-11-04: dirt/gravel/clay patchwork seabeds). The floor instead deepens with distance from the shoreline.
             if (location.edge() > shallowOceanEdge) {
-                // RH9: below sea cliffs the floor drops within a few blocks (the run shortens with the cliff weight).
-                double shoreface = SHOREFACE_RUN * (1 - CLIFF_SHOREFACE * coast.profile().shore(x, z).cliff());
-                double run = Math.min(1, shoreDistance(x, z, location.edge()) / shoreface);
-                cell.height = Math.min(cell.height, normalized(-shelfDepth * Math.pow(run, 2.0 / 3)));
+                cell.height = Math.min(cell.height, normalized(-shorefaceDepth(x, z, shoreDistance(x, z, location.edge()))));
             }
             // RH9 X: sea stacks off cliff coasts (ocean ground only, so drainage never sees them).
             double floor = (cell.height - levels.water) * levels.terrainScaleFactor, stack = seaStack(cell, x, z, location.edge(), floor);
@@ -545,6 +542,27 @@ public final class RollingHighlandsContinent implements Continent {
     static final double STACK_NEAR = 10, STACK_FAR = 60, STACK_EDGE_REACH = .04;
     /** Shoreface run (blocks from the coastline to the shelf depth) and how much of it a sea cliff takes away. */
     static final double SHOREFACE_RUN = 48, CLIFF_SHOREFACE = .8;
+    /** RH10 (11-18): blocks before the shoreline over which a river bed eases to the sea floor, and the shore distance (field units) added to the column's own. */
+    static final double MOUTH_BLEND = 32, MOUTH_LEAD = .5;
+    /**
+     * Depth (blocks below sea level) of the shoreface floor {@code distance} blocks from the shoreline. RH9: below sea cliffs the floor
+     * drops within a few blocks (the run shortens with the cliff weight).
+     */
+    private double shorefaceDepth(double x, double z, double distance) {
+        double shoreface = SHOREFACE_RUN * (1 - CLIFF_SHOREFACE * coast.profile().shore(x, z).cliff());
+        return shelfDepth * Math.pow(Math.min(1, distance / shoreface), 2.0 / 3);
+    }
+    /**
+     * RH10 (11-18): a river bed within MOUTH_BLEND blocks of the shoreline eases (weight 1 at the shoreline) to the shoreface floor the sea
+     * has at the same shore distance plus MOUTH_LEAD, the ocean branch's own formula (the floor mirrored across the contour), so the bed
+     * meets the sea without a wall, dome or ledge. It shoals a deep bed and deepens a perched one, never above one block under the water.
+     */
+    private double mouthBed(double x, double z, double edge, double bed, double water) {
+        if (edge - coastEdge >= HighlandDrainage.COAST_BAND) return bed;
+        double distance = shoreDistance(x, z, edge), weight = 1 - smooth(0, MOUTH_BLEND, distance);
+        if (weight <= 0) return bed;
+        return Math.min(lerp(bed, -shorefaceDepth(x, z, distance + MOUTH_LEAD), weight), water - 1);
+    }
     /** Vanilla's low weirdness slice (normal side) and erosion levels 3-4, inset from the slice boundaries. */
     static final double BEACH_WEIRDNESS_MIN = -.26, BEACH_WEIRDNESS_MAX = -.06, BEACH_EROSION_MIN = -.2225, BEACH_EROSION_MAX = .44;
     /**
@@ -890,7 +908,7 @@ public final class RollingHighlandsContinent implements Continent {
             double bed = filled ? water - 1 - Math.min(2, -.5 * fillet) : Math.min(wetSection.height(), water - 1);
             // Scour deepens the bed in proportion to its depth; the bar lifts it toward one block below the water.
             bed = water - (water - bed) * (1 + scour);
-            return Math.max(bed, lerp(bed, water - 1, bar));
+            return mouthBed(x, z, edge, Math.max(bed, lerp(bed, water - 1, bar)), water);
         }
         double softness = CREASE_SOFTNESS * Math.min(o1, o2) * smooth(0, 8, land - c2);
         double height = Math.max(smin(c1, c2, softness), support);

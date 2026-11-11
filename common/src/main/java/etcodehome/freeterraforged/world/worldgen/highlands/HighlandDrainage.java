@@ -48,6 +48,8 @@ public final class HighlandDrainage {
     static final double LAKE_SITE_SLOPE = .015, LAKE_SITE_DENSITY = 1, LAKE_SPACING = 1000;
     /** Steepest water-surface gradient between refined samples (rapids); keeps adjacent wet cells within a block. */
     static final double MAX_WATER_SLOPE = .2;
+    /** Planned water (blocks above sea) allowed at a channel's coast crossing, and the smallest crossing fraction of a link it is scaled by. */
+    static final double MOUTH_WATER = .3, MOUTH_MIN_FRACTION = .05;
     private final HighlandCoast coast;
     private final HighlandLand surface;
     private final double spacing, coastEdge, inlandEdge, lakeChance, lakeDepth, ks, meander, lakeReach;
@@ -1171,6 +1173,21 @@ public final class HighlandDrainage {
         for (int j = refined - 1; j >= 0; j--) {
             int p = parents[j];
             if (p >= 0 && profile[p] > profile[j]) profile[p] = profile[j];
+        }
+        // Mouth water (11-18): where a channel link leaves the sea, the planned water at the coast crossing (interpolated between the sea
+        // sample and the first land sample) is at most MOUTH_WATER above sea, so a river meets the sea at sea level.
+        for (int j = 0; j < refined; j++) {
+            int p = parents[j];
+            if (p < 0 || lakeOf.get(j) >= 0 || profile[j] <= MOUTH_WATER) continue;
+            var a = samples.get(j); var b = samples.get(p);
+            if (coast.sample(a.x(), a.z()).edge() <= coastEdge || coast.sample(b.x(), b.z()).edge() > coastEdge) continue;
+            double lo = 0, hi = 1;
+            for (int i = 0; i < 10; i++) {
+                double mid = (lo + hi) / 2;
+                if (coast.sample(lerp(b.x(), a.x(), mid), lerp(b.z(), a.z(), mid)).edge() <= coastEdge) lo = mid; else hi = mid;
+            }
+            double crossing = Math.max(hi, MOUTH_MIN_FRACTION);
+            profile[j] = Math.min(profile[j], profile[p] + Math.max(0, MOUTH_WATER - profile[p]) / crossing);
         }
         // Rapids, not walls: outside lakes, water climbs at most MAX_WATER_SLOPE per block upstream of its parent, so a
         // tributary entering a lowered trunk descends over its last reach instead of stepping at the junction.
