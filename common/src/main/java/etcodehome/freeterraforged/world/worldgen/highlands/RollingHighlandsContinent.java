@@ -274,6 +274,8 @@ public final class RollingHighlandsContinent implements Continent {
     /** Test/diagnostic access to the owner plan containing a block position. */
     HighlandPlanIndex planAt(double x, double z) { var s = coast.sample(x, z); return plan(s.ownerX(), s.ownerZ()); }
     HighlandCoast coast() { return coast; }
+    /** Test access: the plan-free sea floor (blocks relative to sea level) at a position, NaN where it is not sea. */
+    double backgroundAt(double x, double z) { return seaFloorAt(new Cell(), x, z); }
     /** RH9: the game's climate, for the coast profile's regional climate (built after this continent). */
     public void useClimate(etcodehome.freeterraforged.world.worldgen.cell.climate.Climate climate) {
         coast.profile().climate(climate);
@@ -381,17 +383,21 @@ public final class RollingHighlandsContinent implements Continent {
         double blend = drainage.landBlend(location.edge());
         cell.beachNoise = beachNoise.compute((float) x, (float) z, 0);
         if (location.edge() <= coastEdge) {
-            oceans.apply(cell, (float) x, (float) z);
+            double floor = backgroundFloor(cell, x, z, location.edge()), carved = floor, weight = 0;
             cell.highlandWater = HighlandWater.classify(coast, location, x, z, coastEdge);
-            // Shoreface: beyond the shallow-ocean point the legacy lerp eases the floor up to sea level by edge value, which
-            // leaves wide one-block-deep flats wherever the edge field lingers just under the coast point (in-game
-            // 2026-11-04: dirt/gravel/clay patchwork seabeds). The floor instead deepens with distance from the shoreline.
-            if (location.edge() > shallowOceanEdge) {
-                cell.height = Math.min(cell.height, normalized(-shorefaceDepth(x, z, shoreDistance(x, z, location.edge()))));
+            // RH10 river mouths (11-24, D-11-18-1): inside MOUTH_BAND of the coast the plan's mouth profiles carve their troughs into the sea
+            // floor; outside it the ocean branch reads no plan.
+            if (location.edge() > coastEdge - MOUTH_BAND) {
+                carved = carveMouths(x, z, floor);
+                weight = SCRATCH.get().troughWeight;
+                if (carved < floor) cell.height = normalized(carved);
             }
-            // RH9 X: sea stacks off cliff coasts (ocean ground only, so drainage never sees them).
-            double floor = (cell.height - levels.water) * levels.terrainScaleFactor, stack = seaStack(cell, x, z, location.edge(), floor);
-            if (stack > floor) { cell.height = normalized(stack); cell.highlandCoast = 1; }
+            // RH9 X: sea stacks off cliff coasts (ocean ground only, so drainage never sees them). None stands in a trough's wet core.
+            double stack = seaStack(cell, x, z, location.edge(), floor);
+            if (stack > floor) {
+                double top = lerp(stack, carved, weight);
+                if (top > carved) { cell.height = normalized(top); cell.highlandCoast = 1; }
+            }
             cell.terrainErosion = cell.erosion;
             cell.climateHeight = cell.height;
             return;
@@ -542,8 +548,22 @@ public final class RollingHighlandsContinent implements Continent {
     static final double STACK_NEAR = 10, STACK_FAR = 60, STACK_EDGE_REACH = .04;
     /** Shoreface run (blocks from the coastline to the shelf depth) and how much of it a sea cliff takes away. */
     static final double SHOREFACE_RUN = 48, CLIFF_SHOREFACE = .8;
-    /** RH10 (11-18): blocks before the shoreline over which a river bed eases to the sea floor, and the shore distance (field units) added to the column's own. */
-    static final double MOUTH_BLEND = 32, MOUTH_LEAD = .5;
+    /**
+     * RH10 river mouths (11-24, D-11-18-1): the mouth band in edge units (MOUTH_BAND_BLOCKS blocks of the typical edge slope below the coast
+     * point), station spacing, bed profile run upstream (the land bed meets the profile at MOUTH_UPSTREAM), run over which the bed eases
+     * into the sea (MOUTH_ENTRY), trough clear run, turn run toward the shore normal, and reach limit of a trough (all blocks).
+     */
+    static final double MOUTH_BAND_BLOCKS = 512, MOUTH_BAND = MOUTH_BAND_BLOCKS * HighlandCoast.EDGE_PER_BLOCK;
+    static final double MOUTH_STATION = 2, MOUTH_UPSTREAM = 48, MOUTH_ENTRY = 4, MOUTH_CLEAR = 16, MOUTH_TURN_RUN = 24, MOUTH_REACH = 128;
+    /** Smallest wet depth of a river bed (blocks), smallest lateral run (blocks) and steepest lateral slope (per block) of a trough's banks, and the corridor margin (blocks). */
+    static final double MOUTH_MIN_WET = 1, MOUTH_BANK_MIN = 4, MOUTH_BANK_SLOPE = 1, MOUTH_MARGIN = 8;
+    /** How much deeper than the land bed at the crossing the sea bed settles (blocks): the rendered land bed differs from its profile estimate by a few hundredths, and the sea must never end up above it. */
+    static final double MOUTH_SEA_DEEPEN = .15;
+    /**
+     * Bank run per block of trough depth and per unit of MOUTH_BANK_SLOPE: the quintic smoothstep of the lateral weight has a peak slope of 1.875
+     * per unit of its run, and the sea floor's own lateral slope steepens the bank further, so the run is 2.5 times the depth over the slope.
+     */
+    static final double MOUTH_BANK_FACTOR = 2.5;
     /**
      * Depth (blocks below sea level) of the shoreface floor {@code distance} blocks from the shoreline. RH9: below sea cliffs the floor
      * drops within a few blocks (the run shortens with the cliff weight).
@@ -553,15 +573,278 @@ public final class RollingHighlandsContinent implements Continent {
         return shelfDepth * Math.pow(Math.min(1, distance / shoreface), 2.0 / 3);
     }
     /**
-     * RH10 (11-18): a river bed within MOUTH_BLEND blocks of the shoreline eases (weight 1 at the shoreline) to the shoreface floor the sea
-     * has at the same shore distance plus MOUTH_LEAD, the ocean branch's own formula (the floor mirrored across the contour), so the bed
-     * meets the sea without a wall, dome or ledge. It shoals a deep bed and deepens a perched one, never above one block under the water.
+     * The sea floor without stacks or troughs at an ocean column, in blocks relative to sea level: the legacy ocean populators, then the
+     * shoreface. Shoreface: beyond the shallow-ocean point the legacy lerp eases the floor up to sea level by edge value, which leaves
+     * wide one-block-deep flats wherever the edge field lingers just under the coast point (in-game 2026-11-04: dirt/gravel/clay
+     * patchwork seabeds); the floor instead deepens with distance from the shoreline. Writes the floor into {@code cell} (whose continent
+     * edge is {@code edge}). Reads no plan and never calls {@link #apply}, so the mouth build can call it.
      */
-    private double mouthBed(double x, double z, double edge, double bed, double water) {
-        if (edge - coastEdge >= HighlandDrainage.COAST_BAND) return bed;
-        double distance = shoreDistance(x, z, edge), weight = 1 - smooth(0, MOUTH_BLEND, distance);
-        if (weight <= 0) return bed;
-        return Math.min(lerp(bed, -shorefaceDepth(x, z, distance + MOUTH_LEAD), weight), water - 1);
+    private double backgroundFloor(Cell cell, double x, double z, double edge) {
+        oceans.apply(cell, (float) x, (float) z);
+        if (edge > shallowOceanEdge) cell.height = Math.min(cell.height, normalized(-shorefaceDepth(x, z, shoreDistance(x, z, edge))));
+        return (cell.height - levels.water) * levels.terrainScaleFactor;
+    }
+    /** {@link #backgroundFloor} at a position on a cell of its own (the mouth build cannot use SCRATCH's, which resolveLakes holds); NaN where the position is not sea. */
+    private double seaFloorAt(Cell cell, double x, double z) {
+        double edge = coast.sample(x, z).edge();
+        if (edge > coastEdge) return Double.NaN;
+        cell.reset();
+        cell.continentEdge = (float) edge;
+        return backgroundFloor(cell, x, z, edge);
+    }
+    /**
+     * Channel bed depth (blocks below the water) from discharge: {@code q} the drainage area in upland cells, {@code flat} the share of
+     * flat water slope, {@code head} the head taper, {@code creek} the creek share, {@code depthVar} the position-only depth noise.
+     */
+    private double bedDepth(double q, double flat, double head, double creek, double depthVar) {
+        return lerp(Math.max(2, 2.3 + .3 * depthVar + river.bedDepth * clamp(q / .3, 0, 1) * flat) * lerp(.4, 1, head), CREEK_BED + .3 * depthVar, creek);
+    }
+    /**
+     * The mouth profiles of an index's plan (RH10, 11-24): built on first use from this index's own water, so provisional, coarse and
+     * resolved indexes each carry state matching their water, and kept on the index. Throws when the index's retained bytes plus the
+     * mouth state exceed {@link HighlandPlanIndex#RETAINED_BUDGET}.
+     */
+    HighlandMouths mouths(HighlandPlanIndex index) {
+        var memo = index.mouths();
+        if (memo != null) return memo;
+        var built = buildMouths(index);
+        if (index.retainedBytes() + built.estimatedBytes() > HighlandPlanIndex.RETAINED_BUDGET)
+            throw new IllegalStateException("RH retained plan and mouths exceed " + HighlandPlanIndex.RETAINED_BUDGET + " bytes: plan " + index.retainedBytes() + ", mouths " + built.estimatedBytes());
+        return index.publishMouths(built);
+    }
+    /** The single evaluator of mouth profiles, read by the land branch (carveValleys' wet bed) and the ocean branch: the profiles whose corridor contains the position. */
+    private HighlandMouths.Hits mouthProfile(HighlandPlanIndex index, double x, double z) { return mouths(index).query(x, z); }
+    /**
+     * The sea floor at an ocean column inside the mouth band with the troughs of the owner's sea-reaching channels carved in (blocks relative
+     * to sea level); the strongest lateral weight of a trough that carves here goes to {@code SCRATCH.troughWeight}. A trough's core (within
+     * the half width of its centreline) lies at the profile's bed b(s); it blends into the {@code background} over a bank run of at least
+     * MOUTH_BANK_MIN blocks and at most MOUTH_BANK_SLOPE per block. The lowest trough wins where corridors overlap.
+     */
+    private double carveMouths(double x, double z, double background) {
+        var scratch = SCRATCH.get();
+        scratch.troughWeight = 0;
+        var owner = coast.sample(x, z);
+        var hits = mouthProfile(plan(owner.ownerX(), owner.ownerZ()), x, z);
+        double carved = background;
+        for (int k = 0; k < hits.count; k++) {
+            double bed = hits.bed[k];
+            if (bed >= background) continue;
+            double run = Math.max(MOUTH_BANK_MIN, MOUTH_BANK_FACTOR * (background - bed) / MOUTH_BANK_SLOPE), weight = 1 - smooth(hits.halfWidth[k], hits.halfWidth[k] + run, hits.distance[k]);
+            if (weight <= 0) continue;
+            carved = Math.min(carved, lerp(background, bed, weight));
+            scratch.troughWeight = Math.max(scratch.troughWeight, weight);
+        }
+        return carved;
+    }
+    /**
+     * The mouth profile of every sea-reaching channel of an index's plan (a root with a child whose main channel, the largest-area child, crosses
+     * from sea to land): see {@link HighlandMouths}. Reads only the plan's nodes (with their water), the index's node reaches and position-only
+     * fields (coast, sea floor), never a plan of the owner cache, so it cannot re-enter {@link #plan}.
+     */
+    private HighlandMouths buildMouths(HighlandPlanIndex index) {
+        var nodes = index.plan().nodes();
+        int[] main = new int[nodes.size()];
+        java.util.Arrays.fill(main, -1);
+        for (int i = 0; i < main.length; i++) {
+            int parent = nodes.get(i).parent();
+            if (parent >= 0 && (main[parent] < 0 || nodes.get(i).area() > nodes.get(main[parent]).area())) main[parent] = i;
+        }
+        var found = new java.util.ArrayList<HighlandMouths.Profile>();
+        var cell = new Cell();
+        for (int root = 0; root < main.length; root++) {
+            if (nodes.get(root).parent() >= 0 || main[root] < 0) continue;
+            var profile = buildMouth(index, main, root, cell);
+            if (profile != null) found.add(profile);
+        }
+        return found.isEmpty() ? HighlandMouths.EMPTY : new HighlandMouths(found);
+    }
+    /** Chain point layout (x, z, water, area, head, reach, arclength) and the values of a chain at an arclength; slot 7 is the water slope of the piece (rising upstream). */
+    private static double[] chainAt(java.util.List<double[]> chain, double t) {
+        int k = 1;
+        while (k < chain.size() - 1 && chain.get(k)[6] < t) k++;
+        double[] a = chain.get(k - 1), b = chain.get(k);
+        double span = b[6] - a[6], f = span > 1e-9 ? clamp((t - a[6]) / span, 0, 1) : 0;
+        double[] out = new double[8];
+        for (int i = 0; i < 7; i++) out[i] = lerp(a[i], b[i], f);
+        out[5] = b[5];
+        out[7] = span > 1e-9 ? Math.max(0, b[2] - a[2]) / span : 0;
+        return out;
+    }
+    /** Half width of a channel at a position (blocks): the wet radius carveValleys gives a column. note: repeats carveValleys' radius expression (second use, not extracted). */
+    private double mouthHalfWidth(double area, double head, double x, double z) {
+        return Math.max(MIN_RADIUS, drainage.halfWidth(area, head) * (1 + .35 * noise(classSeed + 8241, x, z, 150)));
+    }
+    /**
+     * The mouth profile of the channel rooted at node {@code root}, or null when its main channel does not cross from sea to land, or the
+     * crossing link is a lake link. Land stations every MOUTH_STATION blocks of arclength from the coast crossing (bisected, as the planner's
+     * water cap does: note, second copy) to MOUTH_UPSTREAM; sea stations first down the drawn channel to its root, then beyond it turning from
+     * the channel direction toward the shore normal over MOUTH_TURN_RUN, up to MOUTH_REACH plus the clear run. The land bed is the running
+     * minimum of the natural bed from upstream, eased toward the sea floor in front of the mouth and never above one block under the water;
+     * at sea it eases to at most one block under sea level and stays flat until the trough end, the first station from which the floor stays
+     * at or below it over the clear run.
+     */
+    private HighlandMouths.Profile buildMouth(HighlandPlanIndex index, int[] main, int root, Cell cell) {
+        var plan = index.plan();
+        var nodes = plan.nodes();
+        int down = -1, up = -1;
+        for (int v = root; main[v] >= 0; v = main[v]) {
+            int u = main[v];
+            if (coast.sample(nodes.get(v).x(), nodes.get(v).z()).edge() <= coastEdge && coast.sample(nodes.get(u).x(), nodes.get(u).z()).edge() > coastEdge) { down = v; up = u; break; }
+        }
+        if (up < 0) return null;
+        var a = nodes.get(down);
+        var b = nodes.get(up);
+        var lake = plan.basins().sample(b.x(), b.z());
+        if (lake != null && lake.depth() > 0) return null;
+        double lo = 0, hi = 1;
+        for (int i = 0; i < 10; i++) {
+            double mid = (lo + hi) / 2;
+            if (coast.sample(lerp(a.x(), b.x(), mid), lerp(a.z(), b.z(), mid)).edge() <= coastEdge) lo = mid; else hi = mid;
+        }
+        double cx = lerp(a.x(), b.x(), hi), cz = lerp(a.z(), b.z(), hi);
+        // Land chain (the main channel upstream of the crossing) and sea chain (the drawn channel down to its root).
+        var landChain = new java.util.ArrayList<double[]>();
+        landChain.add(new double[]{cx, cz, lerp(a.water(), b.water(), hi), lerp(a.area(), b.area(), hi), lerp(a.head(), b.head(), hi), index.nodeReach(up), 0});
+        double length = 0, px = cx, pz = cz;
+        for (int v = up; v >= 0 && length < MOUTH_UPSTREAM; v = main[v]) {
+            var node = nodes.get(v);
+            length += Math.hypot(node.x() - px, node.z() - pz);
+            px = node.x(); pz = node.z();
+            landChain.add(new double[]{px, pz, node.water(), node.area(), node.head(), index.nodeReach(v), length});
+        }
+        var seaChain = new java.util.ArrayList<double[]>();
+        seaChain.add(new double[]{cx, cz, 0, a.area(), a.head(), -1, 0});
+        double seaLength = 0;
+        px = cx; pz = cz;
+        for (int v = down; v >= 0; v = nodes.get(v).parent()) {
+            var node = nodes.get(v);
+            seaLength += Math.hypot(node.x() - px, node.z() - pz);
+            px = node.x(); pz = node.z();
+            seaChain.add(new double[]{px, pz, 0, node.area(), node.head(), -1, seaLength});
+        }
+        var rootNode = nodes.get(root);
+        // Sea stations at arclength t = k * MOUTH_STATION, k = 1 .. K.
+        int seaCount = (int) Math.ceil((MOUTH_REACH + MOUTH_CLEAR) / MOUTH_STATION);
+        double[] sx = new double[seaCount + 1], sz = new double[seaCount + 1], sarea = new double[seaCount + 1], shead = new double[seaCount + 1];
+        sx[0] = cx; sz[0] = cz; sarea[0] = a.area(); shead[0] = a.head();
+        double dx = rootNode.x() - seaChain.get(Math.max(0, seaChain.size() - 2))[0], dz = rootNode.z() - seaChain.get(Math.max(0, seaChain.size() - 2))[1], dl = Math.hypot(dx, dz);
+        if (dl < 1e-6) { dx = a.x() - b.x(); dz = a.z() - b.z(); dl = Math.hypot(dx, dz); }
+        dx /= dl; dz /= dl;
+        double markX = rootNode.x(), markZ = rootNode.z(), markT = seaLength;
+        for (int k = 1; k <= seaCount; k++) {
+            double t = k * MOUTH_STATION;
+            sarea[k] = rootNode.area(); shead[k] = rootNode.head();
+            if (t <= seaLength) {
+                var at = chainAt(seaChain, t);
+                sx[k] = at[0]; sz[k] = at[1]; sarea[k] = at[3]; shead[k] = at[4];
+                continue;
+            }
+            double e0 = coast.sample(markX, markZ).edge(), gx = coast.sample(markX + 2, markZ).edge() - e0, gz = coast.sample(markX, markZ + 2).edge() - e0, gl = Math.hypot(gx, gz);
+            double turn = smooth(0, MOUTH_TURN_RUN, markT - seaLength), hx = dx, hz = dz;
+            if (gl > 1e-12) { hx = lerp(dx, -gx / gl, turn); hz = lerp(dz, -gz / gl, turn); }
+            double hl = Math.hypot(hx, hz);
+            if (hl > 1e-9) { hx /= hl; hz /= hl; } else { hx = dx; hz = dz; }
+            double step = t - markT;
+            markX += hx * step; markZ += hz * step; markT = t;
+            sx[k] = markX; sz[k] = markZ;
+        }
+        // Land stations.
+        double reachLength = Math.min(MOUTH_UPSTREAM, landChain.get(landChain.size() - 1)[6]);
+        int landCount = (int) Math.floor(reachLength / MOUTH_STATION + 1e-9);
+        boolean tail = reachLength - landCount * MOUTH_STATION > .01;
+        int landStations = landCount + (tail ? 1 : 0);
+        double area2 = (double) settings.uplandSpacing() * settings.uplandSpacing();
+        double[] lx = new double[landStations + 1], lz = new double[landStations + 1], ls = new double[landStations + 1], lwater = new double[landStations + 1],
+            lnatural = new double[landStations + 1], lhalf = new double[landStations + 1];
+        var reaches = new java.util.TreeSet<Integer>();
+        for (int k = 0; k <= landStations; k++) {
+            double s = k <= landCount ? k * MOUTH_STATION : reachLength;
+            var at = chainAt(landChain, s);
+            lx[k] = at[0]; lz[k] = at[1]; ls[k] = s; lwater[k] = at[2];
+            reaches.add((int) at[5]);
+            double q = Math.max(.01, at[3] / area2), flat = 1 - smooth(.002, .03, at[7]), creek = drainage.creekness(at[3]);
+            double natural = lwater[k] - bedDepth(q, flat, at[4], creek, noise(classSeed + 3912, at[0], at[1], 100));
+            lnatural[k] = Math.min(natural, lwater[k] - MOUTH_MIN_WET);
+            lhalf[k] = mouthHalfWidth(at[3], at[4], at[0], at[1]);
+        }
+        // Sea sides: direction per station (central difference), half width (the root's channel), floors at the centre and both lateral corners.
+        double[] shalf = new double[seaCount + 1], bgMax = new double[seaCount + 1], bgCentre = new double[seaCount + 1];
+        double[] ox = new double[seaCount + 1], oz = new double[seaCount + 1];
+        boolean[] sea = new boolean[seaCount + 1];
+        for (int k = 0; k <= seaCount; k++) {
+            int p = Math.max(0, k - 1), n = Math.min(seaCount, k + 1);
+            double tx = sx[n] - sx[p], tz = sz[n] - sz[p], tl = Math.hypot(tx, tz);
+            if (tl < 1e-9) { tx = dx; tz = dz; tl = 1; }
+            ox[k] = -tz / tl; oz[k] = tx / tl;
+            shalf[k] = k == 0 ? lhalf[0] : mouthHalfWidth(sarea[k], shead[k], sx[k], sz[k]);
+            double centre = seaFloorAt(cell, sx[k], sz[k]);
+            sea[k] = !Double.isNaN(centre) || k == 0;
+            bgCentre[k] = Double.isNaN(centre) ? 0 : centre;
+            double max = Double.isNaN(centre) ? Double.NEGATIVE_INFINITY : centre;
+            for (int side = -1; side <= 1; side += 2) {
+                double corner = seaFloorAt(cell, sx[k] + side * ox[k] * shalf[k], sz[k] + side * oz[k] * shalf[k]);
+                if (!Double.isNaN(corner)) max = Math.max(max, corner);
+            }
+            bgMax[k] = max;
+        }
+        // Land bed: running minimum of the natural bed from upstream, deepened toward the sea floor in front of the mouth, at most one block under the water.
+        double front = bgCentre[(int) Math.round(MOUTH_ENTRY / MOUTH_STATION)], envelope = Double.POSITIVE_INFINITY;
+        double[] lbed = new double[landStations + 1];
+        for (int k = landStations; k >= 0; k--) {
+            envelope = Math.min(envelope, lnatural[k]);
+            double weight = 1 - smooth(0, reachLength, ls[k]);
+            lbed[k] = Math.min(Math.min(envelope, lerp(envelope, front, weight)), lwater[k] - MOUTH_MIN_WET);
+        }
+        double b0 = lbed[0], seaBed = Math.min(b0 - MOUTH_SEA_DEEPEN, -MOUTH_MIN_WET);
+        double[] sbed = new double[seaCount + 1];
+        sbed[0] = b0;
+        for (int k = 1; k <= seaCount; k++) sbed[k] = Math.min(lerp(b0, seaBed, smooth(0, MOUTH_ENTRY, k * MOUTH_STATION)), -MOUTH_MIN_WET);
+        // Trough end E and land check.
+        int reachCount = (int) Math.round(MOUTH_REACH / MOUTH_STATION), clearCount = (int) Math.round(MOUTH_CLEAR / MOUTH_STATION);
+        int status = HighlandMouths.FEASIBLE, trough = -1, last = reachCount;
+        for (int k = 1; k <= reachCount; k++) {
+            if (!sea[k]) { status = HighlandMouths.LAND; last = k - 1; break; }
+            if (bgMax[k] > sbed[k]) continue;
+            boolean clear = true;
+            for (int j = k; j <= Math.min(seaCount, k + clearCount) && clear; j++) clear = sea[j] && bgMax[j] <= sbed[k] + .05;
+            if (clear && k + clearCount <= seaCount) { trough = k; last = k + clearCount; break; }
+        }
+        if (status == HighlandMouths.FEASIBLE && trough < 0) status = HighlandMouths.REACH;
+        // Assemble in ascending s: seaward end first, the crossing station, then the land stations.
+        int seaKept = last, total = seaKept + 1 + landStations;
+        double[] x = new double[total], z = new double[total], s = new double[total], bed = new double[total], natural = new double[total], water = new double[total], half = new double[total];
+        double maxHalf = 0, maxRun = MOUTH_BANK_MIN, minEdge = Double.POSITIVE_INFINITY;
+        int outsideBand = 0, crossOwner = 0;
+        for (int i = 0; i < total; i++) {
+            boolean seaward = i < seaKept;
+            int k = seaward ? seaKept - i : i - seaKept;
+            if (seaward) {
+                x[i] = sx[k]; z[i] = sz[k]; s[i] = -k * MOUTH_STATION; half[i] = shalf[k]; water[i] = 0;
+                bed[i] = trough >= 0 && k > trough ? Math.max(sbed[trough], bgMax[k]) : sbed[k];
+                natural[i] = lnatural[0];
+            } else if (k == 0) {
+                x[i] = cx; z[i] = cz; s[i] = 0; half[i] = lhalf[0]; water[i] = lwater[0]; bed[i] = b0; natural[i] = lnatural[0];
+            } else {
+                x[i] = lx[k]; z[i] = lz[k]; s[i] = ls[k]; half[i] = lhalf[k]; water[i] = lwater[k]; bed[i] = lbed[k]; natural[i] = lnatural[k];
+            }
+            maxHalf = Math.max(maxHalf, half[i]);
+            // The sea floor is at most at sea level, so no column's bank run is longer than this bound.
+            maxRun = Math.max(maxRun, MOUTH_BANK_FACTOR * Math.max(0, -bed[i]) / MOUTH_BANK_SLOPE);
+            double tx = ox[seaward ? k : 0], tz = oz[seaward ? k : 0];
+            if (!seaward && k > 0) {
+                int p = k - 1, n = Math.min(landStations, k + 1);
+                double ux = lx[n] - lx[p], uz = lz[n] - lz[p], ul = Math.hypot(ux, uz);
+                if (ul > 1e-9) { tx = -uz / ul; tz = ux / ul; }
+            }
+            var centre = coast.sample(x[i], z[i]);
+            if (centre.ownerX() != plan.ownerX() || centre.ownerZ() != plan.ownerZ()) crossOwner++;
+            double edge = centre.edge();
+            edge = Math.min(edge, Math.min(coast.sample(x[i] + tx * half[i], z[i] + tz * half[i]).edge(), coast.sample(x[i] - tx * half[i], z[i] - tz * half[i]).edge()));
+            minEdge = Math.min(minEdge, edge);
+            if (edge < coastEdge - MOUTH_BAND) outsideBand++;
+        }
+        int[] reachIds = reaches.stream().mapToInt(Integer::intValue).toArray();
+        return new HighlandMouths.Profile(reachIds, x, z, s, bed, natural, water, half, seaKept, trough < 0 ? -1 : seaKept - trough, status, outsideBand, crossOwner, minEdge, maxHalf + maxRun + MOUTH_MARGIN);
     }
     /** Vanilla's low weirdness slice (normal side) and erosion levels 3-4, inset from the slice boundaries. */
     static final double BEACH_WEIRDNESS_MIN = -.26, BEACH_WEIRDNESS_MAX = -.06, BEACH_EROSION_MIN = -.2225, BEACH_EROSION_MAX = .44;
@@ -766,8 +1049,7 @@ public final class RollingHighlandsContinent implements Continent {
             double floorHalf = river.bankWidth * dynamic * pinch * hydraulic * lerp(1, .4, confinement) * head * head * lerp(1, CREEK_FLOOR, creek);
             double fadeRun = Math.min(MAX_FADE, river.bankWidth * dynamic * pinch * Math.max(.5, hydraulic)
                 * (5 + Math.max(0, land - water) / 100) * lerp(1, .6, confinement));
-            double bedDepth = lerp(Math.max(2, 2.3 + .3 * depthVar + river.bedDepth * clamp(q / .3, 0, 1) * flat) * lerp(.4, 1, head),
-                CREEK_BED + .3 * depthVar, creek);
+            double bedDepth = bedDepth(q, flat, head, creek, depthVar);
             double bankRun = Math.max(3, (river.maxBankHeight - river.minBankHeight) * dynamic * side) * lerp(1, .5, creek);
             // The axis floor contains the meander belt; the valley still ends inside the index influence.
             double belt = hits.belt[k], axisDistance = hits.axis[k];
@@ -908,7 +1190,17 @@ public final class RollingHighlandsContinent implements Continent {
             double bed = filled ? water - 1 - Math.min(2, -.5 * fillet) : Math.min(wetSection.height(), water - 1);
             // Scour deepens the bed in proportion to its depth; the bar lifts it toward one block below the water.
             bed = water - (water - bed) * (1 + scour);
-            return mouthBed(x, z, edge, Math.max(bed, lerp(bed, water - 1, bar)), water);
+            bed = Math.max(bed, lerp(bed, water - 1, bar));
+            // RH10 river mouths (11-24): within the coast band the plan's mouth profile deepens the wet bed (never raises it) so it meets the sea trough
+            // at the contour; the offset is 0 where the profile meets the natural bed, MOUTH_UPSTREAM blocks from the coast. Nothing clamps after it.
+            if (edge - coastEdge < HighlandDrainage.COAST_BAND) {
+                var mouth = mouthProfile(index, x, z);
+                double offset = 0;
+                for (int k = 0; k < mouth.count; k++)
+                    if (mouth.s[k] <= MOUTH_UPSTREAM && mouth.profile[k].ownsReach(hits.reach[wetOwner])) offset = Math.min(offset, mouth.bed[k] - mouth.natural[k]);
+                bed += offset;
+            }
+            return bed;
         }
         double softness = CREASE_SOFTNESS * Math.min(o1, o2) * smooth(0, 8, land - c2);
         double height = Math.max(smin(c1, c2, softness), support);
@@ -983,6 +1275,8 @@ public final class RollingHighlandsContinent implements Continent {
 
     private static final class Scratch {
         final Cell lakeCell = new Cell();
+        /** Strongest lateral weight of a mouth trough at the last ocean column of this thread (see carveMouths). */
+        double troughWeight;
         HighlandValley.Section[] section = new HighlandValley.Section[64];
         double[] carve = new double[64], wetland = new double[64], radius = new double[64], joinedWater = new double[64];
         int[] close = new int[64];
