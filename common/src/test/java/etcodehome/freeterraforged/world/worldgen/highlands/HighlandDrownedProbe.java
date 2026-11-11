@@ -772,6 +772,10 @@ final class HighlandDrownedProbe {
         }
         double per25km2(double lo, double hi) { return regionArea > 0 ? under(lo, hi) * 25e6 / regionArea : Double.NaN; }
         double medianTop() { return Islands.median(tops); }
+        /** Median top of the islands of at least {@code minDiameter} blocks across (equivalent diameter), the like-sized population of D-11-15-3. */
+        double medianTop(double minDiameter) {
+            return Islands.median(IntStream.range(0, count).filter(k -> diameters[k] >= minDiameter).mapToDouble(k -> tops[k]).toArray());
+        }
         double medianSteepest() { return Islands.median(steepest); }
         private static double median(double[] values) {
             double[] sorted = values.clone();

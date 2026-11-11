@@ -1757,12 +1757,20 @@ class HighlandDrownedTest {
         assertTrue(all.chainedCount() >= (.5 - tol(.5)) * all.count(), "islands within " + HighlandDrownedProbe.CHAIN_GAP + " blocks of another: " + all.chainedCount() + " of " + all.count() + margin(.5 - tol(.5)));
     }
 
-    /** D-11: island relief follows the drowned land: the median island top in fjord country is at least twice that in bay country, and its median steepest slope is higher. */
+    /** Islands this size or larger (equivalent diameter, blocks) are compared for relief: the census counts large ria islands whole (D-11-15-1), so scopes are compared like for like (D-11-15-3). */
+    static final double RELIEF_MIN_DIAMETER = 300;
+
+    /**
+     * D-11, D-11-15-3: island relief follows the drowned land: the median top of islands of at least RELIEF_MIN_DIAMETER blocks in fjord country is at
+     * least twice that in bay country, and the median steepest slope (all islands) is higher.
+     */
     @Test void islandsReliefFollowsDrownedLand() throws Exception {
         var census = islandCensus();
-        System.out.printf(java.util.Locale.ROOT, "RH10 island relief fjord top=%.1f steepest=%.3f ria top=%.1f steepest=%.3f%n",
-            census.fjord.medianTop(), census.fjord.medianSteepest(), census.ria.medianTop(), census.ria.medianSteepest());
-        assertTrue(census.fjord.medianTop() >= 2 * census.ria.medianTop(), "island tops: fjord " + census.fjord.medianTop() + " vs ria " + census.ria.medianTop());
+        double fjordTop = census.fjord.medianTop(RELIEF_MIN_DIAMETER), riaTop = census.ria.medianTop(RELIEF_MIN_DIAMETER);
+        System.out.printf(java.util.Locale.ROOT, "RH10 island relief, islands of %.0f blocks or more: fjord top=%.1f (n=%d) ria top=%.1f (n=%d); all islands: fjord top=%.1f (n=%d) ria top=%.1f (n=%d); steepest fjord=%.3f ria=%.3f%n",
+            RELIEF_MIN_DIAMETER, fjordTop, census.fjord.under(RELIEF_MIN_DIAMETER, Double.MAX_VALUE), riaTop, census.ria.under(RELIEF_MIN_DIAMETER, Double.MAX_VALUE),
+            census.fjord.medianTop(), census.fjord.count(), census.ria.medianTop(), census.ria.count(), census.fjord.medianSteepest(), census.ria.medianSteepest());
+        assertTrue(fjordTop >= 2 * riaTop, "island tops of " + RELIEF_MIN_DIAMETER + " blocks or more: fjord " + fjordTop + " vs ria " + riaTop);
         assertTrue(census.fjord.medianSteepest() > census.ria.medianSteepest(), "island slopes: fjord " + census.fjord.medianSteepest() + " vs ria " + census.ria.medianSteepest());
     }
 
