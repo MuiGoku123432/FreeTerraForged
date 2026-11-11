@@ -85,6 +85,13 @@ class HighlandDrownedTest {
     static final int SOUND_SITE_X = -46448, SOUND_SITE_Z = 13654;
     /** D-02: drowned share of the RH9 coastline, inclusive bounds. */
     static final double MIN_SHARE = .20, MAX_SHARE = .30;
+    /** D-11-14-2 (user, 2026-11-10): every share or percentage gate of RH10 (and the RH9 coast and shore share gates) is judged with this margin, in the lenient direction. Counts, lengths, heights, determinism and cost gates are not. */
+    static final double SHARE_TOLERANCE = .03;
+
+    /** The limit actually asserted after the D-11-14-2 margin, for failure messages (the raw value is printed beside it). */
+    static String margin(double limit) {
+        return String.format(java.util.Locale.ROOT, " (limit %.3f with the %.2f margin of D-11-14-2)", limit, SHARE_TOLERANCE);
+    }
 
     /**
      * D-02: where the bound coast reports no drowned region its edge is bit-for-bit the unbound standalone (RH9)
@@ -126,8 +133,9 @@ class HighlandDrownedTest {
             rockies = HighlandDrownedProbe.drownedShare(other, SITE_X, SITE_Z, RADIUS);
         }
         System.out.printf(java.util.Locale.ROOT, "RH10 drowned share user=%.1f%% rockies=%.1f%%%n", 100 * user, 100 * rockies);
-        assertTrue(user >= MIN_SHARE && user <= MAX_SHARE && rockies >= MIN_SHARE && rockies <= MAX_SHARE,
-            String.format(java.util.Locale.ROOT, "drowned share outside 20-30%%: user=%.1f%% rockies=%.1f%%", 100 * user, 100 * rockies));
+        double lo = MIN_SHARE - SHARE_TOLERANCE, hi = MAX_SHARE + SHARE_TOLERANCE;
+        assertTrue(user >= lo && user <= hi && rockies >= lo && rockies <= hi,
+            String.format(java.util.Locale.ROOT, "drowned share outside %.0f-%.0f%% (20-30%% with the D-11-14-2 margin): user=%.1f%% rockies=%.1f%%", 100 * lo, 100 * hi, 100 * user, 100 * rockies));
     }
 
     /** Second fixed seed of the D-02 share gate (also one of the five plan seeds of plansBuildOnFiveSeeds). */
@@ -158,8 +166,8 @@ class HighlandDrownedTest {
         String line = String.format(java.util.Locale.ROOT, "RH10 drowned share user/USER_SEED=%.1f%% rockies/USER_SEED=%.1f%% user/seed %d=%.1f%% rockies/seed %d=%.1f%% mean=%.1f%%",
             100 * shares[0], 100 * shares[1], OTHER_SEED, 100 * shares[2], OTHER_SEED, 100 * shares[3], 100 * mean);
         System.out.println(line);
-        for (double share : shares) assertTrue(share >= SEED_MIN_SHARE && share <= SEED_MAX_SHARE, "drowned share outside 15-35%: " + line);
-        assertTrue(mean >= MIN_SHARE && mean <= MAX_SHARE, "mean drowned share outside 20-30%: " + line);
+        for (double share : shares) assertTrue(share >= SEED_MIN_SHARE - SHARE_TOLERANCE && share <= SEED_MAX_SHARE + SHARE_TOLERANCE, "drowned share outside 12-38% (15-35% with the D-11-14-2 margin): " + line);
+        assertTrue(mean >= MIN_SHARE - SHARE_TOLERANCE && mean <= MAX_SHARE + SHARE_TOLERANCE, "mean drowned share outside 17-33% (20-30% with the D-11-14-2 margin): " + line);
     }
 
     /**
@@ -693,7 +701,7 @@ class HighlandDrownedTest {
         System.out.println(lines.get(0) + "\n" + lines.get(1));
         assertTrue(pooled.medial() >= FIDELITY_MIN_MEDIAL, "too little flooded land for the screen to mean anything: " + pooled.summary("pooled"));
         assertTrue(pooled.unmapped() == 0, pooled.unmapped() + " flooded components map to no plan0 reach: " + pooled.mapping().stream().filter(l -> l.endsWith("UNMAPPED")).toList());
-        assertTrue(pooled.share() >= FIDELITY_TARGET, "only " + pooled.share() + " of the medial axis lies within its half width of a plan0 axis (" + pooled.outliers().size() + " outliers, see build/rh10-gap/fidelity.txt): " + pooled.summary("pooled"));
+        assertTrue(pooled.share() >= FIDELITY_TARGET - SHARE_TOLERANCE, "only " + pooled.share() + margin(FIDELITY_TARGET - SHARE_TOLERANCE) + " of the medial axis lies within its half width of a plan0 axis (" + pooled.outliers().size() + " outliers, see build/rh10-gap/fidelity.txt): " + pooled.summary("pooled"));
     }
 
     /**
@@ -1254,7 +1262,7 @@ class HighlandDrownedTest {
         assertEquals(0, census.belowGuard(), label + ": land below the guard edge: " + census.summary());
         assertEquals(0, census.outOfBounds(), label + ": island land outside its owner's plan bounds: " + census.summary());
         long inRange = census.islands().stream().filter(i -> i.across() >= OPEN_ACROSS_MIN && i.across() <= OPEN_ACROSS_MAX).count();
-        assertTrue(inRange >= .9 * census.islands().size(), label + ": islands " + OPEN_ACROSS_MIN + "-" + OPEN_ACROSS_MAX + " blocks across: " + inRange + " of " + census.islands().size() + ": " + census.summary());
+        assertTrue(inRange >= (.9 - SHARE_TOLERANCE) * census.islands().size(), margin(.9 - SHARE_TOLERANCE) + " " + label + ": islands " + OPEN_ACROSS_MIN + "-" + OPEN_ACROSS_MAX + " blocks across: " + inRange + " of " + census.islands().size() + ": " + census.summary());
         assertTrue(census.islands().stream().noneMatch(i -> i.across() > 1.2 * OPEN_ACROSS_MAX), label + ": an island far over " + OPEN_ACROSS_MAX + " blocks across: " + census.summary());
         var continent = (RollingHighlandsContinent) context.heightmap.continent();
         var cell = new Cell();
@@ -1288,7 +1296,7 @@ class HighlandDrownedTest {
             if (CellSampler.Field.CONTINENT.read(cell, context.heightmap) < Continentalness.COAST.min()) band++;
         }
         assertTrue(wet >= 500, "too few drowned-scope sea columns: " + wet);
-        assertTrue(band >= .95 * wet, band + " of " + wet + " drowned-scope sea columns read the ocean band");
+        assertTrue(band >= (.95 - SHARE_TOLERANCE) * wet, band + " of " + wet + " drowned-scope sea columns read the ocean band" + margin(.95 - SHARE_TOLERANCE));
     }
 
     /**
@@ -1438,7 +1446,7 @@ class HighlandDrownedTest {
             System.out.printf(java.util.Locale.ROOT, "RH10 fjord depth median=%.1f shelf=%.0f p10=%.1f p90=%.1f n=%d oceanBand=%.1f%%%n", median, shelf,
                 HighlandCoastProbe.quantile(sorted, .1), HighlandCoastProbe.quantile(sorted, .9), depths.size(), 100.0 * band / depths.size());
             assertTrue(median >= 2 * shelf, "fjord water too shallow: median " + median + " vs 2 x shelf " + 2 * shelf);
-            assertTrue(band >= .95 * depths.size(), band + " of " + depths.size() + " fjord-scope columns read the ocean band");
+            assertTrue(band >= (.95 - SHARE_TOLERANCE) * depths.size(), band + " of " + depths.size() + " fjord-scope columns read the ocean band" + margin(.95 - SHARE_TOLERANCE));
         }
     }
 
@@ -1514,7 +1522,7 @@ class HighlandDrownedTest {
             double trunk = HighlandCoastProbe.quantile(arms.trunkWidths(), .5), side = HighlandCoastProbe.quantile(arms.sideWidths(), .5);
             assertTrue(trunk >= 250 && trunk <= 600, "trunk width median " + trunk + " outside 250-600");
             assertTrue(arms.sideWidths().length > 0 && side >= 80 && side <= 250, "side arm width median " + side + " outside 80-250");
-            assertTrue(arms.armsWithSide() >= .6 * arms.arms(), "fjords with a side arm: " + arms.armsWithSide() + " of " + arms.arms());
+            assertTrue(arms.armsWithSide() >= (.6 - SHARE_TOLERANCE) * arms.arms(), "fjords with a side arm: " + arms.armsWithSide() + " of " + arms.arms() + margin(.6 - SHARE_TOLERANCE));
             assertTrue(walls.transects() >= 300 && walls.near() >= .5 * walls.far(), "fjord walls too low: " + walls.summary());
         }
     }
@@ -1542,7 +1550,7 @@ class HighlandDrownedTest {
             var shores = HighlandDrownedProbe.shores(rockies, FJORD_BOXES, SITE_RADIUS);
             System.out.println("RH10 fjord " + shores.summary());
             assertTrue(shores.samples() >= 500, "too few fjord shore columns: " + shores.samples());
-            assertTrue(shores.cliff() >= .7 * shores.samples(), shores.summary());
+            assertTrue(shores.cliff() >= (.7 - SHARE_TOLERANCE) * shores.samples(), shores.summary() + margin(.7 - SHARE_TOLERANCE));
             assertEquals(0, shores.steps(), "river mouth water steps at fjord heads: " + shores.summary());
         }
     }
@@ -1566,12 +1574,12 @@ class HighlandDrownedTest {
         double widest = bays.inners()[bays.inners().length - 1];
         assertTrue(widest >= 1000 && widest <= 5000, "widest bay " + widest + " outside 1-5 km: " + bays.summary());
         assertTrue(java.util.Arrays.stream(bays.inners()).filter(w -> w >= 1000).count() >= 3, "fewer than 3 bays 1 km across: " + bays.summary());
-        assertTrue(bays.narrowMouth() >= .7 * bays.count(), "narrow mouths: " + bays.narrowMouth() + " of " + bays.count() + ": " + bays.summary());
-        assertTrue(bays.branching() >= .5 * bays.count(), "branching bays: " + bays.branching() + " of " + bays.count() + ": " + bays.summary());
+        assertTrue(bays.narrowMouth() >= (.7 - SHARE_TOLERANCE) * bays.count(), "narrow mouths: " + bays.narrowMouth() + " of " + bays.count() + margin(.7 - SHARE_TOLERANCE) + ": " + bays.summary());
+        assertTrue(bays.branching() >= (.5 - SHARE_TOLERANCE) * bays.count(), "branching bays: " + bays.branching() + " of " + bays.count() + margin(.5 - SHARE_TOLERANCE) + ": " + bays.summary());
         assertEquals(bays.count(), bays.singleOwner(), "bays across owners: " + bays.summary());
         assertEquals(bays.count(), bays.connected(), "bays closed to the sea: " + bays.summary());
-        assertTrue(bays.closedShare() <= MAX_CLOSED, "flooded water closed off from the sea (lagoons behind a bar): " + bays.summary());
-        assertTrue(inland.count() >= 1 && inland.connected() == inland.count() && inland.closedShare() <= MAX_CLOSED, "ROCKIES ria box has closed or unreachable bays: " + inland.summary());
+        assertTrue(bays.closedShare() <= MAX_CLOSED + SHARE_TOLERANCE, "flooded water closed off from the sea (lagoons behind a bar), closed share " + bays.closedShare() + margin(MAX_CLOSED + SHARE_TOLERANCE) + ": " + bays.summary());
+        assertTrue(inland.count() >= 1 && inland.connected() == inland.count() && inland.closedShare() <= MAX_CLOSED + SHARE_TOLERANCE, "ROCKIES ria box has closed or unreachable bays, closed share " + inland.closedShare() + margin(MAX_CLOSED + SHARE_TOLERANCE) + ": " + inland.summary());
     }
 
     /** Boxes (leading RIA_BOXES) whose bays are probed through full column lookups (marsh, path independence): each lookup builds the owner's plan, the cost of those gates. */
@@ -1599,10 +1607,10 @@ class HighlandDrownedTest {
         System.out.println("RH10 bay " + shores.summary());
         assertTrue(shores.samples() >= 500 && shores.outsideSamples() >= 500, "too few shore columns: " + shores.summary());
         double bay = (double) shores.beach() / shores.samples(), open = (double) shores.outsideBeach() / shores.outsideSamples();
-        assertTrue(bay >= open + .10, "bay shores not more beach-dominant than open coast: " + shores.summary());
+        assertTrue(bay >= open + .10 - SHARE_TOLERANCE, "bay shores not more beach-dominant than open coast: bay " + bay + " open " + open + margin(open + .10 - SHARE_TOLERANCE) + " " + shores.summary());
         double bayWidth = HighlandCoastProbe.quantile(shores.widths(), .5), openWidth = HighlandCoastProbe.quantile(shores.outsideWidths(), .5);
         assertTrue(bayWidth <= .7 * openWidth, "bay beaches not smaller: " + shores.summary());
-        assertTrue(shores.marshBays() >= .5 * shores.bays(), "marsh on too few bays: " + shores.summary());
+        assertTrue(shores.marshBays() >= (.5 - SHARE_TOLERANCE) * shores.bays(), "marsh on too few bays" + margin(.5 - SHARE_TOLERANCE) + ": " + shores.summary());
     }
 
     /**
@@ -1728,8 +1736,8 @@ class HighlandDrownedTest {
         System.out.println("RH10 islands ria " + census.ria.summary() + "\nRH10 islands fjord " + census.fjord.summary() + "\nRH10 islands pooled " + all.summary());
         assertTrue(census.ria.count() > 0 && census.fjord.count() > 0, "no islands in a scope: ria " + census.ria.count() + " fjord " + census.fjord.count());
         assertTrue(all.per25km2(1000, 3000) >= 1, "islands of 1-3 km per 25 km2 of drowned region: " + all.per25km2(1000, 3000) + ": " + all.summary());
-        assertTrue(all.under(0, 1000) >= .6 * all.count(), "islands under 1 km: " + all.under(0, 1000) + " of " + all.count());
-        assertTrue(all.chainedCount() >= .5 * all.count(), "islands within " + HighlandDrownedProbe.CHAIN_GAP + " blocks of another: " + all.chainedCount() + " of " + all.count());
+        assertTrue(all.under(0, 1000) >= (.6 - SHARE_TOLERANCE) * all.count(), "islands under 1 km: " + all.under(0, 1000) + " of " + all.count() + margin(.6 - SHARE_TOLERANCE));
+        assertTrue(all.chainedCount() >= (.5 - SHARE_TOLERANCE) * all.count(), "islands within " + HighlandDrownedProbe.CHAIN_GAP + " blocks of another: " + all.chainedCount() + " of " + all.count() + margin(.5 - SHARE_TOLERANCE));
     }
 
     /** D-11: island relief follows the drowned land: the median island top in fjord country is at least twice that in bay country, and its median steepest slope is higher. */
@@ -1784,12 +1792,12 @@ class HighlandDrownedTest {
             100 * ria.shelteredShare(), 100 * MODEL8_SHELTERED_USER, 100 * fjord.shelteredShare(), 100 * MODEL8_SHELTERED_ROCKIES,
             ria.harborsPer25km2(), MODEL8_HARBORS_USER, fjord.harborsPer25km2(), MODEL8_HARBORS_ROCKIES,
             100 * ria.navigableShare(), 100 * fjord.navigableShare());
-        assertTrue(ria.shelteredShare() >= SHELTERED_TARGET && fjord.shelteredShare() >= SHELTERED_TARGET,
-            "sheltered share under " + SHELTERED_TARGET + ": ria " + ria.shelteredShare() + " rockies " + fjord.shelteredShare());
+        assertTrue(ria.shelteredShare() >= SHELTERED_TARGET - SHARE_TOLERANCE && fjord.shelteredShare() >= SHELTERED_TARGET - SHARE_TOLERANCE,
+            "sheltered share under " + SHELTERED_TARGET + margin(SHELTERED_TARGET - SHARE_TOLERANCE) + ": ria " + ria.shelteredShare() + " rockies " + fjord.shelteredShare());
         assertTrue(ria.harborsPer25km2() >= HARBOR_TARGET && fjord.harborsPer25km2() >= HARBOR_TARGET,
             "harbors per 25 km2 under " + HARBOR_TARGET + ": ria " + ria.harborsPer25km2() + " rockies " + fjord.harborsPer25km2());
-        assertTrue(ria.navigableShare() >= NAVIGABLE_TARGET && fjord.navigableShare() >= NAVIGABLE_TARGET,
-            "navigable share under " + NAVIGABLE_TARGET + ": ria " + ria.navigableShare() + " rockies " + fjord.navigableShare());
+        assertTrue(ria.navigableShare() >= NAVIGABLE_TARGET - SHARE_TOLERANCE && fjord.navigableShare() >= NAVIGABLE_TARGET - SHARE_TOLERANCE,
+            "navigable share under " + NAVIGABLE_TARGET + margin(NAVIGABLE_TARGET - SHARE_TOLERANCE) + ": ria " + ria.navigableShare() + " rockies " + fjord.navigableShare());
     }
 
     /** RH10-08: channels between islands stay boatable: the drowned-scope navigable share holds the agreed target at the ria site (user world) and the fjord site (ROCKIES). */
@@ -1800,8 +1808,8 @@ class HighlandDrownedTest {
             var fjord = HighlandDrownedProbe.measure(rockies, FJORD_SITE_X, FJORD_SITE_Z, SITE_RADIUS).drowned();
             var arm = HighlandDrownedProbe.measure(rockies, FJORD_ARM_SITE_X, FJORD_ARM_SITE_Z, SITE_RADIUS).drowned();
             System.out.printf(java.util.Locale.ROOT, "RH10 navigable ria=%.1f%% fjord=%.1f%% fjord arm site=%.1f%%%n", 100 * ria.navigableShare(), 100 * fjord.navigableShare(), 100 * arm.navigableShare());
-            assertTrue(ria.navigableShare() >= NAVIGABLE_TARGET && fjord.navigableShare() >= NAVIGABLE_TARGET && arm.navigableShare() >= NAVIGABLE_TARGET,
-                "navigable share under " + NAVIGABLE_TARGET + ": ria " + ria.navigableShare() + " fjord " + fjord.navigableShare() + " arm site " + arm.navigableShare());
+            assertTrue(ria.navigableShare() >= NAVIGABLE_TARGET - SHARE_TOLERANCE && fjord.navigableShare() >= NAVIGABLE_TARGET - SHARE_TOLERANCE && arm.navigableShare() >= NAVIGABLE_TARGET - SHARE_TOLERANCE,
+                "navigable share under " + NAVIGABLE_TARGET + margin(NAVIGABLE_TARGET - SHARE_TOLERANCE) + ": ria " + ria.navigableShare() + " fjord " + fjord.navigableShare() + " arm site " + arm.navigableShare());
         }
     }
 
@@ -2306,7 +2314,7 @@ class HighlandDrownedTest {
             double sliverMedian = slivers.length > 0 ? slivers[slivers.length / 2] : Double.NaN;
             double[] peaks = mainland.stream().filter(r -> r.width() > STRIP_NARROW && r.width() <= STRIP_MEDIUM).mapToDouble(HighlandDrownedProbe.Strip::peak).sorted().toArray();
             double median = peaks.length > 0 ? peaks[peaks.length / 2] : Double.NaN;
-            if (sliver > MAX_SLIVER_SHARE) failures.add(String.format(java.util.Locale.ROOT, "%s: %.1f%% of mainland runs are %.0f blocks or less (at most %.0f%%)", scope, 100 * sliver, STRIP_SLIVER, 100 * MAX_SLIVER_SHARE));
+            if (sliver > MAX_SLIVER_SHARE + SHARE_TOLERANCE) failures.add(String.format(java.util.Locale.ROOT, "%s: %.1f%% of mainland runs are %.0f blocks or less (at most %.0f%%, the %.0f%% of D-11-14-1 plus the D-11-14-2 margin)", scope, 100 * sliver, STRIP_SLIVER, 100 * (MAX_SLIVER_SHARE + SHARE_TOLERANCE), 100 * MAX_SLIVER_SHARE));
             if (!(sliverMedian >= MIN_SLIVER_PEAK)) failures.add(String.format(java.util.Locale.ROOT, "%s: median peak ground of runs %.0f blocks or less %.1f (at least %.0f)", scope, STRIP_SLIVER, sliverMedian, MIN_SLIVER_PEAK));
             if (!(median >= MIN_MEDIUM_PEAK)) failures.add(String.format(java.util.Locale.ROOT, "%s: median peak ground of 80-150 block runs %.1f (at least %.0f)", scope, median, MIN_MEDIUM_PEAK));
         }
