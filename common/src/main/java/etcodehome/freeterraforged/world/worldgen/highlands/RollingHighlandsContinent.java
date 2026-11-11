@@ -476,13 +476,16 @@ public final class RollingHighlandsContinent implements Continent {
     private void coastFace(Cell cell, double x, double z, double edge) {
         if (edge - coastEdge >= HighlandDrainage.COAST_BAND) return;
         var shore = coast.profile().shore(x, z);
-        cell.highlandCoastClimate = HighlandCoastProfile.climateClass(shore);
+        // RH10 (11-16): fjord walls are PNW rock where the effective fjord weight is at least FJORD_ROCK (fjord regions are typed PNW at their centre).
+        cell.highlandCoastClimate = coast.drowned().fjord(x, z) >= FJORD_ROCK ? HighlandCoastProfile.PNW : HighlandCoastProfile.climateClass(shore);
         if (shore.bluff() + shore.cliff() <= 0) return;
         double d = shoreDistance(x, z, edge), wb = HighlandCoastProfile.bluffWidth(shore.width());
         double cliff = 1 - smooth(HighlandDrainage.CLIFF_FACE, HighlandDrainage.CLIFF_FACE + COAST_FACE, d);
         double bluff = smooth(wb - 1, wb, d) * (1 - smooth(wb + HighlandDrainage.BLUFF_SCARP, wb + HighlandDrainage.BLUFF_SCARP + COAST_FACE, d));
         cell.highlandCoast = (float) (shore.cliff() * cliff + shore.bluff() * bluff);
     }
+    /** Effective fjord weight from which a wall column carries the PNW coast rock class (11-16). */
+    static final double FJORD_ROCK = .5;
     /** Blocks behind a scarp's face over which its rock cover weight fades. */
     static final double COAST_FACE = 8;
     /**

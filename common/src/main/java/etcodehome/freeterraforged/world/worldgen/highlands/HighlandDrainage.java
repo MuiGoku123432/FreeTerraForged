@@ -183,18 +183,25 @@ public final class HighlandDrainage {
             height += shore.beach() * Math.max(shifted, berm + coast.profile().dune(x, z, d, shore) * fade);
         }
         if (shore.bluff() + shore.cliff() > 0) {
-            double t0 = scarps ? 1 - Math.sqrt(1 - Math.min(1, shore.height() / land)) : 0;
+            // RH10 fjord walls (11-16): under the effective fjord weight the wall stands FJORD_RELIEF of the local land (so it follows the
+            // relief behind it, not a fixed height) and its face runs wall / FJORD_WALL_SLOPE blocks (steep rock, not a slab). 0 elsewhere.
+            double fjord = scarps ? coast.drowned().fjord(x, z) : 0;
+            double wall = fjord > 0 ? lerp(shore.height(), FJORD_RELIEF * land, fjord) : shore.height();
+            double face = fjord > 0 ? lerp(CLIFF_FACE, Math.max(CLIFF_FACE, wall / FJORD_WALL_SLOPE), fjord) : CLIFF_FACE;
+            double t0 = scarps ? 1 - Math.sqrt(1 - Math.min(1, wall / land)) : 0;
             double lifted = ease(t0 + (1 - t0) * t) * land;
             double wb = HighlandCoastProfile.bluffWidth(shore.width());
             double s = scarps ? smooth(wb, wb + BLUFF_SCARP, d) : 1;
             height += shore.bluff() * (s * lifted + (1 - s) * berm);
-            height += shore.cliff() * (scarps ? smooth(0, CLIFF_FACE, d) : 1) * lifted;
+            height += shore.cliff() * (scarps ? smooth(0, face, d) : 1) * lifted;
         }
         return height;
     }
     private static double ease(double t) { return t * (2 - t); }
     /** Edge band (edge units above the coast point) holding the beach shift, berm and scarps; scarp run and cliff face (blocks). */
     static final double COAST_BAND = .08, BLUFF_SCARP = 4, CLIFF_FACE = 2;
+    /** RH10 fjord walls (11-16): wall height as a share of the local land height, and the wall height over its face run (blocks per block of run). */
+    static final double FJORD_RELIEF = .6, FJORD_WALL_SLOPE = 4;
     /** Refined channel sample. {@code head} ramps 0..1 over the first HEAD_TAPER blocks below a channel head. */
     public record Node(double x, double z, double ground, double water, double area, int parent, double head) {}
     /**

@@ -16,8 +16,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
+import java.util.TreeMap;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CountDownLatch;
@@ -1549,6 +1552,107 @@ class HighlandDrownedTest {
             System.out.println("RH10 sound basin " + basin.summary());
             assertTrue(basin.maxWidth() >= HighlandDrownedProbe.SOUND_WIDTH, "the sound basin at " + SOUND_SITE_X + "," + SOUND_SITE_Z + " opens no water 1000 blocks across: " + basin.maxWidth());
         }
+    }
+
+    /** Server preset fjord sites of the wall census (11-16; UAT sand-cliff and good-wall sites, 8 km boxes) next to the ROCKIES FJORD_BOXES. */
+    static final int[][] SERVER_WALL_BOXES = {{9957, 2245}, {36342, -11609}};
+    /** Wall census over FJORD_BOXES (ROCKIES) and SERVER_WALL_BOXES (server preset), taken once per JVM (shared by the wall gates). */
+    private static HighlandDrownedProbe.WallCensus wallCensus;
+    private static synchronized HighlandDrownedProbe.WallCensus wallCensus() throws Exception {
+        if (wallCensus == null) {
+            HighlandDrownedProbe.WallCensus rockiesWalls;
+            try (var rockies = WorldgenFixture.context(BiomeCensusProbe.rockies(), HighlandPlanformProbe.USER_SEED)) {
+                rockiesWalls = HighlandDrownedProbe.wallCensus(rockies, FJORD_BOXES, SITE_RADIUS);
+            }
+            var server = WorldgenFixture.shared(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED);
+            wallCensus = HighlandDrownedProbe.pool(rockiesWalls, HighlandDrownedProbe.wallCensus(server, SERVER_WALL_BOXES, SITE_RADIUS));
+            System.out.println("RH10 fjord walls " + wallCensus.summary(false) + "\nRH10 fjord walls " + wallCensus.summary(true));
+        }
+        return wallCensus;
+    }
+
+    /**
+     * Probe (11-16): where a fjord arm crosses a warped rim. For every FJORD region found around the wall boxes (12 km windows), counts the flooded
+     * columns (sea on the bound coast, land on the standalone one) from .9 R to 1.5 R at 64-block steps whose disc weight is 0 and whose effective
+     * fjord weight is at least .5 (rim-zone fjord water), and the 8 km tile (centre rounded to 1 km) holding most of them. Written to
+     * build/rh10-gap/fjord-rim-sites.txt; the fixed rim-zone wall box of the census (SERVER_WALL_BOXES, FJORD_BOXES) is picked from it.
+     */
+    @Tag("probe")
+    @Test void fjordRimSites() throws Exception {
+        var lines = new ArrayList<String>();
+        var worlds = new LinkedHashMap<String, int[][]>();
+        worlds.put("rockies", FJORD_BOXES);
+        worlds.put("server", new int[][]{{9957, 2245}, {36342, -11609}});
+        for (var world : worlds.entrySet()) {
+            try (var context = world.getKey().equals("rockies") ? WorldgenFixture.context(BiomeCensusProbe.rockies(), HighlandPlanformProbe.USER_SEED)
+                : WorldgenFixture.context(HighlandPlanformProbe.serverPreset(), HighlandPlanformProbe.SERVER_SEED)) {
+                var coast = coastOf(context);
+                double coastEdge = context.preset.world().controlPoints.coast;
+                for (var r : HighlandDrownedProbe.regionsAround(context, world.getValue(), 12000)) {
+                    if (!r.fjord()) continue;
+                    var tiles = new TreeMap<String, Integer>();
+                    int total = 0, weak = 0, mid = 0, land = 0, landMid = 0, landWeak = 0;
+                    for (double z = r.cz() - 1.5 * r.radius(); z <= r.cz() + 1.5 * r.radius(); z += 32) for (double x = r.cx() - 1.5 * r.radius(); x <= r.cx() + 1.5 * r.radius(); x += 32) {
+                        double d = Math.hypot(x - r.cx(), z - r.cz());
+                        if (d < .9 * r.radius() || d > 1.5 * r.radius()) continue;
+                        if (coast.drowned().columnWeight(x, z) > 0) continue;
+                        double w = coast.drowned().fjord(x, z);
+                        double edge = coast.sample(x, z).edge();
+                        boolean band = edge > coastEdge && edge - coastEdge < HighlandDrainage.COAST_BAND;
+                        if (w >= .5 && band) land++;
+                        if (w >= .25 && band) landMid++;
+                        if (w >= .05 && band) landWeak++;
+                        if (coast.sample(x, z).edge() > coastEdge || coast.undrowned(x, z).edge() <= coastEdge) continue;
+                        if (w >= .05) weak++;
+                        if (w >= .25) mid++;
+                        if (w < .5) continue;
+                        total++;
+                        tiles.merge(Math.round(x / 1000.0) * 1000 + "," + Math.round(z / 1000.0) * 1000, 1, Integer::sum);
+                    }
+                    var best = tiles.entrySet().stream().max(Map.Entry.comparingByValue());
+                    lines.add(world.getKey() + " fjord region " + r.i() + "," + r.j() + " centre " + Math.round(r.cx()) + "," + Math.round(r.cz()) + " R=" + Math.round(r.radius())
+                        + ": rim-zone fjord water columns >=.5 " + total + " (>=.25 " + mid + ", >=.05 " + weak + "; rim-zone coastal-band land with fjord weight >=.5: " + land + ", >=.25: " + landMid + ", >=.05: " + landWeak + ")" + (best.isPresent() ? ", densest 1 km cell " + best.get().getKey() + " (" + best.get().getValue() + ")" : ""));
+                    System.out.println(lines.get(lines.size() - 1));
+                }
+            }
+        }
+        Files.createDirectories(Path.of("build/rh10-gap"));
+        Files.write(Path.of("build/rh10-gap/fjord-rim-sites.txt"), lines);
+    }
+
+    /** Wall relief gates (11-16): rank correlation of wall height with land height, and the high-land to low-land median ratio. */
+    static final double WALL_SPEARMAN = .5, WALL_RATIO = 1.5, WALL_P90 = 60;
+    static final int MIN_RIM_WALLS = 20;
+
+    /**
+     * D-GC3 (11-16): fjord walls follow the local relief. Over the fjord shoreline columns of the ROCKIES FJORD_BOXES and the server preset
+     * fjord sites: the Spearman correlation of wall height (ground 8 blocks inland) with land height is at least WALL_SPEARMAN, the median wall
+     * where land stands 150 blocks or more is at least WALL_RATIO times the median where it stands under 60, the 90th percentile wall is at
+     * least WALL_P90 blocks, and the rim-zone subset (outside every warped disc), when it holds MIN_RIM_WALLS columns, meets the same correlation. Wall height is the
+     * ground WALL_INLAND (64) blocks inland, past the face run (see HighlandDrownedProbe.WallCensus).
+     */
+    @Test void fjordWallsFollowRelief() throws Exception {
+        var census = wallCensus();
+        int[] low = new int[1], high = new int[1];
+        double ratio = census.median(HighlandDrownedProbe.WALL_HIGH_LAND, 1e9, false, high) / census.median(-1e9, HighlandDrownedProbe.WALL_LOW_LAND, false, low);
+        assertTrue(census.count(false) >= 300, "too few fjord wall columns: " + census.count(false));
+        assertTrue(census.spearman(false) >= WALL_SPEARMAN, "wall height vs land height correlation: " + census.summary(false));
+        assertTrue(low[0] >= 10 && high[0] >= 10 && ratio >= WALL_RATIO, "wall median ratio (high land over low land) " + ratio + ": " + census.summary(false));
+        assertTrue(census.quantile(.9, false) >= WALL_P90, "p90 wall height: " + census.summary(false));
+        // Rim-zone walls (11-16 finding): no fjord shoreline column lies beyond every warped disc in the ten fjord regions of the ROCKIES and server
+        // windows (build/rh10-gap/fjord-rim-sites.txt, probe fjordRimSites): arms from the arm influence band reach only fjord weights under .25 there.
+        // The subset is reported, and judged when it is large enough (MIN_RIM_WALLS), so the gate bites as soon as a world has rim-zone fjord walls.
+        if (census.count(true) >= MIN_RIM_WALLS) assertTrue(census.spearman(true) >= WALL_SPEARMAN, "rim-zone wall height vs land height correlation: " + census.summary(true));
+    }
+
+    /**
+     * D-GC3 (11-16): fjord walls are rock in the PNW palette: no column with an effective fjord weight of at least .5 and a cliff face weight
+     * above .5 carries the CALIFORNIA or BAJA coast rock class, rim-zone columns included (a subset of the columns counted).
+     */
+    @Test void fjordWallsAreRock() throws Exception {
+        var census = wallCensus();
+        assertTrue(census.wallColumns(false) >= 300, "too few fjord wall columns: " + census.summary(false));
+        assertEquals(0, census.palette(HighlandCoastProfile.CALIFORNIA, false) + census.palette(HighlandCoastProfile.BAJA, false), "fjord wall columns in sandstone classes: " + census.summary(false));
     }
 
     /**

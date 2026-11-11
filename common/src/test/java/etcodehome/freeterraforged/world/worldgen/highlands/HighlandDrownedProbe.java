@@ -628,6 +628,146 @@ final class HighlandDrownedProbe {
     }
 
     /**
+     * Fjord wall census (11-16, promoted from the untracked DrownedShapeProbe walls and wallPalette): per fjord shoreline column of a box, the
+     * ground {@link #WALL_INLAND} blocks inland (the wall height: the plan measured 8 blocks, but a face that runs wall / 4 blocks is only a fifth up
+     * at 8; 64 is the distance of the older {@link #walls} census, past every face run of a wall up to 250 blocks; the ground at
+     * {@link #SHOULDER_INLAND} blocks is kept for the record) (perpendicular to the shoreline, along the edge gradient; heightmap ground, blocks above water),
+     * the local land height there (the surface before any coast shaping, blocks) and whether the column is rim-zone (outside every warped disc,
+     * {@code columnWeight} 0 at the column {@link #SHOULDER_INLAND} blocks inland, effective fjord weight from an arm). Per wall column with an effective fjord weight of at least {@link #DROWNED_WEIGHT}
+     * {@link #FACE_INLAND} blocks inland, the coast rock palette class its cell carries and the cliff face weight (highlandCoast); a wall column is
+     * one with a face weight above .5. At most {@link #WALL_TRANSECTS} non-rim and {@link #WALL_TRANSECTS} rim-zone columns per box, evenly strided.
+     */
+    record WallCensus(double[] ground, double[] shoulder, double[] land, boolean[] rim, byte[] climate, boolean[] face, boolean[] fjord) {
+        int count(boolean rimOnly) { int n = 0; for (boolean r : rim) if (r || !rimOnly) n++; return n; }
+        private double[] pick(double[] values, boolean rimOnly) {
+            return IntStream.range(0, values.length).filter(k -> rim[k] || !rimOnly).mapToDouble(k -> values[k]).toArray();
+        }
+        /** Spearman rank correlation of wall height with land height (ties by average rank). */
+        double spearman(boolean rimOnly) {
+            double[] a = ranks(pick(ground, rimOnly)), b = ranks(pick(land, rimOnly));
+            int n = a.length;
+            if (n < 3) return Double.NaN;
+            double ma = Arrays.stream(a).average().orElse(0), mb = Arrays.stream(b).average().orElse(0), sab = 0, saa = 0, sbb = 0;
+            for (int k = 0; k < n; k++) { sab += (a[k] - ma) * (b[k] - mb); saa += (a[k] - ma) * (a[k] - ma); sbb += (b[k] - mb) * (b[k] - mb); }
+            return sab / Math.sqrt(saa * sbb);
+        }
+        /** Median wall height over the columns whose land height lies in [lo, hi), and their count in {@code n[0]}. */
+        double median(double lo, double hi, boolean rimOnly, int[] n) {
+            double[] walls = IntStream.range(0, ground.length).filter(k -> (rim[k] || !rimOnly) && land[k] >= lo && land[k] < hi).mapToDouble(k -> ground[k]).sorted().toArray();
+            n[0] = walls.length;
+            return walls.length > 0 ? HighlandCoastProbe.quantile(walls, .5) : Double.NaN;
+        }
+        double quantile(double q, boolean rimOnly) {
+            double[] walls = pick(ground, rimOnly);
+            Arrays.sort(walls);
+            return walls.length > 0 ? HighlandCoastProbe.quantile(walls, q) : Double.NaN;
+        }
+        /** Wall columns (fjord weight at least .5, cliff face weight above .5) of the given coast climate class. */
+        int palette(byte climateClass, boolean rimOnly) {
+            int n = 0;
+            for (int k = 0; k < climate.length; k++) if (fjord[k] && face[k] && climate[k] == climateClass && (rim[k] || !rimOnly)) n++;
+            return n;
+        }
+        int wallColumns(boolean rimOnly) {
+            int n = 0;
+            for (int k = 0; k < climate.length; k++) if (fjord[k] && face[k] && (rim[k] || !rimOnly)) n++;
+            return n;
+        }
+        /** Median ground {@link #SHOULDER_INLAND} blocks inland (the middle of the face run) of the columns in a land height class, for the record. */
+        private double shoulderMedian(double lo, double hi, boolean rimOnly) {
+            double[] walls = IntStream.range(0, shoulder.length).filter(k -> (rim[k] || !rimOnly) && land[k] >= lo && land[k] < hi).mapToDouble(k -> shoulder[k]).sorted().toArray();
+            return walls.length > 0 ? HighlandCoastProbe.quantile(walls, .5) : Double.NaN;
+        }
+        String summary(boolean rimOnly) {
+            int[] low = new int[1], high = new int[1];
+            double lowMedian = median(-1e9, WALL_LOW_LAND, rimOnly, low), highMedian = median(WALL_HIGH_LAND, 1e9, rimOnly, high);
+            return String.format(Locale.ROOT, "%s walls n=%d spearman=%.3f median(land>=%.0f)=%.1f n=%d median(land<%.0f)=%.1f n=%d ratio=%.2f p50=%.1f p90=%.1f (ground %d blocks inland; at %d: high %.1f low %.1f) | palette wall columns=%d PNW=%d CALIFORNIA=%d BAJA=%d",
+                rimOnly ? "rim-zone" : "all", count(rimOnly), spearman(rimOnly), WALL_HIGH_LAND, highMedian, high[0], WALL_LOW_LAND, lowMedian, low[0], highMedian / lowMedian,
+                quantile(.5, rimOnly), quantile(.9, rimOnly), WALL_INLAND, SHOULDER_INLAND, shoulderMedian(WALL_HIGH_LAND, 1e9, rimOnly), shoulderMedian(-1e9, WALL_LOW_LAND, rimOnly), wallColumns(rimOnly), palette(HighlandCoastProfile.PNW, rimOnly),
+                palette(HighlandCoastProfile.CALIFORNIA, rimOnly), palette(HighlandCoastProfile.BAJA, rimOnly));
+        }
+        private static double[] ranks(double[] values) {
+            int n = values.length;
+            Integer[] order = IntStream.range(0, n).boxed().sorted(Comparator.comparingDouble(k -> values[k])).toArray(Integer[]::new);
+            double[] rank = new double[n];
+            for (int i = 0; i < n; ) {
+                int j = i;
+                while (j + 1 < n && values[order[j + 1]] == values[order[i]]) j++;
+                for (int k = i; k <= j; k++) rank[order[k]] = (i + j) / 2.0;
+                i = j + 1;
+            }
+            return rank;
+        }
+    }
+    /** The columns of several census parts as one census. */
+    static WallCensus pool(WallCensus... parts) {
+        return new WallCensus(concat(parts, WallCensus::ground), concat(parts, WallCensus::shoulder), concat(parts, WallCensus::land), concatFlags(parts, WallCensus::rim),
+            concatBytes(parts), concatFlags(parts, WallCensus::face), concatFlags(parts, WallCensus::fjord));
+    }
+    private static double[] concat(WallCensus[] parts, java.util.function.Function<WallCensus, double[]> of) {
+        return Arrays.stream(parts).flatMapToDouble(part -> Arrays.stream(of.apply(part))).toArray();
+    }
+    private static boolean[] concatFlags(WallCensus[] parts, java.util.function.Function<WallCensus, boolean[]> of) {
+        int n = Arrays.stream(parts).mapToInt(part -> of.apply(part).length).sum(), at = 0;
+        boolean[] out = new boolean[n];
+        for (var part : parts) for (boolean flag : of.apply(part)) out[at++] = flag;
+        return out;
+    }
+    private static byte[] concatBytes(WallCensus[] parts) {
+        int n = Arrays.stream(parts).mapToInt(part -> part.climate().length).sum(), at = 0;
+        byte[] out = new byte[n];
+        for (var part : parts) for (byte b : part.climate()) out[at++] = b;
+        return out;
+    }
+    /** Inland distance of the wall height (blocks), of the palette sample, and the land height classes of the wall ratio (blocks). */
+    static final int WALL_INLAND = 64, SHOULDER_INLAND = 8, FACE_INLAND = 2, SHORELINE_REACH = 2 * GRID;
+    static final double WALL_LOW_LAND = 60, WALL_HIGH_LAND = 150;
+
+    /** Wall census of a box (see {@link WallCensus}); the boxes are {@code {x, z}} centres of 2 x radius blocks. */
+    static WallCensus wallCensus(GeneratorContext context, int[][] boxes, int radius) {
+        var continent = (RollingHighlandsContinent) context.heightmap.continent();
+        var coast = continent.coast();
+        var drowned = coast.drowned();
+        var land = drowned.land();
+        double coastEdge = context.preset.world().controlPoints.coast;
+        var ground = new ArrayList<Double>(); var shoulder = new ArrayList<Double>(); var landHeight = new ArrayList<Double>(); var rims = new ArrayList<Boolean>();
+        var climates = new ArrayList<Byte>(); var faces = new ArrayList<Boolean>(); var fjords = new ArrayList<Boolean>();
+        var cell = new Cell();
+        for (int[] box : boxes) {
+            // {x, z, unit gradient x, unit gradient z, distance to the shoreline}, split by the disc weight at the wall column
+            var plain = new ArrayList<double[]>(); var rimZone = new ArrayList<double[]>();
+            for (int[] at : armShore(context, box, radius)) {
+                double gx = coast.sample(at[0] + 8, at[1]).edge() - coast.sample(at[0] - 8, at[1]).edge(), gz = coast.sample(at[0], at[1] + 8).edge() - coast.sample(at[0], at[1] - 8).edge(), norm = Math.hypot(gx, gz);
+                if (norm == 0) continue;
+                gx /= norm; gz /= norm;
+                double reach = -1;
+                for (int s = 0; s <= SHORELINE_REACH && reach < 0; s++) if (coast.sample(at[0] + gx * s, at[1] + gz * s).edge() > coastEdge) reach = s;
+                if (reach < 0) continue;
+                (drowned.columnWeight(at[0] + gx * (reach + SHOULDER_INLAND), at[1] + gz * (reach + SHOULDER_INLAND)) <= 0 ? rimZone : plain).add(new double[]{at[0], at[1], gx, gz, reach});
+            }
+            for (var group : List.of(plain, rimZone)) {
+                int stride = Math.max(1, group.size() / WALL_TRANSECTS);
+                for (int k = 0; k < group.size(); k += stride) {
+                    double[] at = group.get(k);
+                    double wx = at[0] + at[2] * (at[4] + WALL_INLAND), wz = at[1] + at[3] * (at[4] + WALL_INLAND), fx = at[0] + at[2] * (at[4] + FACE_INLAND), fz = at[1] + at[3] * (at[4] + FACE_INLAND);
+                    ground.add(height(context, cell, wx, wz));
+                    shoulder.add(height(context, cell, at[0] + at[2] * (at[4] + SHOULDER_INLAND), at[1] + at[3] * (at[4] + SHOULDER_INLAND)));
+                    landHeight.add(land.height(wx, wz));
+                    rims.add(group == rimZone);
+                    context.heightmap.apply(cell.reset(), (int) Math.round(fx), (int) Math.round(fz), false);
+                    climates.add(cell.highlandCoastClimate);
+                    faces.add(cell.highlandCoast > .5);
+                    fjords.add(drowned.fjord(fx, fz) >= DROWNED_WEIGHT);
+                }
+            }
+        }
+        boolean[] rim = new boolean[rims.size()], face = new boolean[rims.size()], fjord = new boolean[rims.size()];
+        byte[] climate = new byte[rims.size()];
+        for (int k = 0; k < rim.length; k++) { rim[k] = rims.get(k); face[k] = faces.get(k); fjord[k] = fjords.get(k); climate[k] = climates.get(k); }
+        return new WallCensus(ground.stream().mapToDouble(Double::doubleValue).toArray(), shoulder.stream().mapToDouble(Double::doubleValue).toArray(), landHeight.stream().mapToDouble(Double::doubleValue).toArray(), rim, climate, face, fjord);
+    }
+
+    /**
      * Fjord shores: {@code samples} arm shore columns and the {@code cliff} ones among them (the shore profile's dominant
      * type); {@code mouths} river-water columns within {@link #MOUTH_WINDOW} blocks of a shore column that touch the sea
      * (a 4-block neighbour with the edge at or below the coast point) and {@code steps} of them whose river water surface
