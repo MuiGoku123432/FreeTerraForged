@@ -521,7 +521,7 @@ final class HighlandMeanders {
         }
         return violation;
     }
-    private static boolean intersects(double ax, double az, double bx, double bz, double cx, double cz, double dx, double dz) {
+    static boolean intersects(double ax, double az, double bx, double bz, double cx, double cz, double dx, double dz) {
         double d1 = (dx - cx) * (az - cz) - (dz - cz) * (ax - cx), d2 = (dx - cx) * (bz - cz) - (dz - cz) * (bx - cx);
         double d3 = (bx - ax) * (cz - az) - (bz - az) * (cx - ax), d4 = (bx - ax) * (dz - az) - (bz - az) * (dx - ax);
         return d1 * d2 < 0 && d3 * d4 < 0;

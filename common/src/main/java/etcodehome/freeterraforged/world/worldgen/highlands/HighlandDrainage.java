@@ -251,6 +251,13 @@ public final class HighlandDrainage {
     private record QueueNode(int index, double level, double distance) {}
     /** Lake id of axis samples in the sea (river mouths). */
     static final int OCEAN = -2;
+    /**
+     * RH10 stranded roots (D-GC4): a plan root that is land at block resolution (the touchesSea mask counts a coastal land node as sea) is
+     * extended to the first block-resolution sea point. The search runs this many blocks beyond half a plan step, along the half-step
+     * directions that were sea and, failing those, along MOUTH_BEARINGS bearings; the stretch may climb at most PATH_RISE blocks of planning ground.
+     */
+    static final double MOUTH_SEARCH = 16, PATH_RISE = 3;
+    static final int MOUTH_BEARINGS = 32;
 
     /** Growable valley-axis samples (16-block pieces of the Hermite centreline), parents downstream. */
     static final class AxisSamples {
@@ -709,6 +716,62 @@ public final class HighlandDrainage {
             || coast.sample(x, z - half).edge() <= coastEdge || coast.sample(x, z + half).edge() <= coastEdge;
     }
 
+    /** Distance (blocks, multiples of {@code stride}) from (x, z) along (dx, dz) to the first block-resolution sea sample within {@code limit}, or NaN. */
+    private double seaAlong(double x, double z, double dx, double dz, double stride, double limit) {
+        for (double d = stride; d <= limit; d += stride) if (coast.sample(x + dx * d, z + dz * d).edge() <= coastEdge) return d;
+        return Double.NaN;
+    }
+
+    /**
+     * RH10 stranded root (D-GC4): for a root node that is land at block resolution, the sea point S nearest along a valid path, as
+     * {x, z, length}; null when the root is sea or no valid S exists (the root then stays as it was). Candidates are the half-step directions
+     * whose touchesSea sample was sea (rays in 2-block steps), and only when none is valid MOUTH_BEARINGS bearings (4-block steps); the shortest
+     * valid wins, ties to the earlier candidate. A path is valid when every 4 blocks from the root to S is land, planning ground never
+     * exceeds the root's by more than PATH_RISE (no divide), and the straight run crosses no physical valley link.
+     */
+    private double[] seaReach(int i, int step, int width, int depth, boolean[] valley, int[] parent, double[] pathX, double[] pathZ,
+                              int[] linkStart, int[] linkPieces, double[] linkX, double[] linkZ) {
+        double x = pathX[i], z = pathZ[i], edge = coast.sample(x, z).edge();
+        if (edge <= coastEdge) return null;
+        double ground = planningHeight(x, z, edge), half = step / 2.0, search = half + MOUTH_SEARCH, bestLength = Double.POSITIVE_INFINITY;
+        double[] best = null;
+        for (int stage = 0; stage < 2 && best == null; stage++) {
+            int rays = stage == 0 ? 4 : MOUTH_BEARINGS;
+            for (int r = 0; r < rays; r++) {
+                double angle = stage == 0 ? r * Math.PI / 2 : 2 * Math.PI * r / MOUTH_BEARINGS, dx = Math.cos(angle), dz = Math.sin(angle);
+                if (stage == 0) { dx = Math.rint(dx); dz = Math.rint(dz); if (coast.sample(x + dx * half, z + dz * half).edge() > coastEdge) continue; }
+                double length = seaAlong(x, z, dx, dz, stage == 0 ? 2 : 4, search);
+                if (!(length < bestLength) || !validMouth(i, x, z, dx, dz, length, ground, width, depth, valley, parent, pathX, pathZ, linkStart, linkPieces, linkX, linkZ)) continue;
+                bestLength = length;
+                best = new double[]{x + dx * length, z + dz * length, length};
+            }
+        }
+        if (best == null) etcodehome.freeterraforged.FTFCommon.LOGGER.debug("RH10 root {} at {},{} found no valid sea within {} blocks", i, x, z, search);
+        return best;
+    }
+
+    /** Whether the straight run from the root (x, z) along (dx, dz) for {@code length} blocks is a valid mouth path (see seaReach). */
+    private boolean validMouth(int i, double x, double z, double dx, double dz, double length, double ground, int width, int depth, boolean[] valley, int[] parent,
+                               double[] pathX, double[] pathZ, int[] linkStart, int[] linkPieces, double[] linkX, double[] linkZ) {
+        for (double d = 4; d < length; d += 4) {
+            double px = x + dx * d, pz = z + dz * d, edge = coast.sample(px, pz).edge();
+            if (edge <= coastEdge || planningHeight(px, pz, edge) > ground + PATH_RISE) return false;
+        }
+        double ex = x + dx * length, ez = z + dz * length;
+        int ix = i % width, iz = i / width;
+        for (int kz = Math.max(0, iz - 2); kz <= Math.min(depth - 1, iz + 2); kz++) for (int kx = Math.max(0, ix - 2); kx <= Math.min(width - 1, ix + 2); kx++) {
+            int k = kz * width + kx, p = parent[k];
+            if (k == i || p < 0 || p == i || !valley[k]) continue;
+            double fromX = pathX[p], fromZ = pathZ[p];
+            for (int piece = 0; piece < linkPieces[k]; piece++) {
+                double toX = linkX[linkStart[k] + piece], toZ = linkZ[linkStart[k] + piece];
+                if (HighlandMeanders.intersects(x, z, ex, ez, fromX, fromZ, toX, toZ)) return false;
+                fromX = toX; fromZ = toZ;
+            }
+        }
+        return true;
+    }
+
     public Plan build(int ownerX, int ownerZ) {
         long started = System.nanoTime();
         var bounds = coast.bounds(ownerX, ownerZ);
@@ -1059,7 +1122,20 @@ public final class HighlandDrainage {
             int i = order[k];
             if (!channel[i]) continue;
             int p = parent[i];
-            if (p < 0) { endpoint[i] = axis.add(pathX[i], pathZ[i], 0, 0, area[i], -1, 1, OCEAN, i); continue; }
+            if (p < 0) {
+                double[] sea = seaReach(i, step, width, depth, valley, parent, pathX, pathZ, linkStart, linkPieces, linkX, linkZ);
+                if (sea == null) { endpoint[i] = axis.add(pathX[i], pathZ[i], 0, 0, area[i], -1, 1, OCEAN, i); continue; }
+                // Mouth stretch (drawn only, never in the physical network): sea point first, then a straight run of level-0 samples to the root.
+                // Every sample is flagged OCEAN, which HighlandMeanders already treats as a feature the channel must run along, so the stretch stays straight.
+                int previous = axis.add(sea[0], sea[1], 0, 0, area[i], -1, 1, OCEAN, i);
+                int pieces = Math.max(1, (int) Math.ceil(sea[2] / 16));
+                for (int piece = 1; piece <= pieces; piece++) {
+                    double t = piece / (double) pieces, sx = lerp(sea[0], pathX[i], t), sz = lerp(sea[1], pathZ[i], t);
+                    previous = axis.add(sx, sz, planningHeight(sx, sz, coast.sample(sx, sz).edge()), 0, area[i], previous, 1, OCEAN, i);
+                }
+                endpoint[i] = previous;
+                continue;
+            }
             int pieces = linkPieces[i];
             double length = linkLength[i];
             boolean headReach = tributaries[i] == 0;
