@@ -19,7 +19,7 @@ class HighlandCoastTest {
             // C: coves and points.
             assertTrue(report.sinuosity() >= 1.15, "coastline too straight: " + report.summary("user"));
             // A-1 shares (profile's dominant type), within ±8 points.
-            double typeBand = .08 + HighlandDrownedTest.SHARE_TOLERANCE;
+            double typeBand = .08 + HighlandDrownedTest.tol(.20);
             assertTrue(Math.abs(report.beachShare() - .55) <= typeBand && Math.abs(report.bluffShare() - .25) <= typeBand
                 && Math.abs(report.cliffShare() - .20) <= typeBand, "type shares off by more than " + typeBand + " (.08 plus the D-11-14-2 margin): " + report.summary("user"));
             // A-2 stretches, not flicker.
@@ -36,7 +36,7 @@ class HighlandCoastTest {
             java.nio.file.Files.writeString(java.nio.file.Path.of("build/rh9-coast-rockies.txt"), summary + "\n");
             assertTrue(report.samples() >= 100, "too few coast samples to judge: " + report.samples());
             assertTrue(report.sinuosity() >= 1.15, "coastline too straight: " + summary);
-            double typeBand = .08 + HighlandDrownedTest.SHARE_TOLERANCE;
+            double typeBand = .08 + HighlandDrownedTest.tol(.20);
             assertTrue(Math.abs(report.beachShare() - .55) <= typeBand && Math.abs(report.bluffShare() - .25) <= typeBand
                 && Math.abs(report.cliffShare() - .20) <= typeBand, "type shares off by more than " + typeBand + " (.08 plus the D-11-14-2 margin): " + summary);
             assertTrue(report.beachWidthMedian() >= 18 && report.beachWidthP10() >= 8, "beaches too narrow: " + summary);
@@ -54,7 +54,7 @@ class HighlandCoastTest {
             assertTrue(report.beachWidthMedian() >= 18 && report.beachWidthP10() >= 8, "beaches too narrow: " + summary);
             assertTrue(report.cliffHeight4Median() >= 15, "cliffs too low: " + summary);
             assertTrue(report.cliffDepth8Median() >= 5, "water at cliff foot too shallow: " + summary);
-            assertTrue(report.hollowShare() <= .05 + HighlandDrownedTest.SHARE_TOLERANCE, "hollows behind scarps, share " + report.hollowShare() + HighlandDrownedTest.margin(.05 + HighlandDrownedTest.SHARE_TOLERANCE) + ": " + summary);
+            assertTrue(report.hollowShare() <= .05 + HighlandDrownedTest.tol(.05), "hollows behind scarps, share " + report.hollowShare() + HighlandDrownedTest.margin(.05 + HighlandDrownedTest.tol(.05)) + ": " + summary);
             assertEquals(0, report.sunk(), "dry land below sea level beside the coast: " + summary);
         }
     }
@@ -103,7 +103,7 @@ class HighlandCoastTest {
                 }
             }
             assertTrue(steep >= 20, "too few steep cliff columns: " + steep);
-            assertTrue(rock >= (.9 - HighlandDrownedTest.SHARE_TOLERANCE) * steep, rock + " of " + steep + " steep cliff columns are rock" + HighlandDrownedTest.margin(.9 - HighlandDrownedTest.SHARE_TOLERANCE));
+            assertTrue(rock >= (.9 - HighlandDrownedTest.tol(.9)) * steep, rock + " of " + steep + " steep cliff columns are rock" + HighlandDrownedTest.margin(.9 - HighlandDrownedTest.tol(.9)));
         }
     }
 
@@ -130,7 +130,7 @@ class HighlandCoastTest {
                 }
             }
             assertTrue(checked >= 20, "too few PNW beach columns: " + checked);
-            assertTrue(wrong <= (.05 + HighlandDrownedTest.SHARE_TOLERANCE) * checked, wrong + " of " + checked + " PNW beach columns are not plain beach" + HighlandDrownedTest.margin(.05 + HighlandDrownedTest.SHARE_TOLERANCE));
+            assertTrue(wrong <= (.05 + HighlandDrownedTest.tol(.05)) * checked, wrong + " of " + checked + " PNW beach columns are not plain beach" + HighlandDrownedTest.margin(.05 + HighlandDrownedTest.tol(.05)));
         }
     }
 
@@ -155,7 +155,7 @@ class HighlandCoastTest {
             }
             assertTrue(stack > 0, "no sea-stack columns");
             assertEquals(0, misplaced, misplaced + " of " + stack + " stack columns off a cliff coast or at the shore, e.g. " + example);
-            assertTrue(wrongRock <= (.01 + HighlandDrownedTest.SHARE_TOLERANCE) * stack, wrongRock + " of " + stack + " stack columns carry another climate's rock" + HighlandDrownedTest.margin(.01 + HighlandDrownedTest.SHARE_TOLERANCE));
+            assertTrue(wrongRock <= (.01 + HighlandDrownedTest.tol(.01)) * stack, wrongRock + " of " + stack + " stack columns carry another climate's rock" + HighlandDrownedTest.margin(.01 + HighlandDrownedTest.tol(.01)));
         }
     }
 
