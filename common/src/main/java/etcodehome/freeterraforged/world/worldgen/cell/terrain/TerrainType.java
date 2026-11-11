@@ -27,6 +27,13 @@ public class TerrainType {
     public static final Terrain ISLAND_BEACH = register("island_beach", TerrainCategory.ISLAND);
     public static final Terrain ISLAND_MOUNTAINS = register("island_mountains", TerrainCategory.ISLAND);
     public static final Terrain MUSHROOM_FIELDS = register("mushroom_fields", TerrainCategory.ISLAND);
+    /**
+     * RH10 locate tags for drowned-coast water (registered last so earlier ids are unchanged). Never written to
+     * {@code Cell.terrain}: those cells keep their ocean terrain and carry {@code Cell.highlandWater} instead, which
+     * {@code TerrainSearchTargets.matches} reads.
+     */
+    public static final Terrain FJORD = register("fjord", TerrainCategory.SHALLOW_OCEAN);
+    public static final Terrain BAY = register("bay", TerrainCategory.SHALLOW_OCEAN);
     
     public static Terrain get(String name) {
         for (Terrain terrain : TerrainType.REGISTRY) {

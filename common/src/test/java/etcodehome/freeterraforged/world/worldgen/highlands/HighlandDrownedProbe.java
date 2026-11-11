@@ -5,6 +5,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.stream.IntStream;
@@ -22,7 +23,7 @@ import etcodehome.freeterraforged.world.worldgen.densityfunction.CellSampler;
  * weight of at least {@link #DROWNED_WEIGHT}); islands, edge slope, plan cost and the drowned share are global.
  *
  * <ul>
- * <li>islands: 4-connected land components on the GRID mask that do not touch the box border;</li>
+ * <li>islands: 4-connected land components on the GRID mask that do not touch the box border (see {@link #islands} for the padded whole-island census);</li>
  * <li>sheltered: scoped points at least {@link #SHELTER_DEPTH} deep whose effective fetch (mean free-water run over
  * {@link #FETCH_RAYS} compass rays, each capped at {@link #FETCH_CAP}; a ray leaving the box counts as open to the
  * cap) is at most {@link #SHELTER_FETCH};</li>
@@ -627,6 +628,146 @@ final class HighlandDrownedProbe {
     }
 
     /**
+     * Fjord wall census (11-16, promoted from the untracked DrownedShapeProbe walls and wallPalette): per fjord shoreline column of a box, the
+     * ground {@link #WALL_INLAND} blocks inland (the wall height: the plan measured 8 blocks, but a face that runs wall / 4 blocks is only a fifth up
+     * at 8; 64 is the distance of the older {@link #walls} census, past every face run of a wall up to 250 blocks; the ground at
+     * {@link #SHOULDER_INLAND} blocks is kept for the record) (perpendicular to the shoreline, along the edge gradient; heightmap ground, blocks above water),
+     * the local land height there (the surface before any coast shaping, blocks) and whether the column is rim-zone (outside every warped disc,
+     * {@code columnWeight} 0 at the column {@link #SHOULDER_INLAND} blocks inland, effective fjord weight from an arm). Per wall column with an effective fjord weight of at least {@link #DROWNED_WEIGHT}
+     * {@link #FACE_INLAND} blocks inland, the coast rock palette class its cell carries and the cliff face weight (highlandCoast); a wall column is
+     * one with a face weight above .5. At most {@link #WALL_TRANSECTS} non-rim and {@link #WALL_TRANSECTS} rim-zone columns per box, evenly strided.
+     */
+    record WallCensus(double[] ground, double[] shoulder, double[] land, boolean[] rim, byte[] climate, boolean[] face, boolean[] fjord) {
+        int count(boolean rimOnly) { int n = 0; for (boolean r : rim) if (r || !rimOnly) n++; return n; }
+        private double[] pick(double[] values, boolean rimOnly) {
+            return IntStream.range(0, values.length).filter(k -> rim[k] || !rimOnly).mapToDouble(k -> values[k]).toArray();
+        }
+        /** Spearman rank correlation of wall height with land height (ties by average rank). */
+        double spearman(boolean rimOnly) {
+            double[] a = ranks(pick(ground, rimOnly)), b = ranks(pick(land, rimOnly));
+            int n = a.length;
+            if (n < 3) return Double.NaN;
+            double ma = Arrays.stream(a).average().orElse(0), mb = Arrays.stream(b).average().orElse(0), sab = 0, saa = 0, sbb = 0;
+            for (int k = 0; k < n; k++) { sab += (a[k] - ma) * (b[k] - mb); saa += (a[k] - ma) * (a[k] - ma); sbb += (b[k] - mb) * (b[k] - mb); }
+            return sab / Math.sqrt(saa * sbb);
+        }
+        /** Median wall height over the columns whose land height lies in [lo, hi), and their count in {@code n[0]}. */
+        double median(double lo, double hi, boolean rimOnly, int[] n) {
+            double[] walls = IntStream.range(0, ground.length).filter(k -> (rim[k] || !rimOnly) && land[k] >= lo && land[k] < hi).mapToDouble(k -> ground[k]).sorted().toArray();
+            n[0] = walls.length;
+            return walls.length > 0 ? HighlandCoastProbe.quantile(walls, .5) : Double.NaN;
+        }
+        double quantile(double q, boolean rimOnly) {
+            double[] walls = pick(ground, rimOnly);
+            Arrays.sort(walls);
+            return walls.length > 0 ? HighlandCoastProbe.quantile(walls, q) : Double.NaN;
+        }
+        /** Wall columns (fjord weight at least .5, cliff face weight above .5) of the given coast climate class. */
+        int palette(byte climateClass, boolean rimOnly) {
+            int n = 0;
+            for (int k = 0; k < climate.length; k++) if (fjord[k] && face[k] && climate[k] == climateClass && (rim[k] || !rimOnly)) n++;
+            return n;
+        }
+        int wallColumns(boolean rimOnly) {
+            int n = 0;
+            for (int k = 0; k < climate.length; k++) if (fjord[k] && face[k] && (rim[k] || !rimOnly)) n++;
+            return n;
+        }
+        /** Median ground {@link #SHOULDER_INLAND} blocks inland (the middle of the face run) of the columns in a land height class, for the record. */
+        private double shoulderMedian(double lo, double hi, boolean rimOnly) {
+            double[] walls = IntStream.range(0, shoulder.length).filter(k -> (rim[k] || !rimOnly) && land[k] >= lo && land[k] < hi).mapToDouble(k -> shoulder[k]).sorted().toArray();
+            return walls.length > 0 ? HighlandCoastProbe.quantile(walls, .5) : Double.NaN;
+        }
+        String summary(boolean rimOnly) {
+            int[] low = new int[1], high = new int[1];
+            double lowMedian = median(-1e9, WALL_LOW_LAND, rimOnly, low), highMedian = median(WALL_HIGH_LAND, 1e9, rimOnly, high);
+            return String.format(Locale.ROOT, "%s walls n=%d spearman=%.3f median(land>=%.0f)=%.1f n=%d median(land<%.0f)=%.1f n=%d ratio=%.2f p50=%.1f p90=%.1f (ground %d blocks inland; at %d: high %.1f low %.1f) | palette wall columns=%d PNW=%d CALIFORNIA=%d BAJA=%d",
+                rimOnly ? "rim-zone" : "all", count(rimOnly), spearman(rimOnly), WALL_HIGH_LAND, highMedian, high[0], WALL_LOW_LAND, lowMedian, low[0], highMedian / lowMedian,
+                quantile(.5, rimOnly), quantile(.9, rimOnly), WALL_INLAND, SHOULDER_INLAND, shoulderMedian(WALL_HIGH_LAND, 1e9, rimOnly), shoulderMedian(-1e9, WALL_LOW_LAND, rimOnly), wallColumns(rimOnly), palette(HighlandCoastProfile.PNW, rimOnly),
+                palette(HighlandCoastProfile.CALIFORNIA, rimOnly), palette(HighlandCoastProfile.BAJA, rimOnly));
+        }
+        private static double[] ranks(double[] values) {
+            int n = values.length;
+            Integer[] order = IntStream.range(0, n).boxed().sorted(Comparator.comparingDouble(k -> values[k])).toArray(Integer[]::new);
+            double[] rank = new double[n];
+            for (int i = 0; i < n; ) {
+                int j = i;
+                while (j + 1 < n && values[order[j + 1]] == values[order[i]]) j++;
+                for (int k = i; k <= j; k++) rank[order[k]] = (i + j) / 2.0;
+                i = j + 1;
+            }
+            return rank;
+        }
+    }
+    /** The columns of several census parts as one census. */
+    static WallCensus pool(WallCensus... parts) {
+        return new WallCensus(concat(parts, WallCensus::ground), concat(parts, WallCensus::shoulder), concat(parts, WallCensus::land), concatFlags(parts, WallCensus::rim),
+            concatBytes(parts), concatFlags(parts, WallCensus::face), concatFlags(parts, WallCensus::fjord));
+    }
+    private static double[] concat(WallCensus[] parts, java.util.function.Function<WallCensus, double[]> of) {
+        return Arrays.stream(parts).flatMapToDouble(part -> Arrays.stream(of.apply(part))).toArray();
+    }
+    private static boolean[] concatFlags(WallCensus[] parts, java.util.function.Function<WallCensus, boolean[]> of) {
+        int n = Arrays.stream(parts).mapToInt(part -> of.apply(part).length).sum(), at = 0;
+        boolean[] out = new boolean[n];
+        for (var part : parts) for (boolean flag : of.apply(part)) out[at++] = flag;
+        return out;
+    }
+    private static byte[] concatBytes(WallCensus[] parts) {
+        int n = Arrays.stream(parts).mapToInt(part -> part.climate().length).sum(), at = 0;
+        byte[] out = new byte[n];
+        for (var part : parts) for (byte b : part.climate()) out[at++] = b;
+        return out;
+    }
+    /** Inland distance of the wall height (blocks), of the palette sample, and the land height classes of the wall ratio (blocks). */
+    static final int WALL_INLAND = 64, SHOULDER_INLAND = 8, FACE_INLAND = 2, SHORELINE_REACH = 2 * GRID;
+    static final double WALL_LOW_LAND = 60, WALL_HIGH_LAND = 150;
+
+    /** Wall census of a box (see {@link WallCensus}); the boxes are {@code {x, z}} centres of 2 x radius blocks. */
+    static WallCensus wallCensus(GeneratorContext context, int[][] boxes, int radius) {
+        var continent = (RollingHighlandsContinent) context.heightmap.continent();
+        var coast = continent.coast();
+        var drowned = coast.drowned();
+        var land = drowned.land();
+        double coastEdge = context.preset.world().controlPoints.coast;
+        var ground = new ArrayList<Double>(); var shoulder = new ArrayList<Double>(); var landHeight = new ArrayList<Double>(); var rims = new ArrayList<Boolean>();
+        var climates = new ArrayList<Byte>(); var faces = new ArrayList<Boolean>(); var fjords = new ArrayList<Boolean>();
+        var cell = new Cell();
+        for (int[] box : boxes) {
+            // {x, z, unit gradient x, unit gradient z, distance to the shoreline}, split by the disc weight at the wall column
+            var plain = new ArrayList<double[]>(); var rimZone = new ArrayList<double[]>();
+            for (int[] at : armShore(context, box, radius)) {
+                double gx = coast.sample(at[0] + 8, at[1]).edge() - coast.sample(at[0] - 8, at[1]).edge(), gz = coast.sample(at[0], at[1] + 8).edge() - coast.sample(at[0], at[1] - 8).edge(), norm = Math.hypot(gx, gz);
+                if (norm == 0) continue;
+                gx /= norm; gz /= norm;
+                double reach = -1;
+                for (int s = 0; s <= SHORELINE_REACH && reach < 0; s++) if (coast.sample(at[0] + gx * s, at[1] + gz * s).edge() > coastEdge) reach = s;
+                if (reach < 0) continue;
+                (drowned.columnWeight(at[0] + gx * (reach + SHOULDER_INLAND), at[1] + gz * (reach + SHOULDER_INLAND)) <= 0 ? rimZone : plain).add(new double[]{at[0], at[1], gx, gz, reach});
+            }
+            for (var group : List.of(plain, rimZone)) {
+                int stride = Math.max(1, group.size() / WALL_TRANSECTS);
+                for (int k = 0; k < group.size(); k += stride) {
+                    double[] at = group.get(k);
+                    double wx = at[0] + at[2] * (at[4] + WALL_INLAND), wz = at[1] + at[3] * (at[4] + WALL_INLAND), fx = at[0] + at[2] * (at[4] + FACE_INLAND), fz = at[1] + at[3] * (at[4] + FACE_INLAND);
+                    ground.add(height(context, cell, wx, wz));
+                    shoulder.add(height(context, cell, at[0] + at[2] * (at[4] + SHOULDER_INLAND), at[1] + at[3] * (at[4] + SHOULDER_INLAND)));
+                    landHeight.add(land.height(wx, wz));
+                    rims.add(group == rimZone);
+                    context.heightmap.apply(cell.reset(), (int) Math.round(fx), (int) Math.round(fz), false);
+                    climates.add(cell.highlandCoastClimate);
+                    faces.add(cell.highlandCoast > .5);
+                    fjords.add(drowned.fjord(fx, fz) >= DROWNED_WEIGHT);
+                }
+            }
+        }
+        boolean[] rim = new boolean[rims.size()], face = new boolean[rims.size()], fjord = new boolean[rims.size()];
+        byte[] climate = new byte[rims.size()];
+        for (int k = 0; k < rim.length; k++) { rim[k] = rims.get(k); face[k] = faces.get(k); fjord[k] = fjords.get(k); climate[k] = climates.get(k); }
+        return new WallCensus(ground.stream().mapToDouble(Double::doubleValue).toArray(), shoulder.stream().mapToDouble(Double::doubleValue).toArray(), landHeight.stream().mapToDouble(Double::doubleValue).toArray(), rim, climate, face, fjord);
+    }
+
+    /**
      * Fjord shores: {@code samples} arm shore columns and the {@code cliff} ones among them (the shore profile's dominant
      * type); {@code mouths} river-water columns within {@link #MOUTH_WINDOW} blocks of a shore column that touch the sea
      * (a 4-block neighbour with the edge at or below the coast point) and {@code steps} of them whose river water surface
@@ -736,14 +877,20 @@ final class HighlandDrownedProbe {
     }
 
     /**
-     * Islands of a drowned scope in a box (11-06): land components (4-connected on the GRID lattice, not touching the box
-     * border, at least {@link #MIN_ISLAND} cells) with at least half of their cells in the scope (fjord weight, or ria weight
-     * where there is no fjord weight, at least {@link #DROWNED_WEIGHT}). Per island, sorted by nothing: equivalent diameter
-     * (blocks), top height and steepest lattice slope (real column lookups, blocks above water and per block), whether a
-     * channel plan node with the creek area or river water lies on it, and whether another island is within
-     * {@link #CHAIN_GAP}. {@code regionArea} is the scope's area (land and sea, blocks2).
+     * Islands of a drowned scope in a box (11-06, D-11-15-1): land components (4-connected on the GRID lattice, at least {@link #MIN_ISLAND} cells)
+     * with at least half of their cells in the scope (fjord weight, or ria weight where there is no fjord weight, at least {@link #DROWNED_WEIGHT}),
+     * measured WHOLE: the lattice is scanned over the box plus a padding margin, an island is counted once by its anchor (its first cell in row-major
+     * order) when the anchor lies inside the reporting box (so overlapping boxes dedupe by anchor, see {@link #poolIslands}), and a component that
+     * touches the padded border is never counted: one of at least {@link #MAINLAND_CELLS} cells is mainland-connected coast, a smaller one is
+     * {@code unresolved} (the padding doubles from {@link #ISLAND_PAD_START} to {@link #ISLAND_PAD_MAX} while any are left). Per island, sorted by nothing:
+     * equivalent diameter (blocks), length and width (extents along the principal axes of its cells, blocks), top height and steepest lattice slope (real
+     * column lookups, blocks above water and per block), whether a channel plan node with the creek area or river water lies on it, whether another
+     * island is within {@link #CHAIN_GAP}, and {@code interior} (the island the old census counted: no cell on the unpadded box border). {@code regionArea}
+     * is the scope's area in the box (land and sea, blocks2); {@code eligibleArea} the part of it in the island shelf window (standalone edge over the
+     * shelf edge and seaward of the coast gap) and {@code coastLength} the mainland shoreline in the scope (blocks).
      */
-    record Islands(int count, double[] diameters, double[] tops, double[] steepest, boolean[] chained, boolean[] creek, double regionArea) {
+    record Islands(int count, double[] diameters, double[] tops, double[] steepest, boolean[] chained, boolean[] creek, double regionArea,
+                   long[] anchors, double[] lengths, double[] widths, boolean[] interior, int unresolved, int pad, double eligibleArea, double coastLength, long nanos) {
         int under(double lo, double hi) {
             int n = 0;
             for (double d : diameters) if (d >= lo && d < hi) n++;
@@ -755,8 +902,20 @@ final class HighlandDrownedProbe {
             for (int k = 0; k < count; k++) if (creek[k] && diameters[k] >= lo && diameters[k] < hi) n++;
             return n;
         }
+        Islands withNanos(long elapsed) {
+            return new Islands(count, diameters, tops, steepest, chained, creek, regionArea, anchors, lengths, widths, interior, unresolved, pad, eligibleArea, coastLength, elapsed);
+        }
+        int interiorCount(double lo, double hi) {
+            int n = 0;
+            for (int k = 0; k < count; k++) if (interior[k] && diameters[k] >= lo && diameters[k] < hi) n++;
+            return n;
+        }
         double per25km2(double lo, double hi) { return regionArea > 0 ? under(lo, hi) * 25e6 / regionArea : Double.NaN; }
         double medianTop() { return Islands.median(tops); }
+        /** Median top of the islands of at least {@code minDiameter} blocks across (equivalent diameter), the like-sized population of D-11-15-3. */
+        double medianTop(double minDiameter) {
+            return Islands.median(IntStream.range(0, count).filter(k -> diameters[k] >= minDiameter).mapToDouble(k -> tops[k]).toArray());
+        }
         double medianSteepest() { return Islands.median(steepest); }
         private static double median(double[] values) {
             double[] sorted = values.clone();
@@ -768,38 +927,100 @@ final class HighlandDrownedProbe {
                 count, regionArea / 1e6, under(0, 300), under(300, 1000), under(1000, 3000), under(3000, Double.MAX_VALUE), per25km2(1000, 3000), chainedCount(),
                 creekCount(0, 1000), creekCount(1000, Double.MAX_VALUE), under(1000, Double.MAX_VALUE), medianTop(), medianSteepest());
         }
+        /** The census diagnostics (D-11-15-1): what the padding recovered, what is unresolved, the eligible window and the coast, the wall time. */
+        String diagnostics() {
+            int old = 0, oldBig = interiorCount(1000, 3000);
+            for (boolean in : interior) if (in) old++;
+            return String.format(Locale.ROOT, "census pad=%d unresolved=%d counted=%d (old rule %d, recovered %d) big(1-3km) %d (old rule %d) per25km2 old rule=%.2f; eligible shelf window %.1fkm2 of scope %.1fkm2, mainland coast in scope %.1fkm, %d ms",
+                pad, unresolved, count, old, count - old, under(1000, 3000), oldBig, regionArea > 0 ? oldBig * 25e6 / regionArea : Double.NaN, eligibleArea / 1e6, regionArea / 1e6, coastLength / 1e3, nanos / 1_000_000);
+        }
+        /** Length and width of every island of at least {@code minDiameter} blocks across (equivalent diameter): "diameter LxW" in blocks, longest first. */
+        String shapes(double minDiameter) {
+            var out = new ArrayList<String>();
+            Integer[] order = java.util.stream.IntStream.range(0, count).boxed().filter(k -> diameters[k] >= minDiameter).sorted((a, b) -> Double.compare(lengths[b], lengths[a])).toArray(Integer[]::new);
+            for (int k : order) out.add(String.format(Locale.ROOT, "%.0f(%.0fx%.0f%s)", diameters[k], lengths[k], widths[k], interior[k] ? "" : ",clipped"));
+            return out.toString();
+        }
     }
     /** Smallest island the census counts (lattice cells): smaller specks are noise of the lattice, not islands. */
     static final int MIN_ISLAND = 4;
+    /** Census padding (blocks): start and budget; a component of at least MAINLAND_CELLS lattice cells (10 km2) that touches the padded border is mainland-connected coast. */
+    static final int ISLAND_PAD_START = 2048, ISLAND_PAD_MAX = 4096, MAINLAND_CELLS = 39063;
 
+    /** Island census of a box (see {@link Islands}): padded whole-island scan, the padding doubling within its budget while components stay unresolved. */
     static Islands islands(GeneratorContext context, int originX, int originZ, int radius, boolean fjordScope) {
+        long started = System.nanoTime();
+        int pad = ISLAND_PAD_START;
+        Islands census = islandPass(context, originX, originZ, radius, fjordScope, pad);
+        while (census.unresolved() > 0 && pad < ISLAND_PAD_MAX) {
+            pad = Math.min(ISLAND_PAD_MAX, 2 * pad);
+            census = islandPass(context, originX, originZ, radius, fjordScope, pad);
+        }
+        return census.withNanos(System.nanoTime() - started);
+    }
+
+    private static Islands islandPass(GeneratorContext context, int originX, int originZ, int radius, boolean fjordScope, int pad) {
         var continent = (RollingHighlandsContinent) context.heightmap.continent();
         var coast = continent.coast();
         var drowned = coast.drowned();
-        double coastEdge = context.preset.world().controlPoints.coast;
-        int gw = 2 * radius / GRID + 1, x0 = originX - radius, z0 = originZ - radius;
-        boolean[] land = new boolean[gw * gw], scoped = new boolean[gw * gw];
+        double coastEdge = context.preset.world().controlPoints.coast, deepOcean = context.preset.world().controlPoints.deepOcean;
+        double windowEnd = coastEdge - HighlandDrowned.ISLAND_GAP * HighlandCoast.EDGE_PER_BLOCK;
+        int bw = 2 * radius / GRID + 1, margin = pad / GRID, gw = bw + 2 * margin, x0 = originX - radius - margin * GRID, z0 = originZ - radius - margin * GRID;
+        boolean[] land = new boolean[gw * gw], scoped = new boolean[gw * gw], eligible = new boolean[gw * gw];
         IntStream.range(0, gw).parallel().forEach(j -> {
             for (int i = 0; i < gw; i++) {
                 double x = x0 + i * GRID, z = z0 + j * GRID;
                 land[j * gw + i] = coast.sample(x, z).edge() > coastEdge;
                 double fjord = drowned.fjord(x, z);
                 scoped[j * gw + i] = fjordScope ? fjord >= DROWNED_WEIGHT : fjord < DROWNED_WEIGHT && drowned.ria(x, z) >= DROWNED_WEIGHT;
+                if (scoped[j * gw + i] && inBox(i, j, margin, bw)) {
+                    double standalone = coast.undrowned(x, z).edge();
+                    eligible[j * gw + i] = standalone > deepOcean && standalone < windowEnd;
+                }
             }
         });
-        double regionArea = 0;
-        for (boolean s : scoped) if (s) regionArea += (double) GRID * GRID;
+        double regionArea = 0, eligibleArea = 0;
+        for (int at = 0; at < land.length; at++) {
+            if (!scoped[at] || !inBox(at % gw, at / gw, margin, bw)) continue;
+            regionArea += (double) GRID * GRID;
+            if (eligible[at]) eligibleArea += (double) GRID * GRID;
+        }
         var parts = label(land, gw);
         boolean[] border = borderTouching(parts.id, gw, parts.area.length - 1);
-        int[] inScope = new int[parts.area.length];
-        for (int at = 0; at < land.length; at++) if (land[at] && scoped[at]) inScope[parts.id[at]]++;
+        int count0 = parts.area.length;
+        int[] inScope = new int[count0], anchor = new int[count0];
+        boolean[] touchesBox = new boolean[count0];
+        Arrays.fill(anchor, -1);
+        for (int at = 0; at < land.length; at++) {
+            if (!land[at]) continue;
+            int id = parts.id[at];
+            if (anchor[id] < 0) anchor[id] = at;
+            if (scoped[at]) inScope[id]++;
+            int i = at % gw, j = at / gw;
+            if (inBox(i, j, margin, bw) && (i == margin || j == margin || i == margin + bw - 1 || j == margin + bw - 1)) touchesBox[id] = true;
+        }
         var kept = new ArrayList<Integer>();
-        for (int id = 1; id < parts.area.length; id++) if (!border[id] && parts.area[id] >= MIN_ISLAND && inScope[id] * 2 >= parts.area[id]) kept.add(id);
+        int unresolved = 0;
+        for (int id = 1; id < count0; id++) {
+            if (parts.area[id] < MIN_ISLAND || inScope[id] * 2 < parts.area[id] || !inBox(anchor[id] % gw, anchor[id] / gw, margin, bw)) continue;
+            if (!border[id]) kept.add(id);
+            else if (parts.area[id] < MAINLAND_CELLS) unresolved++;
+        }
+        double coastLength = 0;
+        for (int at = 0; at < land.length; at++) {
+            int id = parts.id[at], i = at % gw, j = at / gw;
+            if (!land[at] || !scoped[at] || !border[id] || parts.area[id] < MAINLAND_CELLS || !inBox(i, j, margin, bw)) continue;
+            if (i > 0 && !land[at - 1]) coastLength += GRID;
+            if (i + 1 < gw && !land[at + 1]) coastLength += GRID;
+            if (j > 0 && !land[at - gw]) coastLength += GRID;
+            if (j + 1 < gw && !land[at + gw]) coastLength += GRID;
+        }
         int count = kept.size();
         var slot = new java.util.HashMap<Integer, Integer>();
         for (int k = 0; k < count; k++) slot.put(kept.get(k), k);
-        double[] diameters = new double[count], tops = new double[count], steepest = new double[count];
-        boolean[] chained = new boolean[count], creek = new boolean[count];
+        double[] diameters = new double[count], tops = new double[count], steepest = new double[count], lengths = new double[count], widths = new double[count];
+        boolean[] chained = new boolean[count], creek = new boolean[count], interior = new boolean[count];
+        long[] anchors = new long[count];
         var cell = new Cell();
         double[] heights = new double[gw * gw];
         Arrays.fill(heights, Double.NaN);
@@ -840,7 +1061,13 @@ final class HighlandDrownedProbe {
                 break search;
             }
         }
-        for (int k = 0; k < count; k++) diameters[k] = 2 * Math.sqrt(parts.area[kept.get(k)] * (double) GRID * GRID / Math.PI);
+        for (int k = 0; k < count; k++) {
+            int id = kept.get(k);
+            diameters[k] = 2 * Math.sqrt(parts.area[id] * (double) GRID * GRID / Math.PI);
+            anchors[k] = ((long) (x0 + anchor[id] % gw * GRID) << 32) ^ ((z0 + anchor[id] / gw * GRID) & 0xffffffffL);
+            interior[k] = !touchesBox[id];
+        }
+        shapes(parts.id, gw, slot, lengths, widths);
         // Channel plan nodes with at least the creek area: a drawn creek (or river) on the island.
         double creekArea = continent.drainage().creekArea();
         for (var cells : byOwner.values()) {
@@ -854,7 +1081,39 @@ final class HighlandDrownedProbe {
                 if (k != null && land[j * gw + i]) creek[k] = true;
             }
         }
-        return new Islands(count, diameters, tops, steepest, chained, creek, regionArea);
+        return new Islands(count, diameters, tops, steepest, chained, creek, regionArea, anchors, lengths, widths, interior, unresolved, pad, eligibleArea, coastLength, 0);
+    }
+
+    /** Whether lattice cell (i, j) of a padded scan lies in the reporting box (the {@code bw}-cell square inside {@code margin} cells of padding). */
+    private static boolean inBox(int i, int j, int margin, int bw) {
+        return i >= margin && j >= margin && i < margin + bw && j < margin + bw;
+    }
+
+    /** Length and width (blocks) of the islands of {@code slot}: the extents of their cells along the principal axes, a cell counting its {@link #GRID} width. */
+    private static void shapes(int[] id, int gw, java.util.Map<Integer, Integer> slot, double[] lengths, double[] widths) {
+        int n = lengths.length;
+        double[] cnt = new double[n], sx = new double[n], sy = new double[n], sxx = new double[n], syy = new double[n], sxy = new double[n];
+        for (int at = 0; at < id.length; at++) {
+            Integer k = slot.get(id[at]);
+            if (k == null || id[at] == 0) continue;
+            double x = at % gw, y = at / gw;
+            cnt[k]++; sx[k] += x; sy[k] += y; sxx[k] += x * x; syy[k] += y * y; sxy[k] += x * y;
+        }
+        double[] cos = new double[n], sin = new double[n], lo = new double[n], hi = new double[n], loB = new double[n], hiB = new double[n];
+        for (int k = 0; k < n; k++) {
+            double mx = sx[k] / cnt[k], my = sy[k] / cnt[k], vx = sxx[k] / cnt[k] - mx * mx, vy = syy[k] / cnt[k] - my * my, c = sxy[k] / cnt[k] - mx * my;
+            double angle = .5 * Math.atan2(2 * c, vx - vy);
+            cos[k] = Math.cos(angle); sin[k] = Math.sin(angle);
+            lo[k] = loB[k] = Double.MAX_VALUE; hi[k] = hiB[k] = -Double.MAX_VALUE;
+        }
+        for (int at = 0; at < id.length; at++) {
+            Integer k = slot.get(id[at]);
+            if (k == null || id[at] == 0) continue;
+            double x = at % gw, y = at / gw, along = x * cos[k] + y * sin[k], across = -x * sin[k] + y * cos[k];
+            lo[k] = Math.min(lo[k], along); hi[k] = Math.max(hi[k], along);
+            loB[k] = Math.min(loB[k], across); hiB[k] = Math.max(hiB[k], across);
+        }
+        for (int k = 0; k < n; k++) { lengths[k] = (hi[k] - lo[k] + 1) * GRID; widths[k] = (hiB[k] - loB[k] + 1) * GRID; }
     }
 
     /**
@@ -933,18 +1192,24 @@ final class HighlandDrownedProbe {
         return new OpenIslands(islands, fullOwners, inFull, belowGuard, outOfBounds);
     }
 
-    /** One island census over several boxes: lists concatenated, region areas summed. */
+    /** One island census over several boxes: lists concatenated (an island whose anchor appears in two overlapping boxes counted once), region areas summed. */
     static Islands poolIslands(List<Islands> parts) {
-        int count = parts.stream().mapToInt(Islands::count).sum();
-        boolean[] chained = new boolean[count], creek = new boolean[count];
-        int at = 0;
-        for (var part : parts) {
-            System.arraycopy(part.chained(), 0, chained, at, part.count());
-            System.arraycopy(part.creek(), 0, creek, at, part.count());
-            at += part.count();
+        var seen = new java.util.HashSet<Long>();
+        var from = new ArrayList<int[]>();
+        for (int p = 0; p < parts.size(); p++) for (int k = 0; k < parts.get(p).count(); k++) if (seen.add(parts.get(p).anchors()[k])) from.add(new int[] {p, k});
+        int count = from.size();
+        double[] diameters = new double[count], tops = new double[count], steepest = new double[count], lengths = new double[count], widths = new double[count];
+        boolean[] chained = new boolean[count], creek = new boolean[count], interior = new boolean[count];
+        long[] anchors = new long[count];
+        for (int n = 0; n < count; n++) {
+            var part = parts.get(from.get(n)[0]);
+            int k = from.get(n)[1];
+            diameters[n] = part.diameters()[k]; tops[n] = part.tops()[k]; steepest[n] = part.steepest()[k]; lengths[n] = part.lengths()[k]; widths[n] = part.widths()[k];
+            chained[n] = part.chained()[k]; creek[n] = part.creek()[k]; interior[n] = part.interior()[k]; anchors[n] = part.anchors()[k];
         }
-        return new Islands(count, parts.stream().flatMapToDouble(p -> Arrays.stream(p.diameters())).toArray(), parts.stream().flatMapToDouble(p -> Arrays.stream(p.tops())).toArray(),
-            parts.stream().flatMapToDouble(p -> Arrays.stream(p.steepest())).toArray(), chained, creek, parts.stream().mapToDouble(Islands::regionArea).sum());
+        return new Islands(count, diameters, tops, steepest, chained, creek, parts.stream().mapToDouble(Islands::regionArea).sum(), anchors, lengths, widths, interior,
+            parts.stream().mapToInt(Islands::unresolved).sum(), parts.stream().mapToInt(Islands::pad).max().orElse(0), parts.stream().mapToDouble(Islands::eligibleArea).sum(),
+            parts.stream().mapToDouble(Islands::coastLength).sum(), parts.stream().mapToLong(Islands::nanos).sum());
     }
 
     private static double height(GeneratorContext context, Cell cell, double x, double z) {
@@ -984,6 +1249,800 @@ final class HighlandDrownedProbe {
             if (ni >= 0 && nj >= 0 && ni < w && nj < w && arm[nj * w + ni]) best = Math.max(best, dLand[nj * w + ni]);
         }
         return best;
+    }
+
+    /**
+     * A medial pixel of flooded land that is farther from a plan0 coastal axis than its local half width: its world position, the
+     * distance to the nearest axis (infinite when none is within reach) and the half width, in blocks.
+     */
+    record Outlier(int x, int z, double distance, double halfWidth) {}
+
+    /**
+     * D-GC2 fidelity of flooded land against the plan0 valleys on one box. Flooded land is land of the standalone coast that is sea on
+     * the bound coast (arms, with their basins and sounds); chamfer distance to dry cells gives the local half width; medial pixels are
+     * flooded pixels at least {@link #FIDELITY_MIN_DISTANCE} cells from dry land that no 8-neighbour exceeds, except those whose distance
+     * circle reaches the box border (their true maximum may lie outside; counted in {@code clipped}). A medial pixel is {@code within} when
+     * the nearest plan0 coastal axis of its owner is at most its half width away. A component of at least {@link #FIDELITY_MIN_COMPONENT}
+     * pixels maps to the physical branches ("reaches", owner/branch id) of the axes its passing medial pixels lie on; a fringe (a
+     * component with no medial pixel, thinner than four pixels, a shoreline sliver) has no medial axis and maps to the reach of the nearest axis
+     * whose arm reach (its index radius, the widest half width the arm can have) holds one of its local maxima; a component with no usable
+     * pixel (all clipped by the border), or with a clipped medial pixel and no mapped one (11-13: a wide basin cut by the border leaves only its
+     * narrow tongue inside, whose medial pixels cannot stand for the body outside), is {@code clippedComponents}, exempt: its pixels count neither
+     * as medial nor as within. {@code mapping} has one line per component, {@code unmapped} counts those without a reach.
+     */
+    record Fidelity(int boxX, int boxZ, int medial, int within, int clipped, int components, int unmapped, int clippedComponents,
+                    List<Outlier> outliers, List<String> mapping, java.util.Set<String> reaches) {
+        double share() { return within / (double) Math.max(1, medial); }
+        String summary(String label) {
+            return String.format(Locale.ROOT, "fidelity %s box %d,%d: medial=%d (%.1f km) within=%d share=%.3f outliers=%d clippedMedial=%d components=%d unmapped=%d clippedComponents=%d reaches=%d",
+                label, boxX, boxZ, medial, medial * (double) FIDELITY_PIXEL / 1000, within, share(), outliers.size(), clipped, components, unmapped, clippedComponents, reaches.size());
+        }
+    }
+    static final int FIDELITY_PIXEL = 8, FIDELITY_MIN_COMPONENT = 4, FIDELITY_MIN_DISTANCE = 2;
+
+    static Fidelity fidelity(GeneratorContext context, int originX, int originZ, int radius) {
+        var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+        var drowned = coast.drowned();
+        var standalone = new HighlandCoast(context);
+        double coastEdge = context.preset.world().controlPoints.coast;
+        int p = FIDELITY_PIXEL, w = 2 * radius / p + 1, x0 = originX - radius, z0 = originZ - radius;
+        boolean[] flooded = new boolean[w * w], dry = new boolean[w * w];
+        IntStream.range(0, w).parallel().forEach(j -> {
+            for (int i = 0; i < w; i++) {
+                double x = x0 + i * p, z = z0 + j * p;
+                flooded[j * w + i] = standalone.sample(x, z).edge() > coastEdge && coast.sample(x, z).edge() <= coastEdge;
+                dry[j * w + i] = !flooded[j * w + i];
+            }
+        });
+        float[] d = distanceToLand(dry, w);
+        var parts = label(flooded, w);
+        boolean[] big = new boolean[parts.area.length], hasMedial = new boolean[parts.area.length], usable = new boolean[parts.area.length], mapped = new boolean[parts.area.length], cut = new boolean[parts.area.length];
+        int[] medialOf = new int[parts.area.length], withinOf = new int[parts.area.length];
+        var outlierIds = new ArrayList<Integer>();
+        int components = 0;
+        for (int id = 1; id < big.length; id++) if (parts.area[id] >= FIDELITY_MIN_COMPONENT) { big[id] = true; components++; }
+        boolean[] localMax = new boolean[w * w];
+        for (int at = 0; at < flooded.length; at++) {
+            if (!flooded[at] || !big[parts.id[at]] || d[at] < 1 || !fidelityMax(d, flooded, w, at)) continue;
+            localMax[at] = true;
+            if (d[at] >= FIDELITY_MIN_DISTANCE) hasMedial[parts.id[at]] = true;
+        }
+        var reachOf = new java.util.TreeMap<Integer, java.util.TreeSet<String>>();
+        var all = new java.util.TreeSet<String>();
+        var outliers = new ArrayList<Outlier>();
+        int medial = 0, within = 0, clipped = 0;
+        for (int at = 0; at < localMax.length; at++) {
+            if (!localMax[at]) continue;
+            int id = parts.id[at], i = at % w, j = at / w;
+            boolean isMedial = d[at] >= FIDELITY_MIN_DISTANCE;
+            if (!isMedial && hasMedial[id]) continue;
+            if (Math.min(Math.min(i, j), Math.min(w - 1 - i, w - 1 - j)) < d[at] + 1) { if (isMedial) { clipped++; cut[id] = true; } continue; }
+            double x = x0 + i * p, z = z0 + j * p, halfWidth = d[at] * p, nearest = Double.POSITIVE_INFINITY;
+            var site = coast.undrowned(x, z);
+            var arms = drowned.arms(site.ownerX(), site.ownerZ());
+            var hits = arms.query(x, z);
+            int reach = -1;
+            for (int k = 0; k < hits.count; k++) if (hits.distance[k] < nearest) { nearest = hits.distance[k]; reach = arms.reach[hits.segment[k]]; }
+            boolean pass = isMedial ? nearest <= halfWidth : nearest < Double.POSITIVE_INFINITY;
+            usable[id] = true;
+            if (isMedial) {
+                medial++; medialOf[id]++;
+                if (pass) { within++; withinOf[id]++; } else { outliers.add(new Outlier((int) x, (int) z, nearest, halfWidth)); outlierIds.add(id); }
+            }
+            if (pass) {
+                mapped[id] = true;
+                String key = site.ownerX() + "," + site.ownerZ() + "/" + reach;
+                reachOf.computeIfAbsent(id, k -> new java.util.TreeSet<>()).add(key);
+                all.add(key);
+            }
+        }
+        var mapping = new ArrayList<String>();
+        int unmapped = 0, clippedComponents = 0;
+        long[] sumX = new long[big.length], sumZ = new long[big.length];
+        for (int at = 0; at < flooded.length; at++) if (flooded[at]) { sumX[parts.id[at]] += at % w; sumZ[parts.id[at]] += at / w; }
+        for (int id = 1; id < big.length; id++) {
+            if (!big[id]) continue;
+            String where = String.format(Locale.ROOT, "%d,%d pixels=%d", x0 + (int) (sumX[id] / parts.area[id]) * p, z0 + (int) (sumZ[id] / parts.area[id]) * p, parts.area[id]);
+            if (!usable[id] || (!mapped[id] && cut[id])) {
+                clippedComponents++; medial -= medialOf[id]; within -= withinOf[id]; // judged by nobody: its pixels count neither for nor against
+                for (int k = outlierIds.size() - 1; k >= 0; k--) if (outlierIds.get(k) == id) { outliers.remove(k); outlierIds.remove(k); }
+                mapping.add("component at " + where + " clipped by the box border (exempt)");
+                continue;
+            }
+            if (!mapped[id]) unmapped++;
+            mapping.add("component at " + where + " reaches " + reachOf.getOrDefault(id, new java.util.TreeSet<>()) + (mapped[id] ? "" : " UNMAPPED"));
+        }
+        outliers.sort(Comparator.comparingDouble(Outlier::distance).reversed());
+        return new Fidelity(originX, originZ, medial, within, clipped, components, unmapped, clippedComponents, outliers, mapping, all);
+    }
+
+    /** True when no in-box 8-neighbour of a flooded cell has a larger distance (a medial plateau cell counts). */
+    private static boolean fidelityMax(float[] d, boolean[] flooded, int w, int at) {
+        int i = at % w, j = at / w;
+        for (int dj = -1; dj <= 1; dj++) for (int di = -1; di <= 1; di++) {
+            int ni = i + di, nj = j + dj;
+            if ((di == 0 && dj == 0) || ni < 0 || nj < 0 || ni >= w || nj >= w) continue;
+            if (flooded[nj * w + ni] && d[nj * w + ni] > d[at]) return false;
+        }
+        return true;
+    }
+
+    /** Pooled census of several boxes: counts summed, outliers and mapping lines concatenated. */
+    static Fidelity poolFidelity(List<Fidelity> parts) {
+        int medial = 0, within = 0, clipped = 0, components = 0, unmapped = 0, clippedComponents = 0;
+        var outliers = new ArrayList<Outlier>();
+        var mapping = new ArrayList<String>();
+        var reaches = new java.util.TreeSet<String>();
+        for (var part : parts) {
+            medial += part.medial; within += part.within; clipped += part.clipped; components += part.components; unmapped += part.unmapped;
+            clippedComponents += part.clippedComponents; outliers.addAll(part.outliers); mapping.addAll(part.mapping); reaches.addAll(part.reaches);
+        }
+        return new Fidelity(0, 0, medial, within, clipped, components, unmapped, clippedComponents, outliers, mapping, reaches);
+    }
+
+    /**
+     * Regions that flood at least {@code minFlooded} pixels (16 blocks) around the given 8 km box centres: the dominant ria or fjord
+     * region on a 500-block lattice. (Copied from the untracked DrownedShapeProbe, which scans the whole server window.)
+     */
+    static List<HighlandDrowned.Region> floodingRegions(GeneratorContext context, int[][] boxes, int radius, int minFlooded) {
+        return floodingRegions(context, boxes, radius, minFlooded, 16);
+    }
+
+    /** As above, counting the flooded pixels of a region on a {@code step}-block lattice (scaled to 16-block pixels), for wide windows. */
+    static List<HighlandDrowned.Region> floodingRegions(GeneratorContext context, int[][] boxes, int radius, int minFlooded, int step) {
+        var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+        double coastEdge = context.preset.world().controlPoints.coast, scale = (step / 16.) * (step / 16.);
+        var set = new java.util.LinkedHashSet<HighlandDrowned.Region>();
+        for (int[] box : boxes) for (double z = box[1] - radius; z <= box[1] + radius; z += 500) for (double x = box[0] - radius; x <= box[0] + radius; x += 500) {
+            var r = coast.drowned().dominant(x, z, false);
+            if (r != null && regionWeight(r, x, z) > .5) set.add(r);
+        }
+        var out = new ArrayList<HighlandDrowned.Region>();
+        for (var r : set) {
+            int n = 0;
+            for (double z = r.cz() - r.radius(); z <= r.cz() + r.radius(); z += step) for (double x = r.cx() - r.radius(); x <= r.cx() + r.radius(); x += step) {
+                if (Math.hypot(x - r.cx(), z - r.cz()) > r.radius()) continue;
+                if (coast.sample(x, z).edge() <= coastEdge && coast.undrowned(x, z).edge() > coastEdge) n++;
+            }
+            if (n * scale >= minFlooded) out.add(r);
+        }
+        return out;
+    }
+
+    /**
+     * Land between arms (11-14, G-11-4): transects every {@link #STRIP_LINE} blocks along both axes of a box on a {@link #STRIP_STEP}-block
+     * lattice. A run is land (bound coast) between two flooded columns (sea on the bound coast, land on the unbound one) with nothing but that land
+     * between them. Per run: its width, whether it is mainland (the unbound coast is land at its middle) or a raised island, its scope (FJORD
+     * where the fjord weight there is above 0 and at least the ria weight, else RIA) and, for runs of at most {@link #STRIP_PEAK_MAX} blocks, the
+     * peak ground (blocks above sea level, real column lookups) over up to {@link #STRIP_PEAK_POINTS} points along it (the diagnosis method of the
+     * untracked DrownedShapeProbe.strips()).
+     */
+    record Strip(double width, boolean mainland, boolean fjord, double peak, double x, double z) {}
+    static final int STRIP_LINE = 32, STRIP_STEP = 4, STRIP_PEAK_MAX = 150, STRIP_PEAK_POINTS = 12;
+
+    static List<Strip> strips(GeneratorContext context, int[][] boxes, int radius) {
+        var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+        var drowned = coast.drowned();
+        double coastEdge = context.preset.world().controlPoints.coast;
+        var found = new java.util.concurrent.ConcurrentLinkedQueue<Strip>();
+        int n = 2 * radius / STRIP_STEP + 1, lines = 2 * radius / STRIP_LINE + 1;
+        for (int[] box : boxes) {
+            IntStream.range(0, 2 * lines).parallel().forEach(line -> {
+                boolean alongX = line < lines;
+                double across = (alongX ? box[1] : box[0]) - radius + (line % lines) * STRIP_LINE;
+                var cell = new Cell();
+                int state = 0, start = 0;
+                for (int k = 0; k < n; k++) {
+                    double along = (alongX ? box[0] : box[1]) - radius + k * STRIP_STEP;
+                    double x = alongX ? along : across, z = alongX ? across : along;
+                    double edge = coast.sample(x, z).edge();
+                    boolean land = edge > coastEdge, flooded = !land && edge > 0 && coast.undrowned(x, z).edge() > coastEdge;
+                    if (flooded) {
+                        if (state == 2) found.add(strip(context, coast, drowned, cell, alongX, across, box, radius, start, k, coastEdge));
+                        state = 1;
+                    } else if (!land) state = 0;
+                    else if (state == 1) { state = 2; start = k; }
+                }
+            });
+        }
+        return new ArrayList<>(found);
+    }
+
+    private static Strip strip(GeneratorContext context, HighlandCoast coast, HighlandDrowned drowned, Cell cell, boolean alongX, double across, int[] box, int radius, int start, int end, double coastEdge) {
+        double first = (alongX ? box[0] : box[1]) - radius + start * STRIP_STEP, width = (end - start) * (double) STRIP_STEP, mid = first + width / 2;
+        double mx = alongX ? mid : across, mz = alongX ? across : mid;
+        boolean mainland = coast.undrowned(mx, mz).edge() > coastEdge;
+        double fjord = drowned.fjord(mx, mz), ria = drowned.ria(mx, mz), peak = Double.NaN;
+        if (width <= STRIP_PEAK_MAX) {
+            peak = Double.NEGATIVE_INFINITY;
+            for (int p = 0; p < STRIP_PEAK_POINTS; p++) {
+                double a = first + (p + .5) * width / STRIP_PEAK_POINTS;
+                peak = Math.max(peak, height(context, cell, alongX ? a : across, alongX ? across : a));
+            }
+        }
+        return new Strip(width, mainland, fjord > 0 && fjord >= ria, peak, mx, mz);
+    }
+
+    /**
+     * Leftover knolls (11-14, G-11-2 e): land components of a box on a {@code step}-block lattice that do not touch the box border, are under 1 km2
+     * and at least {@link #KNOLL_MIN_CELLS} cells, are walled in by flooded sea (at least 95% of the sea cells beside them flooded), are standing land of
+     * the unbound coast (at least 90% of their cells; a raised island, chain or open-sea, is land only where the unbound coast is sea, and the island weight
+     * fields {@code island()} and {@code openIsland()} are above 0 beyond the windowed raise, so they cannot be the test) and lie outside sound
+     * basins (within {@code SOUND_RADIUS} of a sound centre). Each is reported as
+     * {@code x,z area}, the centroid and its area in blocks2.
+     */
+    static final int KNOLL_MIN_CELLS = 4;
+    static final double KNOLL_MAX_AREA = 1e6;
+
+    /** The knolls of a box and how the small land components (not on the border, under 1 km2) were sorted: {@code candidates}, those raised (island chain or open sea), those not walled in by flooded sea, those in a sound basin. */
+    record Knolls(List<double[]> found, int candidates, int raised, int notWalled, int inSound) {}
+
+    static Knolls knolls(GeneratorContext context, int originX, int originZ, int radius, int step) {
+        var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+        var drowned = coast.drowned();
+        double coastEdge = context.preset.world().controlPoints.coast;
+        int w = 2 * radius / step + 1, x0 = originX - radius, z0 = originZ - radius;
+        boolean[] land = new boolean[w * w], flooded = new boolean[w * w];
+        IntStream.range(0, w).parallel().forEach(j -> {
+            for (int i = 0; i < w; i++) {
+                double x = x0 + i * step, z = z0 + j * step, edge = coast.sample(x, z).edge();
+                land[j * w + i] = edge > coastEdge;
+                flooded[j * w + i] = edge > 0 && edge <= coastEdge && coast.undrowned(x, z).edge() > coastEdge;
+            }
+        });
+        var parts = label(land, w);
+        boolean[] border = borderTouching(parts.id, w, parts.area.length - 1);
+        int count = parts.area.length - 1;
+        long[] sea = new long[count + 1], floodedSea = new long[count + 1];
+        double[] sx = new double[count + 1], sz = new double[count + 1];
+        int[] standalone = new int[count + 1];
+        for (int at = 0; at < land.length; at++) {
+            int id = parts.id[at];
+            if (id == 0 || border[id] || parts.area[id] < KNOLL_MIN_CELLS || parts.area[id] * (double) step * step >= KNOLL_MAX_AREA) continue;
+            int i = at % w, j = at / w;
+            double x = x0 + i * step, z = z0 + j * step;
+            sx[id] += x; sz[id] += z;
+            if (coast.undrowned(x, z).edge() > coastEdge) standalone[id]++;
+            for (int k = 0; k < 4; k++) {
+                int ni = i + (k == 0 ? 1 : k == 1 ? -1 : 0), nj = j + (k == 2 ? 1 : k == 3 ? -1 : 0);
+                if (land[nj * w + ni]) continue; // a component off the border has all four neighbours in the lattice
+                sea[id]++;
+                if (flooded[nj * w + ni]) floodedSea[id]++;
+            }
+        }
+        var found = new ArrayList<double[]>();
+        int candidates = 0, raisedCount = 0, notWalled = 0, inSound = 0;
+        for (int id = 1; id <= count; id++) {
+            if (border[id] || parts.area[id] < KNOLL_MIN_CELLS || parts.area[id] * (double) step * step >= KNOLL_MAX_AREA) continue;
+            candidates++;
+            if (standalone[id] < .9 * parts.area[id]) { raisedCount++; continue; }
+            if (floodedSea[id] < .95 * sea[id]) { notWalled++; continue; }
+            double cx = sx[id] / parts.area[id], cz = sz[id] / parts.area[id];
+            var sound = drowned.dominant(cx, cz, true);
+            if (sound != null && !Double.isNaN(sound.soundX()) && Math.hypot(cx - sound.soundX(), cz - sound.soundZ()) < HighlandDrowned.SOUND_RADIUS) { inSound++; continue; }
+            found.add(new double[] {cx, cz, parts.area[id] * (double) step * step});
+        }
+        return new Knolls(found, candidates, raisedCount, notWalled, inSound);
+    }
+
+    /** Rim census (11-13): rays from a region's centre, the step along a ray, and how far out (in region radii) the outermost flooded land is looked for; a ray counts when it has flooded land beyond half a radius. */
+    static final int RIM_RAYS = 80, RIM_STEP = 8;
+    static final double RIM_FAR = 1.4;
+
+    /**
+     * {@code rays}: rays with flooded land beyond half a radius; {@code mean}, {@code sd}: the outermost flooded-land radius over those
+     * rays, in radii of the region. A flooded column (land on the standalone coast, sea on the bound one) counts for the region with the
+     * largest effective weight there, so a neighbouring region's flood is not taken for this region's rim.
+     */
+    record Rim(int rays, double mean, double sd) {}
+
+    static Rim rim(GeneratorContext context, HighlandDrowned.Region r) {
+        var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+        double coastEdge = context.preset.world().controlPoints.coast;
+        double[] reach = new double[RIM_RAYS];
+        IntStream.range(0, RIM_RAYS).parallel().forEach(k -> {
+            double angle = 2 * Math.PI * k / RIM_RAYS, cos = Math.cos(angle), sin = Math.sin(angle), best = -1;
+            for (double d = .3 * r.radius(); d <= RIM_FAR * r.radius(); d += RIM_STEP) {
+                double x = r.cx() + d * cos, z = r.cz() + d * sin;
+                if (!(coast.sample(x, z).edge() <= coastEdge && coast.undrowned(x, z).edge() > coastEdge)) continue;
+                var owner = coast.drowned().dominant(x, z, false);
+                if (owner != null && owner.i() == r.i() && owner.j() == r.j()) best = d;
+            }
+            reach[k] = best > .5 * r.radius() ? best / r.radius() : Double.NaN;
+        });
+        double[] found = Arrays.stream(reach).filter(v -> !Double.isNaN(v)).toArray();
+        double mean = Arrays.stream(found).average().orElse(0), sd = Math.sqrt(Arrays.stream(found).map(v -> (v - mean) * (v - mean)).average().orElse(0));
+        return new Rim(found.length, mean, sd);
+    }
+
+    /** Every region (flooding or not) whose disc weight is above .5 somewhere on a 500-block lattice around the box centres. */
+    static List<HighlandDrowned.Region> regionsAround(GeneratorContext context, int[][] boxes, int radius) {
+        var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+        var set = new java.util.LinkedHashSet<HighlandDrowned.Region>();
+        for (int[] box : boxes) for (double z = box[1] - radius; z <= box[1] + radius; z += 500) for (double x = box[0] - radius; x <= box[0] + radius; x += 500) {
+            var r = coast.drowned().dominant(x, z, false);
+            if (r != null && regionWeight(r, x, z) > .5) set.add(r);
+        }
+        return new ArrayList<>(set);
+    }
+
+    /**
+     * Island fields (11-15, G-11-2 b): the outermost raised-island radius over {@link #RIM_RAYS} rays from a region's centre (as {@link #rim}, a ray counts
+     * when it has island land beyond half a radius), and the radial distribution of raised-island land. Raised island land is land on the bound coast that
+     * is sea on the unbound one (diagnosis ringStats()). An island column counts for the region with the largest effective weight there.
+     */
+    static Rim islandRim(GeneratorContext context, HighlandDrowned.Region r) {
+        var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+        double coastEdge = context.preset.world().controlPoints.coast;
+        double[] reach = new double[RIM_RAYS];
+        IntStream.range(0, RIM_RAYS).parallel().forEach(k -> {
+            double angle = 2 * Math.PI * k / RIM_RAYS, cos = Math.cos(angle), sin = Math.sin(angle), best = -1;
+            for (double d = .3 * r.radius(); d <= RIM_FAR * r.radius(); d += RIM_STEP) {
+                double x = r.cx() + d * cos, z = r.cz() + d * sin;
+                if (!(coast.sample(x, z).edge() > coastEdge && coast.undrowned(x, z).edge() <= coastEdge)) continue;
+                var owner = coast.drowned().dominant(x, z, false);
+                if (owner != null && owner.i() == r.i() && owner.j() == r.j()) best = d;
+            }
+            reach[k] = best > .5 * r.radius() ? best / r.radius() : Double.NaN;
+        });
+        double[] found = Arrays.stream(reach).filter(v -> !Double.isNaN(v)).toArray();
+        double mean = Arrays.stream(found).average().orElse(0), sd = Math.sqrt(Arrays.stream(found).map(v -> (v - mean) * (v - mean)).average().orElse(0));
+        return new Rim(found.length, mean, sd);
+    }
+
+    /** Share of raised-island land per tenth of a region radius (index 0 is 0 to .1 R) on a 12-block lattice over the nominal disc. */
+    static double[] islandBands(GeneratorContext context, HighlandDrowned.Region r) {
+        var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+        double coastEdge = context.preset.world().controlPoints.coast;
+        int[] land = new int[10], total = new int[10];
+        int step = 12, n = (int) (2 * r.radius() / step) + 1;
+        double x0 = r.cx() - r.radius(), z0 = r.cz() - r.radius();
+        int[][] part = new int[n][20];
+        IntStream.range(0, n).parallel().forEach(j -> {
+            for (int i = 0; i < n; i++) {
+                double x = x0 + i * step, z = z0 + j * step, d = Math.hypot(x - r.cx(), z - r.cz()) / r.radius();
+                if (d >= 1) continue;
+                int band = (int) (d * 10);
+                part[j][band]++;
+                if (coast.sample(x, z).edge() > coastEdge && coast.undrowned(x, z).edge() <= coastEdge) part[j][10 + band]++;
+            }
+        });
+        for (int[] row : part) for (int b = 0; b < 10; b++) { total[b] += row[b]; land[b] += row[10 + b]; }
+        double[] share = new double[10];
+        for (int b = 0; b < 10; b++) share[b] = total[b] > 0 ? (double) land[b] / total[b] : 0;
+        return share;
+    }
+
+    /** Annulus of the angular coverage census, as fractions of a region radius. */
+    static final double SECTOR_FROM = .3, SECTOR_TO = .9;
+
+    /**
+     * Angular coverage of island land (11-15, D-11-15-2): the annulus {@link #SECTOR_FROM} to {@link #SECTOR_TO} R of a region cut into {@code rings} concentric
+     * rings and {@code sectors} bearing sectors, on a 12-block lattice; per (ring, sector) cell the share of its lattice points that are raised-island land
+     * (as {@link #islandBands}). A closed ring of island land fills one ring in every sector; a broken field does not.
+     */
+    static double[][] islandCoverage(GeneratorContext context, HighlandDrowned.Region r, int rings, int sectors) {
+        var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+        double coastEdge = context.preset.world().controlPoints.coast;
+        int step = 12, n = (int) (2 * SECTOR_TO * r.radius() / step) + 1, cells = rings * sectors;
+        double x0 = r.cx() - SECTOR_TO * r.radius(), z0 = r.cz() - SECTOR_TO * r.radius();
+        int[][] part = new int[n][2 * cells];
+        IntStream.range(0, n).parallel().forEach(j -> {
+            for (int i = 0; i < n; i++) {
+                double x = x0 + i * step, z = z0 + j * step, d = Math.hypot(x - r.cx(), z - r.cz()) / r.radius();
+                if (d < SECTOR_FROM || d >= SECTOR_TO) continue;
+                int ring = Math.min(rings - 1, (int) ((d - SECTOR_FROM) / (SECTOR_TO - SECTOR_FROM) * rings));
+                int sector = Math.min(sectors - 1, (int) ((Math.atan2(z - r.cz(), x - r.cx()) + Math.PI) / (2 * Math.PI) * sectors));
+                part[j][ring * sectors + sector]++;
+                if (coast.sample(x, z).edge() > coastEdge && coast.undrowned(x, z).edge() <= coastEdge) part[j][cells + ring * sectors + sector]++;
+            }
+        });
+        double[][] share = new double[rings][sectors];
+        for (int c = 0; c < cells; c++) {
+            int total = 0, land = 0;
+            for (int[] row : part) { total += row[c]; land += row[cells + c]; }
+            share[c / sectors][c % sectors] = total > 0 ? (double) land / total : 0;
+        }
+        return share;
+    }
+
+    /**
+     * The longest unbroken arc of a coverage matrix ({@link #islandCoverage}): the most consecutive bearing sectors (cyclic) of ONE ring whose island share is
+     * at least {@code cover}. A closed ring of island land is an arc of every sector the shelf window reaches; a broken field is many short arcs.
+     */
+    static int longestArc(double[][] coverage, double cover) {
+        int best = 0;
+        for (double[] ring : coverage) {
+            int n = ring.length, start = -1;
+            for (int k = 0; k < n; k++) if (ring[k] < cover) { start = k; break; }
+            if (start < 0) { best = Math.max(best, n); continue; }
+            int run = 0;
+            for (int k = 1; k <= n; k++) {
+                if (ring[(start + k) % n] >= cover) best = Math.max(best, ++run);
+                else run = 0;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * Ruler-line islands (11-15, G-11-4): raised-island components of a box on a {@code step}-block lattice (4-connected, not touching the border) with their
+     * width (twice the largest chamfer distance to the sea, blocks) and length (area over width); a ruler line is one at most {@link #RULER_WIDTH} wide and
+     * at least {@link #RULER_LENGTH} long (diagnosis slivers(): 26 chain islands at 34272,-12747). {@code found} lists them as {x, z, width, length}.
+     */
+    record Rulers(int components, List<double[]> found) {}
+    static final double RULER_WIDTH = 80, RULER_LENGTH = 300;
+
+    static Rulers rulerLines(GeneratorContext context, int originX, int originZ, int radius, int step) {
+        var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+        double coastEdge = context.preset.world().controlPoints.coast;
+        int w = 2 * radius / step + 1, x0 = originX - radius, z0 = originZ - radius;
+        boolean[] island = new boolean[w * w];
+        IntStream.range(0, w).parallel().forEach(j -> {
+            for (int i = 0; i < w; i++) {
+                double x = x0 + i * step, z = z0 + j * step;
+                island[j * w + i] = coast.sample(x, z).edge() > coastEdge && coast.undrowned(x, z).edge() <= coastEdge;
+            }
+        });
+        var parts = label(island, w);
+        boolean[] border = borderTouching(parts.id, w, parts.area.length - 1);
+        float[] dist = new float[w * w];
+        for (int at = 0; at < dist.length; at++) dist[at] = island[at] ? 1e9f : 0;
+        for (int j = 0; j < w; j++) for (int i = 0; i < w; i++) {
+            int at = j * w + i;
+            if (!island[at]) continue;
+            float m = dist[at];
+            if (i > 0) m = Math.min(m, dist[at - 1] + 1);
+            if (j > 0) m = Math.min(m, dist[at - w] + 1);
+            if (i > 0 && j > 0) m = Math.min(m, dist[at - w - 1] + 1.414f);
+            if (i < w - 1 && j > 0) m = Math.min(m, dist[at - w + 1] + 1.414f);
+            dist[at] = m;
+        }
+        for (int j = w - 1; j >= 0; j--) for (int i = w - 1; i >= 0; i--) {
+            int at = j * w + i;
+            if (!island[at]) continue;
+            float m = dist[at];
+            if (i < w - 1) m = Math.min(m, dist[at + 1] + 1);
+            if (j < w - 1) m = Math.min(m, dist[at + w] + 1);
+            if (i < w - 1 && j < w - 1) m = Math.min(m, dist[at + w + 1] + 1.414f);
+            if (i > 0 && j < w - 1) m = Math.min(m, dist[at + w - 1] + 1.414f);
+            dist[at] = m;
+        }
+        int count = parts.area.length - 1;
+        float[] widest = new float[count + 1];
+        int[] at0 = new int[count + 1];
+        for (int at = 0; at < island.length; at++) {
+            int id = parts.id[at];
+            if (id == 0 || dist[at] <= widest[id]) continue;
+            widest[id] = dist[at];
+            at0[id] = at;
+        }
+        var found = new ArrayList<double[]>();
+        int components = 0;
+        for (int id = 1; id <= count; id++) {
+            if (border[id]) continue;
+            components++;
+            double width = 2 * widest[id] * step, length = parts.area[id] * (double) step * step / Math.max(step, width);
+            if (width <= RULER_WIDTH && length >= RULER_LENGTH) found.add(new double[] {x0 + at0[id] % w * step, z0 + at0[id] / w * step, width, length});
+        }
+        return new Rulers(components, found);
+    }
+
+    /** Region disc weight (the warped disc, see HighlandDrowned.regionWeight). */
+    private static double regionWeight(HighlandDrowned.Region r, double x, double z) { return HighlandDrowned.regionWeight(r, x, z); }
+
+    /**
+     * The two diagnosis measures of the rejected UAT, printed for comparison (not gated: plan0 valleys also run toward the sea, so an
+     * angle share is not a defect test): per region type, the share of flooded-land boundary pixels (12-block lattice) whose tangent lies
+     * within 15 degrees of the region's inland axis (isotropic 16.7%), and the arm spacing (centre-to-centre distance of consecutive
+     * flooded runs across the inland axis, 6-block steps, runs of at least 18 blocks) with its coefficient of variation.
+     * Copied from the untracked DrownedShapeProbe.stats() and spacing().
+     */
+    static List<String> diagnosisMeasures(GeneratorContext context, List<HighlandDrowned.Region> regions) {
+        var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+        double ce = context.preset.world().controlPoints.coast;
+        long[][] hist = new long[2][6];
+        long[] total = new long[2];
+        for (var r : regions) {
+            int res = 12, px = (int) (2 * r.radius() / res) + 1;
+            double x0 = r.cx() - r.radius(), z0 = r.cz() - r.radius();
+            boolean[][] land = new boolean[px][px], flood = new boolean[px][px];
+            IntStream.range(0, px).parallel().forEach(j -> {
+                for (int i = 0; i < px; i++) {
+                    double x = x0 + i * res, z = z0 + j * res;
+                    boolean bound = coast.sample(x, z).edge() > ce, base = coast.undrowned(x, z).edge() > ce;
+                    land[i][j] = bound && base;
+                    flood[i][j] = !bound && base;
+                }
+            });
+            long[] h = new long[6];
+            long n = 0;
+            for (int j = 3; j < px - 3; j++) for (int i = 3; i < px - 3; i++) {
+                if (!flood[i][j] || regionWeight(r, x0 + i * res, z0 + j * res) < .5) continue;
+                if (!(land[i + 1][j] || land[i - 1][j] || land[i][j + 1] || land[i][j - 1])) continue;
+                double gx = 0, gz = 0;
+                for (int dj = -2; dj <= 2; dj++) for (int di = -2; di <= 2; di++) if (land[i + di][j + dj]) { gx += di; gz += dj; }
+                double length = Math.hypot(gx, gz);
+                if (length == 0) continue;
+                double a = Math.toDegrees(Math.acos(Math.min(1, Math.abs((-gz / length) * r.gx() + (gx / length) * r.gz()))));
+                h[Math.min(5, (int) (a / 15))]++;
+                n++;
+            }
+            int type = r.fjord() ? 0 : 1;
+            for (int b = 0; b < 6; b++) hist[type][b] += h[b];
+            total[type] += n;
+        }
+        var lines = new ArrayList<String>();
+        lines.add("diagnosis regions=" + regions.size() + " (fjord " + regions.stream().filter(HighlandDrowned.Region::fjord).count() + ")");
+        for (int type = 0; type < 2; type++) {
+            var gaps = new ArrayList<Double>();
+            var widths = new ArrayList<Double>();
+            for (var r : regions) {
+                if ((r.fjord() ? 0 : 1) != type) continue;
+                double qx = -r.gz(), qz = r.gx();
+                for (double s = -.6 * r.radius(); s <= .6 * r.radius(); s += 120) {
+                    double bx = r.cx() + s * r.gx(), bz = r.cz() + s * r.gz(), prevCentre = Double.NaN, runStart = Double.NaN;
+                    for (double a = -.9 * r.radius(); a <= .9 * r.radius(); a += 6) {
+                        double x = bx + a * qx, z = bz + a * qz;
+                        boolean flooded = regionWeight(r, x, z) >= .9 && coast.sample(x, z).edge() <= ce && coast.undrowned(x, z).edge() > ce;
+                        if (flooded && Double.isNaN(runStart)) runStart = a;
+                        if (!flooded && !Double.isNaN(runStart)) {
+                            double centre = (runStart + a) / 2, width = a - runStart;
+                            if (width >= 18) { widths.add(width); if (!Double.isNaN(prevCentre)) gaps.add(centre - prevCentre); prevCentre = centre; }
+                            runStart = Double.NaN;
+                        }
+                    }
+                }
+            }
+            double[] g = gaps.stream().mapToDouble(Double::doubleValue).sorted().toArray(), v = widths.stream().mapToDouble(Double::doubleValue).sorted().toArray();
+            double mean = Arrays.stream(g).average().orElse(0), sd = Math.sqrt(Arrays.stream(g).map(x -> (x - mean) * (x - mean)).average().orElse(0));
+            String name = type == 0 ? "FJORD" : "RIA";
+            var share = new StringBuilder();
+            for (int b = 0; b < 6; b++) share.append(String.format(Locale.ROOT, " %.0f%%", 100. * hist[type][b] / Math.max(1, total[type])));
+            lines.add(String.format(Locale.ROOT, "diagnosis %s boundary pixels=%d share by 15-degree bins vs inland axis:%s (isotropic 16.7%% each%s)", name, total[type], share, type == 0 ? "; diagnosis fjord 0-15 degrees 51%" : ""));
+            lines.add(String.format(Locale.ROOT, "diagnosis %s arm runs=%d gaps=%d spacing median=%.0f cv=%.2f arm width median=%.0f (diagnosis: median 630 fjord / 651 ria, cv .64 / .71)",
+                name, v.length, g.length, g.length > 0 ? g[g.length / 2] : 0, mean > 0 ? sd / mean : 0, v.length > 0 ? v[v.length / 2] : 0));
+        }
+        return lines;
+    }
+
+    // ---- D-GC2 deciding gate (11-19): river-bearing heads, the final river at each and the arm its root enters ----
+
+    /** Axis run (blocks) above a head at which the plan0 channel must still be drawn for the head to be river-bearing. */
+    static final double HEAD_PROBE = 300;
+    /** Largest distance (blocks) from the plan0 channel point at HEAD_PROBE to the final-plan channel node taken as its river. */
+    static final double MATCH_DIST = 96;
+    /** A final root farther than its half width plus this many blocks from block-resolution sea is a dry gap. */
+    static final double ROOT_SEA_SLACK = 4;
+    /** Arm hits within this many blocks of the nearest one tie with it: a root at a junction lies on both branches that meet there. */
+    static final double ARM_TIE = 2;
+
+    /**
+     * MATCH: the root's nearest plan0 coastal axis is the head's branch or a branch on its downstream chain; WRONG_BRANCH: any other branch;
+     * DRY_GAP: no final channel within MATCH_DIST at the probe point, or the root is not at block-resolution sea; CREEKLESS: plan0 draws no
+     * channel HEAD_PROBE blocks above the head (outside the denominator).
+     */
+    enum Verdict { MATCH, WRONG_BRANCH, DRY_GAP, CREEKLESS }
+
+    /**
+     * One head: owner, plan0 branch (index and id, the "plan0 reach"), head position, flooded axis samples below it ({@code arm}: at least
+     * one; a head reached through open sea only is a coast head, reported, not gated), the probe point and its plan0 channel point, the
+     * final node found there and its distance, the final root (position, channel width, sea distance), the branch id its nearest plan0
+     * coastal axis belongs to (source "arm" for HighlandArms, "valley" for the nearest plan0 valley sample when no arm reaches the root)
+     * and the verdict; {@code headFinal} is the distance from the head to its final root, or, when no final river is found, to the nearest final
+     * channel (diagnostic).
+     */
+    record Head(String label, int ownerX, int ownerZ, int branch, int reach, double x, double z, int flooded, double run, boolean drawn, double catchment,
+                double probeX, double probeZ, double channelX, double channelZ, double finalDistance, double rootX, double rootZ, double rootWidth,
+                double rootSea, int armReach, double armDistance, String armSource, Verdict verdict, double headFinal) {
+        boolean arm() { return flooded > 0; }
+        boolean bearing() { return verdict != Verdict.CREEKLESS; }
+        boolean failing() { return verdict == Verdict.WRONG_BRANCH || verdict == Verdict.DRY_GAP; }
+        String line() {
+            return String.format(Locale.ROOT, "head %s owner %d,%d branch %d (reach %d) at %.0f,%.0f %s flooded=%d run=%.0f drawn=%b catchment=%.0f probe %.0f,%.0f channel %.0f,%.0f final=%.1f root %.0f,%.0f w=%.1f sea=%.1f arm=%d (%s, %.1f) %s headFinal=%.1f",
+                label, ownerX, ownerZ, branch, reach, x, z, arm() ? "arm" : "coast", flooded, run, drawn, catchment, probeX, probeZ, channelX, channelZ, finalDistance,
+                rootX, rootZ, rootWidth, rootSea, armReach, armSource, armDistance, verdict, headFinal);
+        }
+    }
+
+    private record Bits(long x, long z) {
+        static Bits of(double x, double z) { return new Bits(Double.doubleToLongBits(x), Double.doubleToLongBits(z)); }
+    }
+
+    /**
+     * The heads of one owner (D-GC2). For every plan0 branch that carries arm segments (HighlandArms), its valley axis is walked upstream
+     * from its junction (the root node for a sea root); the head is the first axis sample that is land on the final coast after at least one
+     * water sample and from which the axis stays land for HEAD_PROBE blocks (or to the branch end): a spit or island the valley crosses before it
+     * re-enters water is not a head (a branch whose junction is land has no head: it is a tributary above the shore). The probe point is the axis sample
+     * HEAD_PROBE blocks of axis above the head (the branch's last sample when it is shorter); the head is river-bearing when that sample is a
+     * sample of plan0's drawn axis (D-GC8: the physical valley there belongs to the drawn selection at the preset's River Count) and its catchment
+     * survives drowning: plan0's area at the probe, less the area above the first sample upstream of the probe where the valley re-enters water
+     * (an isthmus between two drowned basins), is at least the drawn threshold (creekArea). The plan0
+     * channel point is the nearest point of the plan0 reach (HighlandPlanIndex over plan0) whose axis passes the probe point; the final river is
+     * the final-plan channel nearest to it (distance to the refined polyline, HighlandPlanIndex over the final plan) within MATCH_DIST, followed
+     * downstream from its reach's downstream node to its root.
+     */
+    static List<Head> heads(String label, GeneratorContext context, int ownerX, int ownerZ) {
+        var continent = (RollingHighlandsContinent) context.heightmap.continent();
+        var coast = continent.coast();
+        double coastEdge = context.preset.world().controlPoints.coast;
+        var plan0 = continent.basePlan(ownerX, ownerZ);
+        var valleys = plan0.valleys();
+        var index0 = new HighlandPlanIndex(plan0);
+        var drawn = new java.util.HashSet<Bits>();
+        for (var a : plan0.axis()) drawn.add(Bits.of(a.x(), a.z()));
+        var arms = coast.drowned().arms(ownerX, ownerZ);
+        var armReaches = new java.util.HashSet<Integer>();
+        for (int s = 0; s < arms.segments(); s++) armReaches.add(arms.reach[s]);
+        var finalIndex = continent.planOf(ownerX, ownerZ);
+        var finalPlan = finalIndex.plan();
+        var nodes = finalPlan.nodes();
+        var drainage = continent.drainage();
+        var heads = new ArrayList<Head>();
+        for (int b = 0; b < valleys.branches(); b++) {
+            if (!armReaches.contains(valleys.id()[b])) continue;
+            int from = valleys.first()[b], to = valleys.first()[b + 1], water = 0, flooded = 0, head = -1, probe = -1;
+            double run = 0;
+            for (int s = from; s < to; s++) {
+                double x = valleys.x()[s], z = valleys.z()[s];
+                if (coast.sample(x, z).edge() <= coastEdge) {
+                    water++;
+                    if (coast.undrowned(x, z).edge() > coastEdge) flooded++;
+                    continue;
+                }
+                if (water == 0) break; // the junction is land: a tributary above the shore, no head
+                // A land sample after water is the head only when the axis stays land for HEAD_PROBE blocks above it (or to the branch end); a spit
+                // or island the valley crosses before re-entering water is not (its flooded samples count with the head's).
+                int p = s;
+                double r = 0;
+                boolean dry = true;
+                while (p + 1 < to && r < HEAD_PROBE) {
+                    r += Math.hypot(valleys.x()[p + 1] - valleys.x()[p], valleys.z()[p + 1] - valleys.z()[p]);
+                    p++;
+                    if (coast.sample(valleys.x()[p], valleys.z()[p]).edge() <= coastEdge) { dry = false; break; }
+                }
+                if (dry) { head = s; probe = p; run = r; break; }
+                s = p - 1; // continue the walk at the water sample
+            }
+            if (head < 0) continue;
+            double hx = valleys.x()[head], hz = valleys.z()[head], px = valleys.x()[probe], pz = valleys.z()[probe];
+            // The catchment that survives drowning: plan0's drainage area at the probe less the area above the first sample upstream of it where
+            // the valley re-enters water (an isthmus between two drowned basins keeps only what joins between them).
+            double catchment = valleys.area()[probe];
+            for (int s = probe + 1; s < to; s++) if (coast.sample(valleys.x()[s], valleys.z()[s]).edge() <= coastEdge) { catchment -= valleys.area()[s]; break; }
+            boolean isDrawn = drawn.contains(Bits.of(px, pz));
+            if (!isDrawn || catchment < drainage.creekArea()) {
+                heads.add(new Head(label, ownerX, ownerZ, b, valleys.id()[b], hx, hz, flooded, run, isDrawn, catchment, px, pz, Double.NaN, Double.NaN, Double.NaN,
+                    Double.NaN, Double.NaN, Double.NaN, Double.NaN, -1, Double.NaN, "-", Verdict.CREEKLESS, Double.NaN));
+                continue;
+            }
+            var hits = index0.near(px, pz);
+            int k = -1;
+            for (int h = 0; h < hits.count; h++) if (k < 0 || hits.axis[h] < hits.axis[k]) k = h;
+            double cx = k < 0 ? px : px - hits.offsetX[k], cz = k < 0 ? pz : pz - hits.offsetZ[k];
+            // The final channel nearest to the plan0 channel point: distance to its refined polyline (HighlandPlanIndex over the final plan), then
+            // its reach's downstream node; a channel beyond the index influence counts as none.
+            var finalHits = finalIndex.near(cx, cz);
+            int nearest = -1;
+            double best = Double.POSITIVE_INFINITY;
+            for (int h = 0; h < finalHits.count; h++) if (finalHits.distance[h] < best) { best = finalHits.distance[h]; nearest = finalPlan.reaches().get(finalHits.reach[h]).downstream(); }
+            if (nearest < 0 || best > MATCH_DIST) {
+                var atHead = finalIndex.near(hx, hz);
+                double headFinal = Double.POSITIVE_INFINITY;
+                for (int h = 0; h < atHead.count; h++) headFinal = Math.min(headFinal, atHead.distance[h]);
+                heads.add(new Head(label, ownerX, ownerZ, b, valleys.id()[b], hx, hz, flooded, run, true, catchment, px, pz, cx, cz, best,
+                    Double.NaN, Double.NaN, Double.NaN, Double.NaN, -1, Double.NaN, "-", Verdict.DRY_GAP, headFinal));
+                continue;
+            }
+            int v = nearest;
+            for (int guard = 0; nodes.get(v).parent() >= 0 && guard <= nodes.size(); guard++) v = nodes.get(v).parent();
+            var root = nodes.get(v);
+            double halfWidth = drainage.halfWidth(root.area(), 1);
+            double sea = seaDistance(coast, coastEdge, root.x(), root.z(), halfWidth + ROOT_SEA_SLACK);
+            var chain = new java.util.HashSet<Integer>();
+            for (int c = b; c >= 0; c = valleys.down()[c]) chain.add(valleys.id()[c]);
+            var armHits = arms.query(root.x(), root.z());
+            int armReach = -1;
+            double armDistance = Double.POSITIVE_INFINITY;
+            for (int h = 0; h < armHits.count; h++) if (armHits.distance[h] < armDistance) { armDistance = armHits.distance[h]; armReach = arms.reach[armHits.segment[h]]; }
+            boolean onChain = false;
+            String source = "arm";
+            if (armReach >= 0) {
+                for (int h = 0; h < armHits.count; h++) if (armHits.distance[h] <= armDistance + ARM_TIE && chain.contains(arms.reach[armHits.segment[h]])) onChain = true;
+            } else {
+                source = "valley";
+                for (int c = 0; c < valleys.branches(); c++) for (int s = valleys.first()[c]; s < valleys.first()[c + 1]; s++) {
+                    double d = Math.hypot(valleys.x()[s] - root.x(), valleys.z()[s] - root.z());
+                    if (d < armDistance) { armDistance = d; armReach = valleys.id()[c]; }
+                }
+                onChain = chain.contains(armReach);
+            }
+            if (onChain && !chain.contains(armReach)) armReach = chain.stream().filter(id -> {
+                for (int h = 0; h < armHits.count; h++) if (arms.reach[armHits.segment[h]] == id) return true;
+                return false;
+            }).findFirst().orElse(armReach);
+            Verdict verdict = !(sea <= halfWidth + ROOT_SEA_SLACK) ? Verdict.DRY_GAP : onChain ? Verdict.MATCH : Verdict.WRONG_BRANCH;
+            heads.add(new Head(label, ownerX, ownerZ, b, valleys.id()[b], hx, hz, flooded, run, true, catchment, px, pz, cx, cz, best,
+                root.x(), root.z(), 2 * halfWidth, sea, armReach, armDistance, source, verdict, Math.hypot(root.x() - hx, root.z() - hz)));
+        }
+        return heads;
+    }
+
+    /** Distance (2-block rings up to max) from (x, z) to the nearest block-resolution sea sample; 0 inside the sea, infinite beyond max (note: HighlandMouthTest.seaDistance, second copy, not extracted). */
+    static double seaDistance(HighlandCoast coast, double coastEdge, double x, double z, double max) {
+        if (coast.sample(x, z).edge() <= coastEdge) return 0;
+        for (double r = 2; r <= max; r += 2) {
+            int m = (int) Math.max(16, Math.ceil(Math.PI * r));
+            for (int k = 0; k < m; k++) {
+                double a = 2 * Math.PI * k / m;
+                if (coast.sample(x + r * Math.cos(a), z + r * Math.sin(a)).edge() <= coastEdge) return r;
+            }
+        }
+        return Double.POSITIVE_INFINITY;
+    }
+
+    /** Counts of a head list: river-bearing arm heads, matched, wrong-branch, dry, creek-less arm heads, coast heads (bearing) and their failures. */
+    record HeadCounts(int bearing, int matched, int wrong, int dry, int creekless, int coast, int coastFailing) {
+        static HeadCounts of(List<Head> heads) {
+            int bearing = 0, matched = 0, wrong = 0, dry = 0, creekless = 0, coast = 0, coastFailing = 0;
+            for (var h : heads) {
+                if (!h.arm()) { if (h.bearing()) { coast++; if (h.failing()) coastFailing++; } continue; }
+                switch (h.verdict()) {
+                    case CREEKLESS -> creekless++;
+                    case MATCH -> { bearing++; matched++; }
+                    case WRONG_BRANCH -> { bearing++; wrong++; }
+                    case DRY_GAP -> { bearing++; dry++; }
+                }
+            }
+            return new HeadCounts(bearing, matched, wrong, dry, creekless, coast, coastFailing);
+        }
+        String summary(String label) {
+            return String.format(Locale.ROOT, "dgc2 %s: river-bearing arm heads=%d matched=%d wrong-branch=%d dry=%d creek-less=%d; coast heads (river-bearing, reported)=%d failing=%d",
+                label, bearing, matched, wrong, dry, creekless, coast, coastFailing);
+        }
+    }
+
+    /** Review renders of one head: hillshade and mask (2 km box, 4-block pixels) with the head, the plan0 channel point and the final root marked red. */
+    static void renderHead(GeneratorContext context, Head head, Path dir, String stem) throws Exception {
+        int cx = (int) Math.round(head.x()), cz = (int) Math.round(head.z());
+        var marks = new ArrayList<Outlier>();
+        marks.add(new Outlier(cx, cz, 0, 0));
+        if (Double.isFinite(head.channelX())) marks.add(new Outlier((int) head.channelX(), (int) head.channelZ(), 0, 0));
+        if (Double.isFinite(head.rootX())) marks.add(new Outlier((int) head.rootX(), (int) head.rootZ(), 0, 0));
+        HighlandPlanformProbe.render(context, cx, cz, 2048, 4, dir.resolve(stem + ".png"));
+        uatMask(context, cx, cz, 2048, 4, marks, dir.resolve(stem + "-mask.png"));
+    }
+
+    private static final int MASK_AXIS = 0xffd400, MASK_OUTLIER = 0xff0000;
+
+    /**
+     * Review mask of a square area: land, open sea (standalone sea), flooded land (standalone land that is sea on the bound coast),
+     * the plan0 coastal axes (the arm segments of each column's owner within a pixel of the column) and the fidelity outliers
+     * (a 3 x 3 block of pixels each).
+     */
+    static void uatMask(GeneratorContext context, int cx, int cz, int size, int res, List<Outlier> outliers, Path out) throws Exception {
+        var coast = ((RollingHighlandsContinent) context.heightmap.continent()).coast();
+        var drowned = coast.drowned();
+        var standalone = new HighlandCoast(context);
+        double coastEdge = context.preset.world().controlPoints.coast;
+        int px = size / res;
+        int[] rgb = new int[px * px];
+        for (int j = 0; j < px; j++) for (int i = 0; i < px; i++) {
+            double x = cx - size / 2 + i * res, z = cz - size / 2 + j * res;
+            boolean land = coast.sample(x, z).edge() > coastEdge, base = standalone.sample(x, z).edge() > coastEdge;
+            rgb[j * px + i] = land ? MASK_LAND : base ? MASK_ARM : MASK_SEA;
+            var site = coast.undrowned(x, z);
+            var hits = drowned.arms(site.ownerX(), site.ownerZ()).query(x, z);
+            for (int k = 0; k < hits.count; k++) if (hits.distance[k] <= res) { rgb[j * px + i] = MASK_AXIS; break; }
+        }
+        for (var o : outliers) {
+            int i = (o.x() - (cx - size / 2)) / res, j = (o.z() - (cz - size / 2)) / res;
+            for (int dj = -1; dj <= 1; dj++) for (int di = -1; di <= 1; di++) if (i + di >= 0 && j + dj >= 0 && i + di < px && j + dj < px) rgb[(j + dj) * px + i + di] = MASK_OUTLIER;
+        }
+        var image = new BufferedImage(px, px, BufferedImage.TYPE_INT_RGB);
+        image.setRGB(0, 0, px, px, rgb, 0, px);
+        Files.createDirectories(out.getParent());
+        ImageIO.write(image, "png", out.toFile());
     }
 
     /** Mask image of a square area: land, RH9 sea, drowned-arm sea (land under the standalone coast), tinted by the drowned weight. */

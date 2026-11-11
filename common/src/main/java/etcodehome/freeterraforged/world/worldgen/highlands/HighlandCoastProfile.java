@@ -42,8 +42,12 @@ public final class HighlandCoastProfile {
     /** Dry beach width and scarp heights (blocks, A-1). */
     static final double MIN_WIDTH = 15, MAX_WIDTH = 40, MIN_BLUFF = 6, MAX_BLUFF = 16, MIN_CLIFF = 15, MAX_CLIFF = 40;
 
-    /** RH10 fjord walls: how far the cliff weight moves toward 1 under a full fjord weight, and the cliff height lift toward MAX_CLIFF. */
-    static final double FJORD_CLIFF = .9, FJORD_CLIFF_LIFT = 1;
+    /**
+     * RH10 fjord walls: how far the cliff weight moves toward 1 under a full fjord weight. The cliff height is no longer lifted toward MAX_CLIFF
+     * there (11-16 removed FJORD_CLIFF_LIFT, which made every wall about 40 blocks): the wall height comes from the local relief in
+     * {@code HighlandDrainage.coastalLand}.
+     */
+    static final double FJORD_CLIFF = .9;
 
     /**
      * RH10 calm bays (D-16): under a full ria weight the beach weight moves {@code RIA_BEACH} of the way to 1 (bluff and cliff
@@ -95,7 +99,6 @@ public final class HighlandCoastProfile {
         double width = (MIN_WIDTH + (MAX_WIDTH - MIN_WIDTH) * noise(seed + 3, x, z, WIDTH_SCALE)) * (1 + .4 * baja) * (1 - .2 * pnw) * (1 - (1 - RIA_WIDTH) * ria);
         double n = noise(seed + 4, x, z, HEIGHT_SCALE);
         double bluffHeight = MIN_BLUFF + (MAX_BLUFF - MIN_BLUFF) * n, cliffHeight = MIN_CLIFF + (MAX_CLIFF - MIN_CLIFF) * n;
-        cliffHeight += FJORD_CLIFF_LIFT * fjord * (MAX_CLIFF - cliffHeight);
         cliffHeight += ria * (Math.min(cliffHeight, MAX_BLUFF) - cliffHeight);
         double height = bluff + cliff > 0 ? (bluff * bluffHeight + cliff * cliffHeight) / (bluff + cliff) : bluffHeight;
         return new Shore(beach, bluff, cliff, width, height, baja, hardness, temperature, moisture);

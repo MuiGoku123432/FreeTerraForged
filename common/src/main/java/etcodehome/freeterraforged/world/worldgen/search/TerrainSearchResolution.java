@@ -62,6 +62,9 @@ public record TerrainSearchResolution(int horizontalStep) {
 				step,
 				BiomeSearchResolution.fromScale(Math.max(1, preset.rivers().wetlands.sizeMin))
 			);
+		} else if (target == TerrainType.FJORD || target == TerrainType.BAY) {
+			// Rolling Highlands drowned water: fjord side arms are 80-250 blocks wide (RH10 fjord shape gate).
+			step = Math.min(step, 16);
 		} else if (target == TerrainType.COAST || target == TerrainType.BEACH
 			|| target == TerrainType.VOLCANO_PIPE) {
 			// These can collapse to only a few blocks regardless of the containing terrain-region scale.

@@ -24,6 +24,11 @@ public final class HighlandPlanIndex {
     private final int[] nodeReach;
     /** Per-reach bounding boxes of the refined polyline (minX, minZ, maxX, maxZ). */
     private final double[] boxes;
+    /** Retained-byte budget of one owner index, plan and mouth state together (bytes). */
+    static final long RETAINED_BUDGET = 8L * 1024 * 1024;
+    private final long retainedBytes;
+    /** Mouth profiles of this index (11-24): a write-once memo of a pure function of this index's plan, see {@link #publishMouths}. */
+    private volatile HighlandMouths mouths;
 
     /** Reusable per-thread query result. Values at index i describe one reach. */
     public static final class Hits {
@@ -100,7 +105,8 @@ public final class HighlandPlanIndex {
         }
         long estimatedBytes = entries * 4 + building.size() * 96L + nodes.size() * 100L + plan.axis().size() * 40L + boxes.length * 8L
             + plan.gridNodes() * 20L + plan.reaches().size() * 32L + plan.basins().resolvedBytes();
-        if (estimatedBytes > 8L * 1024 * 1024) throw new IllegalStateException("RH retained plan exceeds 8 MiB budget: " + estimatedBytes + " bytes, lakes=" + plan.basins().resolvedBytes());
+        if (estimatedBytes > RETAINED_BUDGET) throw new IllegalStateException("RH retained plan exceeds 8 MiB budget: " + estimatedBytes + " bytes, lakes=" + plan.basins().resolvedBytes());
+        this.retainedBytes = estimatedBytes;
         // Confluences.
         List<List<Integer>> children = new ArrayList<>(nodes.size());
         for (int i = 0; i < nodes.size(); i++) children.add(new ArrayList<>(2));
@@ -154,6 +160,17 @@ public final class HighlandPlanIndex {
     }
 
     HighlandDrainage.Plan plan() { return plan; }
+    /** Estimated retained bytes of this index without its mouth state. */
+    long retainedBytes() { return retainedBytes; }
+    /** The reach that owns refined node {@code node} (-1 for outlet roots). */
+    int nodeReach(int node) { return nodeReach[node]; }
+    /** This index's mouth profiles, or null before the first {@link #publishMouths}. */
+    HighlandMouths mouths() { return mouths; }
+    /** Stores the mouth profiles built from this index unless another thread stored its (identical) build first; returns the stored one. */
+    synchronized HighlandMouths publishMouths(HighlandMouths built) {
+        if (mouths == null) mouths = built;
+        return mouths;
+    }
 
     /** True when two reaches meet in the network (one flows into the other, or both join at the same node). */
     public boolean connected(int a, int b) {
@@ -262,8 +279,9 @@ public final class HighlandPlanIndex {
     }
 
     /** All reaches whose centreline lies within INFLUENCE of (x, z), in ascending reach order. */
-    public Hits near(double x, double z) {
-        Hits out = HITS.get();
+    public Hits near(double x, double z) { return near(x, z, HITS.get()); }
+    /** {@link #near(double, double)} into a result of the caller's own, for queries made while the per-thread result is still being read. */
+    Hits near(double x, double z, Hits out) {
         out.count = 0;
         int[] candidates = buckets.get(key(bucket(x), bucket(z)));
         if (candidates == null) return out;

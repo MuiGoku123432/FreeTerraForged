@@ -180,6 +180,7 @@ public class WorldSettingsPage extends PresetEditorPage {
 			this.regenerate();
 			return value;
 		});
+		this.applyIslandControlPoints(this.continentType.getValue());
 		this.deepOcean = PresetWidgets.createFloatSlider(controlPoints.deepOcean, 0.0F, 1.0F, FTFTranslationKeys.GUI_SLIDER_DEEP_OCEAN, (slider, value) -> {
 			value = Mth.clamp(value, this.islandCoast.getValue(), this.shallowOcean.getValue());
 			controlPoints.deepOcean = (float) slider.scaleValue(value);
@@ -311,14 +312,18 @@ public class WorldSettingsPage extends PresetEditorPage {
         if (highlands) this.preset.getPreset().world().continent.continentScale = (int) this.continentScale.getLerpedValue();
         this.continentJitter.setRange(0.5F, highlands ? etcodehome.freeterraforged.data.worldgen.preset.settings.RollingHighlandsSettings.MAX_CONTINENT_JITTER : 1.0F);
         if (highlands) this.preset.getPreset().world().continent.continentJitter = (float) this.continentJitter.getLerpedValue();
-		this.continentShape.active = type == ContinentType.MULTI || type == ContinentType.SINGLE;
-		
+		PresetWidgets.disableIf(this.continentShape, type != ContinentType.MULTI && type != ContinentType.SINGLE,
+			highlands ? "highlands.continent_shape" : "continent_shape");
+
 		boolean isMultiImproved = type == ContinentType.MULTI_IMPROVED || type == ContinentType.UPLIFT;
-		this.continentSkipping.active = isMultiImproved || type == ContinentType.ROLLING_HIGHLANDS;
-		this.continentSizeVariance.active = isMultiImproved || type == ContinentType.ROLLING_HIGHLANDS;
-		this.continentNoiseOctaves.active = isMultiImproved;
-		this.continentNoiseGain.active = isMultiImproved;
-		this.continentNoiseLacunarity.active = isMultiImproved;
+		boolean cellular = isMultiImproved || highlands;
+		PresetWidgets.disableIf(this.continentSkipping, !cellular, "continent_cells");
+		PresetWidgets.disableIf(this.continentSizeVariance, !cellular, "continent_cells");
+		String noiseReason = highlands ? "highlands.continent_noise" : "continent_noise";
+		PresetWidgets.disableIf(this.continentNoiseOctaves, !isMultiImproved, noiseReason);
+		PresetWidgets.disableIf(this.continentNoiseGain, !isMultiImproved, noiseReason);
+		PresetWidgets.disableIf(this.continentNoiseLacunarity, !isMultiImproved, noiseReason);
+		this.applyIslandControlPoints(type);
 
 		// ensures that terrains never drop below continental uplift resulting in floating rivers
 		boolean isUpliftContinent = type == ContinentType.UPLIFT;
@@ -340,6 +345,14 @@ public class WorldSettingsPage extends PresetEditorPage {
 		}
 	}
 	
+	/** Island control points only shape the archipelago overlay, which Rolling Highlands replaces with its own islands. */
+	private void applyIslandControlPoints(ContinentType type) {
+		if (this.islandInland == null || this.islandCoast == null) return; // init builds them after the continent widgets
+		boolean highlands = type == ContinentType.ROLLING_HIGHLANDS;
+		PresetWidgets.disableIf(this.islandInland, highlands, "highlands.islands");
+		PresetWidgets.disableIf(this.islandCoast, highlands, "highlands.islands");
+	}
+
 	private void updateOceanDepthRange(WorldSettings.Properties properties) {
 		this.oceanDepth.setRange(10, properties.seaLevel + properties.worldDepth - 10);
 		properties.oceanDepth = (int) this.oceanDepth.scaleValue((float) this.oceanDepth.getValue());

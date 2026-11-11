@@ -17,10 +17,8 @@ public class IslandSettingsPage extends PresetEditorPage {
 	@Override
 	public void init() {
 		super.init();
-        if (this.preset.getPreset().world().continent.continentType == etcodehome.freeterraforged.data.worldgen.preset.settings.ContinentType.ROLLING_HIGHLANDS) {
-            this.left.addWidget(PresetWidgets.createLabel("gui.ftf.highlands.islands"));
-            return;
-        }
+        boolean highlands = this.preset.getPreset().world().continent.continentType == etcodehome.freeterraforged.data.worldgen.preset.settings.ContinentType.ROLLING_HIGHLANDS;
+        if (highlands) this.left.addWidget(PresetWidgets.createLabel("gui.ftf.highlands.islands"));
 
 		IslandSettings s = this.preset.getPreset().island();
 		PM.islandSettings = s;
@@ -49,6 +47,15 @@ public class IslandSettingsPage extends PresetEditorPage {
 		this.left.addWidget(PresetWidgets.createFloatSlider(s.offshoreDepth, IslandSettings.offshoreDepthSetting, val -> s.offshoreDepth = val, this::regenerate));
 		this.left.addWidget(PresetWidgets.createFloatSlider(s.beachWidth, IslandSettings.beachWidthSetting, val -> s.beachWidth = val, this::regenerate));
 		this.left.addWidget(PresetWidgets.createFloatSlider(s.beachCoverage, IslandSettings.beachCoverageSetting, val -> s.beachCoverage = val, this::regenerate));
+
+		// Rolling Highlands builds its own coastal and open-sea islands and never runs the archipelago overlay
+		// (Heightmap.make returns before the IslandBlender), so every setting here is shown greyed out.
+		if (highlands) {
+			for (var entry : this.left.children()) {
+				var widget = entry.getWidget();
+				if (!(widget instanceof etcodehome.freeterraforged.client.gui.widget.Label)) PresetWidgets.disableIf(widget, true, "highlands.islands");
+			}
+		}
 	}
 
 	@Override

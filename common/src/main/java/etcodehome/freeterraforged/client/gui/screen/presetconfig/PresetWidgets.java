@@ -1,7 +1,9 @@
 package etcodehome.freeterraforged.client.gui.screen.presetconfig;
 
 import java.util.Collection;
+import java.util.Map;
 import java.util.Optional;
+import java.util.WeakHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -18,6 +20,8 @@ import etcodehome.freeterraforged.data.worldgen.preset.settings.GenericBooleanSe
 import etcodehome.freeterraforged.data.worldgen.preset.settings.GenericFloatSetting;
 import etcodehome.freeterraforged.data.worldgen.preset.settings.GenericIntSetting;
 import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.components.AbstractWidget;
+import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.CycleButton;
 import net.minecraft.client.gui.components.EditBox;
@@ -31,6 +35,22 @@ final class PresetWidgets {
 		box.setResponder(responder);
 		box.setHint(prompt);
 		return box;
+	}
+
+	/** Each widget's own tooltip, kept while a disabled reason replaces it. */
+	private static final Map<AbstractWidget, Optional<Tooltip>> SETTING_TOOLTIPS = new WeakHashMap<>();
+
+	/**
+	 * Greys the widget out with a short reason as its tooltip ({@code gui.ftf.disabled.<reason>}), or enables it again
+	 * with its own setting tooltip. Disabled widgets still show tooltips on hover, so the reason is visible.
+	 */
+	public static <W extends AbstractWidget> W disableIf(W widget, boolean disabled, String reason) {
+		Optional<Tooltip> own = SETTING_TOOLTIPS.computeIfAbsent(widget, w -> Optional.ofNullable(w.getTooltip()));
+		widget.active = !disabled;
+		widget.setTooltip(disabled
+			? Tooltip.create(Component.translatable("gui.ftf.disabled", Component.translatable("gui.ftf.disabled." + reason)))
+			: own.orElse(null));
+		return widget;
 	}
 
 	public static Label createLabel(String text) {
